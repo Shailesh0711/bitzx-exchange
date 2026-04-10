@@ -1,0 +1,467 @@
+/**
+ * QuickTradeModal — compact floating market-order widget.
+ * Can be opened from anywhere (Navbar or TradePage).
+ *
+ * Props:
+ *   symbol       : initial symbol, e.g. "BTCUSDT"
+ *   currentPrice : optional — if omitted the modal fetches live price itself
+ *   onClose      : () => void
+ */
+import { useState, useEffect, useCallback } from 'react';
+import { createPortal }        from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  X, TrendingUp, TrendingDown, Zap,
+  AlertCircle, CheckCircle, Loader2, ChevronDown,
+} from 'lucide-react';
+import { useAuth, authFetch } from '@/context/AuthContext';
+import { marketApi, COIN_ICONS, PAIRS } from '@/services/marketApi';
+
+const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const FEE  = 0.001; // 0.1%
+
+const PCT_PRESETS = [
+  { label: '25%', pct: 0.25 },
+  { label: '50%', pct: 0.50 },
+  { label: '75%', pct: 0.75 },
+  { label: 'MAX', pct: 1.00 },
+];
+
+const ALL_PAIRS = PAIRS.map(p => p.symbol);
+
+function fmt(n, decimals = 4) {
+  if (!n || isNaN(n)) return '—';
+  const x = parseFloat(n);
+  if (x >= 1000) return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return x.toFixed(decimals);
+}
+
+export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', currentPrice: externalPrice, onClose }) {
+  const { user, balance, kyc, fetchOrders, fetchWallet } = useAuth();
+
+  const [symbol,    setSymbol]    = useState(initialSymbol);
+  const [livePrice, setLivePrice] = useState(null);
+  const [pairOpen,  setPairOpen]  = useState(false);
+  const [side,      setSide]      = useState('buy');
+  const [amount,    setAmount]    = useState('');
+  const [loading,   setLoading]   = useState(false);
+  const [toast,     setToast]     = useState(null);
+
+  const base  = symbol.replace('USDT', '');
+  const icon  = COIN_ICONS[base];
+
+  // Use external price if provided (from TradePage), otherwise fetch live
+  const price = externalPrice
+    ? parseFloat(externalPrice) || 0
+    : parseFloat(livePrice)    || 0;
+
+  const fetchPrice = useCallback(() => {
+    if (externalPrice) return; // don't fetch if parent provides it
+    marketApi.getTicker(symbol)
+      .then(t => setLivePrice(t?.price ?? null))
+      .catch(() => {});
+  }, [symbol, externalPrice]);
+
+  useEffect(() => {
+    setLivePrice(null);
+    setAmount('');
+    fetchPrice();
+    const id = setInterval(fetchPrice, 2500);
+    return () => clearInterval(id);
+  }, [fetchPrice]);
+
+  useEffect(() => {
+    const handler = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const availUSDT = parseFloat(balance?.USDT  ?? 0);
+  const availBase = parseFloat(balance?.[base] ?? 0);
+  const maxBase   = side === 'buy' ? (price > 0 ? availUSDT / price : 0) : availBase;
+
+  const qty     = parseFloat(amount) || 0;
+  const cost    = qty * price;
+  const fee     = cost * FEE;
+  const receive = side === 'buy' ? qty - qty * FEE : cost - fee;
+
+  const kycBlocked = user && kyc?.status !== 'approved';
+
+  const applyPct = pct => {
+    const max = maxBase * pct;
+    setAmount(max > 0 ? max.toFixed(base === 'BTC' ? 6 : base === 'ETH' ? 5 : 4) : '');
+  };
+
+  const showToast = (msg, ok) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  const handleSubmit = async () => {
+    if (!qty || qty <= 0)  { showToast('Enter a valid amount', false); return; }
+    if (kycBlocked)         { showToast('KYC verification required to trade', false); return; }
+    setLoading(true);
+    try {
+      const res  = await authFetch(`${API}/api/orders`, {
+        method: 'POST',
+        body: JSON.stringify({ symbol, side, type: 'market', amount: qty, price: 0 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Order failed');
+      showToast(`${side === 'buy' ? 'Bought' : 'Sold'} ${qty.toFixed(4)} ${base} ✓`, true);
+      setAmount('');
+      await Promise.all([fetchOrders(), fetchWallet()]);
+    } catch (e) {
+      showToast(e.message, false);
+    } finally { setLoading(false); }
+  };
+
+  const switchPair = sym => { setSymbol(sym); setPairOpen(false); setAmount(''); };
+
+  const priceDecs = price >= 1000 ? 2 : price >= 1 ? 4 : 6;
+
+  return createPortal(
+    <AnimatePresence>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 10000 }}>
+
+        {/* Backdrop */}
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
+          onClick={onClose}
+        />
+
+        {/* Panel */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.94, y: 24 }}
+          animate={{ opacity: 1, scale: 1,    y: 0 }}
+          exit={{   opacity: 0, scale: 0.94,  y: 24 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+          style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: '100%', maxWidth: 460,
+            background: '#161820',
+            border: '1px solid rgba(255,255,255,0.11)',
+            borderRadius: 22,
+            boxShadow: '0 48px 96px rgba(0,0,0,0.92), 0 0 0 1px rgba(235,211,141,0.06)',
+            overflow: 'hidden',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* ─── Header ─────────────────────────────────────────────────── */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '18px 22px 14px',
+            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            background: 'linear-gradient(135deg, rgba(156,121,65,0.06), transparent)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10,
+                background: 'linear-gradient(135deg, #9C7941, #EBD38D)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Zap size={18} color="#0d0f14" />
+              </div>
+              <div>
+                <p style={{ fontSize: 17, fontWeight: 900, color: '#fff', lineHeight: 1 }}>Quick Trade</p>
+                <p style={{ fontSize: 12, color: '#4A4B50', marginTop: 3, fontWeight: 600 }}>
+                  Instant market order · 0.1% fee
+                </p>
+              </div>
+            </div>
+            <button onClick={onClose}
+              style={{ background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: 8, padding: '7px 8px', cursor: 'pointer', color: '#6B6B70' }}
+              className="hover:bg-white/[.12] transition-colors">
+              <X size={17} />
+            </button>
+          </div>
+
+          <div style={{ padding: '18px 22px 22px' }}>
+
+            {/* ─── Pair selector ──────────────────────────────────────── */}
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <p style={{ fontSize: 11, color: '#4A4B50', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                Trading Pair
+              </p>
+              <button
+                onClick={() => setPairOpen(v => !v)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 16px', borderRadius: 14, cursor: 'pointer',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${pairOpen ? 'rgba(235,211,141,0.45)' : 'rgba(255,255,255,0.1)'}`,
+                  transition: 'border-color 0.2s',
+                }}>
+                {icon && <img src={icon} alt={base} style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0 }} />}
+                <span style={{ flex: 1, textAlign: 'left', fontSize: 17, fontWeight: 800, color: '#fff' }}>
+                  {base}<span style={{ color: '#4A4B50' }}>/USDT</span>
+                </span>
+                {/* Live price inside selector */}
+                {price > 0 && (
+                  <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 15, color: '#22c55e', marginRight: 4 }}>
+                    ${fmt(price, priceDecs)}
+                  </span>
+                )}
+                <ChevronDown size={16} color="#4A4B50"
+                  style={{ flexShrink: 0, transform: pairOpen ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
+              </button>
+
+              {/* Pair dropdown */}
+              {pairOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 10001 }} onClick={() => setPairOpen(false)} />
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 6,
+                    background: '#1c1f2e', border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 14, boxShadow: '0 24px 48px rgba(0,0,0,0.8)',
+                    zIndex: 10002, maxHeight: 260, overflowY: 'auto', padding: '6px 0',
+                  }} className="scrollbar-hide">
+                    {ALL_PAIRS.map(q => {
+                      const b = q.replace('USDT', '');
+                      return (
+                        <button key={q} onClick={() => switchPair(q)}
+                          style={{
+                            width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                            padding: '10px 16px', cursor: 'pointer', border: 'none',
+                            background: q === symbol ? 'rgba(235,211,141,0.08)' : 'transparent',
+                            color: q === symbol ? '#EBD38D' : '#D5D5D0',
+                            transition: 'background 0.15s',
+                          }}
+                          className="hover:bg-white/5">
+                          {COIN_ICONS[b] && (
+                            <img src={COIN_ICONS[b]} alt={b} style={{ width: 26, height: 26, borderRadius: '50%' }} />
+                          )}
+                          <span style={{ flex: 1, textAlign: 'left', fontSize: 15, fontWeight: 700 }}>{b}/USDT</span>
+                          {q === symbol && (
+                            <span style={{ fontSize: 10, background: 'rgba(235,211,141,0.15)', color: '#EBD38D', padding: '2px 8px', borderRadius: 20, fontWeight: 800 }}>
+                              SELECTED
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* ─── Live price strip ───────────────────────────────────── */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'rgba(255,255,255,0.04)', borderRadius: 12,
+              padding: '12px 16px', marginBottom: 18,
+              border: '1px solid rgba(255,255,255,0.06)',
+            }}>
+              <div>
+                <p style={{ fontSize: 11, color: '#4A4B50', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>
+                  Market Price
+                </p>
+                {price > 0 ? (
+                  <p style={{ fontSize: 24, fontWeight: 900, fontFamily: 'monospace', color: '#fff', lineHeight: 1 }}>
+                    ${fmt(price, priceDecs)}
+                  </p>
+                ) : (
+                  <div style={{ width: 120, height: 28, background: 'rgba(255,255,255,0.07)', borderRadius: 6 }} className="animate-pulse" />
+                )}
+              </div>
+              <span style={{
+                fontSize: 12, color: '#22c55e',
+                background: 'rgba(34,197,94,0.12)',
+                padding: '5px 10px', borderRadius: 8, fontWeight: 800,
+              }}>
+                ● LIVE
+              </span>
+            </div>
+
+            {/* ─── Buy / Sell toggle ──────────────────────────────────── */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1fr 1fr',
+              background: 'rgba(255,255,255,0.04)', borderRadius: 14, padding: 5,
+              marginBottom: 18,
+            }}>
+              {['buy', 'sell'].map(s => (
+                <button key={s} onClick={() => { setSide(s); setAmount(''); }}
+                  style={{
+                    padding: '12px 0', fontWeight: 900, fontSize: 15,
+                    borderRadius: 10, border: 'none', cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    background: side === s
+                      ? (s === 'buy' ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.22)')
+                      : 'transparent',
+                    color: side === s
+                      ? (s === 'buy' ? '#22c55e' : '#ef4444')
+                      : '#4A4B50',
+                    textTransform: 'uppercase', letterSpacing: '0.06em',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}>
+                  {s === 'buy'
+                    ? <><TrendingUp size={16} /> Buy {base}</>
+                    : <><TrendingDown size={16} /> Sell {base}</>}
+                </button>
+              ))}
+            </div>
+
+            {/* ─── Available balance ──────────────────────────────────── */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              marginBottom: 12, fontSize: 13,
+            }}>
+              <span style={{ color: '#4A4B50', fontWeight: 700 }}>Available</span>
+              <span style={{ color: '#D5D5D0', fontFamily: 'monospace', fontWeight: 800, fontSize: 14 }}>
+                {side === 'buy'
+                  ? `${availUSDT.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT`
+                  : `${availBase.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${base}`}
+              </span>
+            </div>
+
+            {/* ─── Amount input ───────────────────────────────────────── */}
+            <div style={{
+              display: 'flex', alignItems: 'center',
+              background: 'rgba(255,255,255,0.05)',
+              border: `1px solid ${amount ? 'rgba(235,211,141,0.4)' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: 14, padding: '0 16px',
+              marginBottom: 12, transition: 'border-color 0.2s',
+            }}>
+              <input
+                type="number" min="0" step="any"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                placeholder={`Amount (${base})`}
+                style={{
+                  flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                  fontSize: 18, fontWeight: 800, color: '#fff', padding: '14px 0',
+                  fontFamily: 'monospace',
+                }}
+              />
+              <span style={{ color: '#6B6B70', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{base}</span>
+            </div>
+
+            {/* ─── % presets ──────────────────────────────────────────── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 18 }}>
+              {PCT_PRESETS.map(({ label, pct }) => (
+                <button key={label} onClick={() => applyPct(pct)}
+                  style={{
+                    padding: '9px 0', fontSize: 13, fontWeight: 800,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.09)',
+                    borderRadius: 10, color: '#8A8B90', cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                  className="hover:bg-white/10 hover:text-white hover:border-white/20">
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* ─── Order summary ──────────────────────────────────────── */}
+            {qty > 0 && (
+              <div style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 14, padding: '14px 16px',
+                marginBottom: 16,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ color: '#4A4B50', fontSize: 13, fontWeight: 600 }}>Order Total</span>
+                  <span style={{ color: '#fff', fontFamily: 'monospace', fontWeight: 800, fontSize: 15 }}>
+                    ${cost.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ color: '#4A4B50', fontSize: 13, fontWeight: 600 }}>Fee (0.1%)</span>
+                  <span style={{ color: '#f59e0b', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
+                    ${fee.toLocaleString(undefined, { maximumFractionDigits: 4 })} USDT
+                  </span>
+                </div>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 8,
+                }}>
+                  <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>You Receive</span>
+                  <span style={{
+                    fontFamily: 'monospace', fontWeight: 900, fontSize: 15,
+                    color: side === 'buy' ? '#22c55e' : '#ef4444',
+                  }}>
+                    {side === 'buy'
+                      ? `${receive.toFixed(base === 'BTC' ? 6 : 4)} ${base}`
+                      : `$${receive.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* ─── KYC warning ────────────────────────────────────────── */}
+            {kycBlocked && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                background: 'rgba(245,158,11,0.08)',
+                border: '1px solid rgba(245,158,11,0.2)',
+                borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+                fontSize: 13, color: '#f59e0b', fontWeight: 700,
+              }}>
+                <AlertCircle size={15} />
+                KYC required.{' '}
+                <a href="/kyc" style={{ marginLeft: 2, fontWeight: 900, textDecoration: 'underline' }}>Verify now →</a>
+              </div>
+            )}
+
+            {/* ─── Toast ──────────────────────────────────────────────── */}
+            {toast && (
+              <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: toast.ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                  border: `1px solid ${toast.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                  borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+                  fontSize: 14, color: toast.ok ? '#22c55e' : '#ef4444', fontWeight: 700,
+                }}>
+                {toast.ok ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                {toast.msg}
+              </motion.div>
+            )}
+
+            {/* ─── CTA button ─────────────────────────────────────────── */}
+            {!user ? (
+              <a href="/login" style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                width: '100%', padding: '16px 0',
+                background: 'linear-gradient(135deg, #9C7941, #EBD38D)',
+                color: '#0d0f14', fontWeight: 900, fontSize: 16,
+                borderRadius: 14, textDecoration: 'none',
+              }}>
+                Sign In to Trade
+              </a>
+            ) : (
+              <button onClick={handleSubmit} disabled={loading || kycBlocked || !qty}
+                style={{
+                  width: '100%', padding: '16px 0', border: 'none', cursor: 'pointer',
+                  borderRadius: 14, fontWeight: 900, fontSize: 16,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  transition: 'all 0.2s',
+                  background: loading || kycBlocked || !qty
+                    ? 'rgba(255,255,255,0.06)'
+                    : side === 'buy'
+                      ? 'linear-gradient(135deg, #16a34a, #22c55e)'
+                      : 'linear-gradient(135deg, #dc2626, #ef4444)',
+                  color: loading || kycBlocked || !qty ? '#4A4B50' : '#fff',
+                  opacity: kycBlocked ? 0.55 : 1,
+                  boxShadow: loading || kycBlocked || !qty ? 'none'
+                    : side === 'buy' ? '0 8px 24px rgba(34,197,94,0.25)'
+                                     : '0 8px 24px rgba(239,68,68,0.25)',
+                }}>
+                {loading
+                  ? <><Loader2 size={20} className="animate-spin" /> Processing…</>
+                  : side === 'buy'
+                    ? <><TrendingUp size={20} /> Buy {base} Instantly</>
+                    : <><TrendingDown size={20} /> Sell {base} Instantly</>}
+              </button>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>,
+    document.body
+  );
+}

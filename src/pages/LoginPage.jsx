@@ -8,7 +8,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 
 const LOGO      = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
-const TOKEN_URL = import.meta.env.VITE_TOKEN_URL || 'http://localhost:3000';
+const TOKEN_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
 
 const STATS = [
   { label: 'Daily Volume',   value: '$3.28M',  icon: TrendingUp, color: '#22c55e' },

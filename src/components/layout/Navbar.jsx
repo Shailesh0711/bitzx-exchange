@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { marketApi } from '@/services/marketApi';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
-const TOKEN_SITE_URL = import.meta.env.VITE_TOKEN_URL || 'http://localhost:3000';
+const TOKEN_SITE_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
 const TICKER_PAIRS   = ['BZXUSDT','BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT'];
 
 const NAV_LINKS = [

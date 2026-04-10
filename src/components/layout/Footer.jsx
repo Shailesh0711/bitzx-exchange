@@ -10,9 +10,9 @@ const LINKS = {
     { label: 'Dashboard',      to: '/dashboard' },
   ],
   Company: [
-    { label: 'Token Website',  href: 'http://localhost:3000' },
-    { label: 'Whitepaper',     href: 'http://localhost:3000/whitepaper' },
-    { label: 'About',          href: 'http://localhost:3000/about' },
+    { label: 'Token Website',  href: 'https://bitzx.io' },
+    { label: 'Whitepaper',     href: 'https://bitzx.io/whitepaper' },
+    { label: 'About',          href: 'https://bitzx.io/about' },
   ],
   Support: [
     { label: 'Help Center',    href: '#' },

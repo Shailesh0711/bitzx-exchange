@@ -82,9 +82,9 @@ function PairCard({ pair, ticker, isSelected, onSelect }) {
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 800, color: isSelected ? '#EBD38D' : '#fff', lineHeight: 1 }}>
-          {base}<span style={{ color: '#4A4B50', fontWeight: 600 }}>/USDT</span>
+          {base}<span style={{ color: '#ffffff', fontWeight: 600 }}>/USDT</span>
         </div>
-        <div style={{ fontSize: 11, color: '#4A4B50', marginTop: 3, fontWeight: 600 }}>
+        <div style={{ fontSize: 11, color: '#ffffff', marginTop: 3, fontWeight: 600 }}>
           Vol {fmtCompact(ticker?.volume)} {base}
         </div>
       </div>
@@ -131,13 +131,13 @@ function RecentFills() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <p style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>Recent Fills</p>
         <button onClick={fetchOrders} disabled={ordersLoading}
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#4A4B50', opacity: ordersLoading ? 0.4 : 1 }}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: ordersLoading ? 0.4 : 1 }}
           className="hover:text-white transition-colors">
           <RefreshCw size={14} className={ordersLoading ? 'animate-spin' : ''} />
         </button>
       </div>
       {last5.length === 0 ? (
-        <div style={{ padding: '24px 18px', textAlign: 'center', color: '#4A4B50', fontSize: 13 }}>
+        <div style={{ padding: '24px 18px', textAlign: 'center', color: '#ffffff', fontSize: 13 }}>
           No recent fills. Place a trade to get started.
         </div>
       ) : last5.map(o => (
@@ -157,7 +157,7 @@ function RecentFills() {
             <div style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>
               {o.symbol.replace('USDT', '/USDT')}
             </div>
-            <div style={{ fontSize: 12, color: '#4A4B50', marginTop: 1 }}>
+            <div style={{ fontSize: 12, color: '#ffffff', marginTop: 1 }}>
               {ORDER_FMT(o.created_at)}
             </div>
           </div>
@@ -168,13 +168,13 @@ function RecentFills() {
             }}>
               {o.side === 'buy' ? '+' : '-'}{o.filled.toFixed(4)}
             </div>
-            <div style={{ fontSize: 12, color: '#6B6B70', fontFamily: 'monospace' }}>
+            <div style={{ fontSize: 12, color: '#ffffff', fontFamily: 'monospace' }}>
               {o.avg_price > 0 ? `@ $${fmtPrice(o.avg_price)}` : 'MKT'}
             </div>
           </div>
           <div style={{
             fontSize: 12, fontWeight: 700,
-            color: o.status === 'filled' ? '#22c55e' : '#6B6B70',
+            color: o.status === 'filled' ? '#22c55e' : '#ffffff',
             background: o.status === 'filled' ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)',
             padding: '3px 8px', borderRadius: 6, flexShrink: 0,
           }}>
@@ -329,7 +329,7 @@ export default function QuickTradePage() {
                 <p style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>Select Trading Pair</p>
                 <button
                   onClick={() => { setMobileDropOpen(false); setSheetSearch(''); }}
-                  style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 10, padding: '6px 8px', cursor: 'pointer', color: '#8A8B90' }}>
+                  style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 10, padding: '6px 8px', cursor: 'pointer', color: '#ffffff' }}>
                   <X size={18} />
                 </button>
               </div>
@@ -339,7 +339,7 @@ export default function QuickTradePage() {
                 background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)',
                 borderRadius: 14, padding: '10px 14px',
               }}>
-                <Search size={16} color="#4A4B50" />
+                <Search size={16} color="#ffffff" />
                 <input
                   value={sheetSearch}
                   onChange={e => setSheetSearch(e.target.value)}
@@ -349,7 +349,7 @@ export default function QuickTradePage() {
                 />
                 {sheetSearch && (
                   <button onClick={() => setSheetSearch('')}
-                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#4A4B50', padding: 0 }}>
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', padding: 0 }}>
                     <X size={14} />
                   </button>
                 )}
@@ -359,7 +359,7 @@ export default function QuickTradePage() {
             {/* Pair list */}
             <div style={{ overflowY: 'auto', flex: 1, padding: '0 10px 20px' }} className="scrollbar-hide">
               {sheetPairs.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#4A4B50', fontSize: 14 }}>
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#ffffff', fontSize: 14 }}>
                   No pairs found for "{sheetSearch}"
                 </div>
               ) : sheetPairs.map(pair => {
@@ -393,9 +393,9 @@ export default function QuickTradePage() {
                     {/* Name */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 16, fontWeight: 800, color: isSel ? '#EBD38D' : '#fff', lineHeight: 1.1 }}>
-                        {b}<span style={{ color: '#4A4B50', fontWeight: 600, fontSize: 14 }}>/USDT</span>
+                        {b}<span style={{ color: '#ffffff', fontWeight: 600, fontSize: 14 }}>/USDT</span>
                       </div>
-                      <div style={{ fontSize: 12, color: '#4A4B50', marginTop: 3, fontWeight: 600 }}>
+                      <div style={{ fontSize: 12, color: '#ffffff', marginTop: 3, fontWeight: 600 }}>
                         Vol {fmtCompact(tk?.volume)} {b}
                       </div>
                     </div>
@@ -429,7 +429,7 @@ export default function QuickTradePage() {
         document.body
       )}
 
-      <div className="relative z-10 max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-10 py-6 sm:py-8">
+      <div className="relative z-10 w-full px-4 sm:px-5 md:px-6 lg:px-8 xl:px-10 2xl:px-12 py-6 sm:py-8">
 
         {/* ── Page header ─────────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -440,14 +440,14 @@ export default function QuickTradePage() {
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-white leading-none">Quick Trade</h1>
-              <p className="text-[#4A4B50] text-xs sm:text-sm mt-0.5">
+              <p className="text-white text-xs sm:text-sm mt-0.5">
                 Instant market orders · 0.1% fee
               </p>
             </div>
           </div>
           <Link to="/trade/BZXUSDT"
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold
-              text-[#8A8B90] hover:text-white transition-colors border border-surface-border
+              text-white hover:text-white transition-colors border border-surface-border
               hover:border-white/20">
             <BarChart2 size={14} /> Advanced
           </Link>
@@ -464,7 +464,7 @@ export default function QuickTradePage() {
           }
           <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
             <p style={{ fontSize: 18, fontWeight: 800, color: '#fff', lineHeight: 1.1 }}>
-              {base}<span style={{ color: '#4A4B50', fontWeight: 600, fontSize: 15 }}>/USDT</span>
+              {base}<span style={{ color: '#ffffff', fontWeight: 600, fontSize: 15 }}>/USDT</span>
             </p>
             {price > 0 && (
               <p style={{ fontSize: 14, fontWeight: 800, marginTop: 3, color: isUp ? '#22c55e' : '#ef4444' }}>
@@ -473,7 +473,7 @@ export default function QuickTradePage() {
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: '#4A4B50', fontWeight: 600 }}>Change</span>
+            <span style={{ fontSize: 12, color: '#ffffff', fontWeight: 600 }}>Change</span>
             <ChevronDown size={20} color="#EBD38D" />
           </div>
         </button>
@@ -483,7 +483,7 @@ export default function QuickTradePage() {
 
           {/* LEFT — Pair selector grid (desktop only, lg+) ─────────────────── */}
           <div className="hidden lg:block w-[380px] xl:w-[420px] flex-shrink-0 space-y-2">
-            <p className="text-xs font-extrabold text-[#4A4B50] uppercase tracking-widest px-1 mb-3">
+            <p className="text-xs font-extrabold text-white uppercase tracking-widest px-1 mb-3">
               Select Pair
             </p>
             {sortedPairs.map(pair => (
@@ -519,9 +519,9 @@ export default function QuickTradePage() {
                 {icon && <img src={icon} alt={base} className="w-12 h-12 sm:w-14 sm:h-14 rounded-full" />}
                 <div className="flex-1 min-w-0">
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white leading-none">
-                    {base}<span className="text-[#4A4B50] font-bold">/USDT</span>
+                    {base}<span className="text-white font-bold">/USDT</span>
                   </h2>
-                  <p className="text-xs sm:text-sm text-[#4A4B50] mt-1 font-semibold">Spot · Market Order</p>
+                  <p className="text-xs sm:text-sm text-white mt-1 font-semibold">Spot · Market Order</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   {price > 0 ? (
@@ -550,11 +550,11 @@ export default function QuickTradePage() {
                   {[
                     { label: '24h High', value: `$${fmtPrice(ticker.highPrice)}`, color: '#22c55e' },
                     { label: '24h Low',  value: `$${fmtPrice(ticker.lowPrice)}`,  color: '#ef4444' },
-                    { label: '24h Vol',  value: `${fmtCompact(ticker.volume)} ${base}`, color: '#D5D5D0' },
+                    { label: '24h Vol',  value: `${fmtCompact(ticker.volume)} ${base}`, color: '#ffffff' },
                   ].map(s => (
                     <div key={s.label} className="rounded-xl p-3 sm:p-4"
                       style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                      <p className="text-[10px] sm:text-xs font-extrabold text-[#4A4B50] uppercase tracking-widest mb-1">{s.label}</p>
+                      <p className="text-[10px] sm:text-xs font-extrabold text-white uppercase tracking-widest mb-1">{s.label}</p>
                       <p className="text-base sm:text-lg font-extrabold font-mono" style={{ color: s.color }}>{s.value}</p>
                     </div>
                   ))}
@@ -568,10 +568,10 @@ export default function QuickTradePage() {
                 {[
                   { label: 'High', value: `$${fmtPrice(ticker.highPrice)}`, color: '#22c55e' },
                   { label: 'Low',  value: `$${fmtPrice(ticker.lowPrice)}`,  color: '#ef4444' },
-                  { label: 'Vol',  value: fmtCompact(ticker.volume), color: '#8A8B90' },
+                  { label: 'Vol',  value: fmtCompact(ticker.volume), color: '#ffffff' },
                 ].map(s => (
                   <div key={s.label} style={{ textAlign: 'center', flex: 1 }}>
-                    <p style={{ fontSize: 10, color: '#4A4B50', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</p>
+                    <p style={{ fontSize: 10, color: '#ffffff', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</p>
                     <p style={{ fontSize: 13, fontWeight: 800, fontFamily: 'monospace', color: s.color, marginTop: 2 }}>{s.value}</p>
                   </div>
                 ))}
@@ -593,7 +593,7 @@ export default function QuickTradePage() {
                         : 'transparent',
                       color: side === s
                         ? (s === 'buy' ? '#22c55e' : '#ef4444')
-                        : '#4A4B50',
+                        : '#ffffff',
                       borderBottomColor: side === s
                         ? (s === 'buy' ? '#22c55e' : '#ef4444')
                         : 'transparent',
@@ -613,13 +613,13 @@ export default function QuickTradePage() {
                 <div className="flex items-center gap-3 p-3 sm:p-4 rounded-xl"
                   style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p className="text-[10px] sm:text-xs font-extrabold text-[#4A4B50] uppercase tracking-widest mb-0.5">Execution Price</p>
+                    <p className="text-[10px] sm:text-xs font-extrabold text-white uppercase tracking-widest mb-0.5">Execution Price</p>
                     <p className="text-base sm:text-lg font-extrabold font-mono text-white">
                       {price > 0 ? `$${fmtPrice(price)}` : '—'}
                     </p>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p className="text-[10px] font-extrabold text-[#4A4B50] uppercase tracking-widest mb-0.5">Type</p>
+                    <p className="text-[10px] font-extrabold text-white uppercase tracking-widest mb-0.5">Type</p>
                     <p className="text-sm font-bold text-white">Market</p>
                   </div>
                   <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg flex-shrink-0"
@@ -630,7 +630,7 @@ export default function QuickTradePage() {
 
                 {/* Available balance */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-[#4A4B50] flex items-center gap-2">
+                  <span className="text-sm font-bold text-white flex items-center gap-2">
                     <Wallet size={15} /> Available
                   </span>
                   <span className="text-lg font-extrabold font-mono text-white">
@@ -642,7 +642,7 @@ export default function QuickTradePage() {
 
                 {/* Amount input */}
                 <div>
-                  <label className="block text-xs sm:text-sm font-extrabold text-[#4A4B50] mb-2 uppercase tracking-widest">
+                  <label className="block text-xs sm:text-sm font-extrabold text-white mb-2 uppercase tracking-widest">
                     Amount ({base})
                   </label>
                   <div className="flex items-center rounded-xl px-4 sm:px-5 py-3 sm:py-4 transition-colors"
@@ -658,7 +658,7 @@ export default function QuickTradePage() {
                       className="flex-1 bg-transparent outline-none font-extrabold font-mono"
                       style={{ fontSize: 20, color: '#fff' }}
                     />
-                    <span className="text-sm sm:text-base font-extrabold ml-3" style={{ color: '#6B6B70' }}>{base}</span>
+                    <span className="text-sm sm:text-base font-extrabold ml-3" style={{ color: '#ffffff' }}>{base}</span>
                   </div>
                 </div>
 
@@ -670,10 +670,10 @@ export default function QuickTradePage() {
                       style={{
                         background: 'rgba(255,255,255,0.05)',
                         border: '1px solid rgba(255,255,255,0.09)',
-                        color: '#8A8B90',
+                        color: '#ffffff',
                       }}
                       onMouseEnter={e => { e.target.style.background = 'rgba(156,121,65,0.15)'; e.target.style.color = '#EBD38D'; e.target.style.borderColor = 'rgba(235,211,141,0.3)'; }}
-                      onMouseLeave={e => { e.target.style.background = 'rgba(255,255,255,0.05)'; e.target.style.color = '#8A8B90'; e.target.style.borderColor = 'rgba(255,255,255,0.09)'; }}>
+                      onMouseLeave={e => { e.target.style.background = 'rgba(255,255,255,0.05)'; e.target.style.color = '#ffffff'; e.target.style.borderColor = 'rgba(255,255,255,0.09)'; }}>
                       {label}
                     </button>
                   ))}
@@ -691,7 +691,7 @@ export default function QuickTradePage() {
                         { label: 'Fee (0.1%)',  value: `$${fee.toLocaleString(undefined, { maximumFractionDigits: 4 })} USDT`, color: '#f59e0b' },
                       ].map(row => (
                         <div key={row.label} className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-[#4A4B50]">{row.label}</span>
+                          <span className="text-sm font-semibold text-white">{row.label}</span>
                           <span className="text-base font-extrabold font-mono" style={{ color: row.color }}>{row.value}</span>
                         </div>
                       ))}
@@ -716,7 +716,7 @@ export default function QuickTradePage() {
                     <Shield size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
                     <div>
                       <p className="text-sm font-extrabold text-amber-300 mb-1">KYC Verification Required</p>
-                      <p className="text-xs text-[#8A8B90] mb-3">
+                      <p className="text-xs text-white mb-3">
                         {kyc?.status === 'pending'
                           ? 'Your documents are under review. Trading will be enabled once approved.'
                           : 'Complete identity verification to start trading.'}
@@ -747,7 +747,7 @@ export default function QuickTradePage() {
                             <p className="text-sm font-extrabold text-green-400">
                               {result.order.status === 'filled' ? 'Order Filled Instantly!' : 'Order Placed!'}
                             </p>
-                            <p className="text-xs text-[#8A8B90] mt-1 font-mono">
+                            <p className="text-xs text-white mt-1 font-mono">
                               {result.order.side.toUpperCase()}{' '}
                               {result.order.filled > 0 ? result.order.filled.toFixed(6) : result.order.amount.toFixed(6)}{' '}
                               {base}
@@ -765,7 +765,7 @@ export default function QuickTradePage() {
                 {/* Submit */}
                 {!user ? (
                   <div className="space-y-3 pt-1">
-                    <p className="text-center text-xs sm:text-sm text-[#4A4B50]">Sign in to start trading</p>
+                    <p className="text-center text-xs sm:text-sm text-white">Sign in to start trading</p>
                     <div className="grid grid-cols-2 gap-3">
                       <Link to="/login"
                         className="flex items-center justify-center py-3 sm:py-4 rounded-xl font-extrabold text-sm sm:text-base transition-all"
@@ -791,7 +791,7 @@ export default function QuickTradePage() {
                         : side === 'buy'
                           ? 'linear-gradient(135deg, #16a34a, #22c55e)'
                           : 'linear-gradient(135deg, #dc2626, #ef4444)',
-                      color: placing || kycBlocked || !qty ? '#4A4B50' : '#fff',
+                      color: placing || kycBlocked || !qty ? '#ffffff' : '#fff',
                       boxShadow: placing || kycBlocked || !qty ? 'none'
                         : side === 'buy' ? '0 8px 32px rgba(34,197,94,0.3)'
                                          : '0 8px 32px rgba(239,68,68,0.3)',

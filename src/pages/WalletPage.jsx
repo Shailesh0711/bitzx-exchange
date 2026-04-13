@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock,
+  Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
   CheckCircle, XCircle, AlertCircle, ChevronDown, Copy, Check,
   ExternalLink, Info,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { COIN_ICONS } from '@/services/marketApi';
 
 const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -44,7 +44,7 @@ function CopyBtn({ text }) {
   const [copied, setCopied] = useState(false);
   return (
     <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="text-[#4A4B50] hover:text-gold-light transition-colors ml-1">
+      className="text-white hover:text-gold-light transition-colors ml-1">
       {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
     </button>
   );
@@ -54,7 +54,7 @@ function AssetSelect({ value, onChange, label }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      {label && <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">{label}</label>}
+      {label && <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">{label}</label>}
       <button type="button" onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus:border-gold/50 transition-colors">
         <div className="flex items-center gap-2.5">
@@ -63,7 +63,7 @@ function AssetSelect({ value, onChange, label }) {
             : <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-[10px] font-bold">{value?.slice(0, 2)}</div>}
           <span className="text-white font-semibold">{value}</span>
         </div>
-        <ChevronDown size={14} className={`text-[#4A4B50] transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-white transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       <AnimatePresence>
         {open && (
@@ -72,7 +72,7 @@ function AssetSelect({ value, onChange, label }) {
             {SUPPORTED_ASSETS.map(a => (
               <button key={a} type="button"
                 onClick={() => { onChange(a); setOpen(false); }}
-                className={`w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-surface-hover transition-colors ${a === value ? 'text-gold-light' : 'text-[#D5D5D0]'}`}>
+                className={`w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-surface-hover transition-colors ${a === value ? 'text-gold-light' : 'text-white'}`}>
                 {COIN_ICONS[a]
                   ? <img src={COIN_ICONS[a]} alt={a} className="w-5 h-5 rounded-full" />
                   : <div className="w-5 h-5 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-[10px] font-bold">{a.slice(0, 2)}</div>}
@@ -102,7 +102,7 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet }) {
           { label: 'Locked',          value: `$${(totalUSD - availUSD).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: 'text-yellow-400' },
         ].map(s => (
           <div key={s.label} className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-5">
-            <p className="text-[#4A4B50] text-xs mb-1 uppercase tracking-wider">{s.label}</p>
+            <p className="text-white text-xs mb-1 uppercase tracking-wider">{s.label}</p>
             <p className={`text-2xl font-extrabold ${s.color}`}>{s.value}</p>
           </div>
         ))}
@@ -113,14 +113,14 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet }) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <p className="text-white font-bold text-lg">Your Assets</p>
           <button onClick={fetchWallet} disabled={walletLoading}
-            className="flex items-center gap-1.5 text-xs text-[#4A4B50] hover:text-white transition-colors disabled:opacity-40">
+            className="flex items-center gap-1.5 text-xs text-white hover:text-white transition-colors disabled:opacity-40">
             <RefreshCw size={13} className={walletLoading ? 'animate-spin' : ''} /> Refresh
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="text-[11px] text-[#4A4B50] uppercase tracking-wider border-b border-surface-border">
+              <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
                 {['Asset', 'Available', 'Locked', 'Total', 'Value (USD)'].map(h => (
                   <th key={h} className={`px-6 py-3 ${h === 'Asset' ? 'text-left' : 'text-right'}`}>{h}</th>
                 ))}
@@ -206,14 +206,14 @@ function DepositTab({ fetchWallet }) {
       {/* Form */}
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-1">Submit Deposit Request</h3>
-        <p className="text-[#4A4B50] text-sm mb-6">Send funds to our wallet address, then submit your transaction hash for verification.</p>
+        <p className="text-white text-sm mb-6">Send funds to our wallet address, then submit your transaction hash for verification.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
 
           {/* Network */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Network</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
             <select value={network} onChange={e => setNetwork(e.target.value)} required
               className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors">
               {networks.map(n => <option key={n} value={n}>{n}</option>)}
@@ -222,17 +222,17 @@ function DepositTab({ fetchWallet }) {
 
           {/* Amount */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Amount</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Amount</label>
             <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
               <input type="number" step="any" min="0" value={amount} onChange={e => setAmount(e.target.value)} required
                 placeholder="0.00" className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
-              <span className="text-xs text-[#4A4B50] font-semibold">{asset}</span>
+              <span className="text-xs text-white font-semibold">{asset}</span>
             </div>
           </div>
 
           {/* TX Hash */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Transaction Hash / Reference</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Transaction Hash / Reference</label>
             <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
               <input type="text" value={txHash} onChange={e => setTxHash(e.target.value)} required
                 placeholder="0x..." className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
@@ -241,7 +241,7 @@ function DepositTab({ fetchWallet }) {
 
           {/* Notes */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Notes (optional)</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Notes (optional)</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               placeholder="Any extra information for the admin..."
               className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-gold/50 transition-colors resize-none" />
@@ -268,7 +268,7 @@ function DepositTab({ fetchWallet }) {
       <div className="space-y-5">
         <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
           <p className="text-white font-bold mb-3 flex items-center gap-2"><Info size={15} className="text-gold-light" /> How it works</p>
-          <ol className="space-y-3 text-sm text-[#8A8B90]">
+          <ol className="space-y-3 text-sm text-white">
             {[
               'Select the asset and network you\'ll send from.',
               'Transfer funds to our deposit wallet address.',
@@ -285,7 +285,7 @@ function DepositTab({ fetchWallet }) {
 
         <div className="bg-yellow-400/5 border border-yellow-400/20 rounded-2xl p-5">
           <p className="text-yellow-400 font-semibold text-sm flex items-center gap-1.5 mb-2"><AlertCircle size={14} /> Important</p>
-          <ul className="text-xs text-[#8A8B90] space-y-1.5 list-disc list-inside">
+          <ul className="text-xs text-white space-y-1.5 list-disc list-inside">
             <li>Always send on the correct network to avoid permanent loss.</li>
             <li>Minimum deposit: 10 USDT equivalent.</li>
             <li>Deposits are credited after 1 network confirmation.</li>
@@ -348,20 +348,20 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
       {/* Form */}
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-1">Withdraw Funds</h3>
-        <p className="text-[#4A4B50] text-sm mb-6">Submit a withdrawal request. Funds will be locked immediately and released after admin approval.</p>
+        <p className="text-white text-sm mb-6">Submit a withdrawal request. Funds will be locked immediately and released after admin approval.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
 
           {/* Available balance hint */}
-          <div className="flex items-center justify-between text-xs text-[#8A8B90] bg-surface-card border border-surface-border rounded-lg px-3 py-2">
+          <div className="flex items-center justify-between text-xs text-white bg-surface-card border border-surface-border rounded-lg px-3 py-2">
             <span className="flex items-center gap-1"><Wallet size={11} /> Available</span>
             <span className="text-white font-mono font-semibold">{available.toFixed(asset === 'USDT' ? 2 : 6)} {asset}</span>
           </div>
 
           {/* Network */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Network</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
             <select value={network} onChange={e => setNetwork(e.target.value)} required
               className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors">
               {networks.map(n => <option key={n} value={n}>{n}</option>)}
@@ -370,19 +370,19 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
 
           {/* Amount */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Amount</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Amount</label>
             <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
               <input type="number" step="any" min="0" max={available} value={amount} onChange={e => setAmount(e.target.value)} required
                 placeholder="0.00" className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
               <button type="button" onClick={() => setAmount(String(available))}
                 className="text-[10px] font-bold text-gold-light hover:text-gold bg-gold/10 px-2 py-0.5 rounded mr-2 transition-colors">MAX</button>
-              <span className="text-xs text-[#4A4B50] font-semibold">{asset}</span>
+              <span className="text-xs text-white font-semibold">{asset}</span>
             </div>
           </div>
 
           {/* Address */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Destination Wallet Address</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Destination Wallet Address</label>
             <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
               <input type="text" value={address} onChange={e => setAddress(e.target.value)} required
                 placeholder="0x..." className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
@@ -391,7 +391,7 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
 
           {/* Memo */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-1.5 uppercase tracking-wider">Memo / Tag (optional)</label>
+            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Memo / Tag (optional)</label>
             <input type="text" value={memo} onChange={e => setMemo(e.target.value)}
               placeholder="For exchanges that require a memo or tag..."
               className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors" />
@@ -418,7 +418,7 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
       <div className="space-y-5">
         <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
           <p className="text-white font-bold mb-3 flex items-center gap-2"><Info size={15} className="text-gold-light" /> Withdrawal Process</p>
-          <ol className="space-y-3 text-sm text-[#8A8B90]">
+          <ol className="space-y-3 text-sm text-white">
             {[
               'Submit your withdrawal request with destination address.',
               'Funds are immediately moved from available → locked.',
@@ -436,7 +436,7 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
 
         <div className="bg-yellow-400/5 border border-yellow-400/20 rounded-2xl p-5">
           <p className="text-yellow-400 font-semibold text-sm flex items-center gap-1.5 mb-2"><AlertCircle size={14} /> Before You Withdraw</p>
-          <ul className="text-xs text-[#8A8B90] space-y-1.5 list-disc list-inside">
+          <ul className="text-xs text-white space-y-1.5 list-disc list-inside">
             <li>Double-check the destination address — transfers are irreversible.</li>
             <li>Ensure the network matches where you are receiving funds.</li>
             <li>Processing time: typically 1–24 hours on business days.</li>
@@ -490,24 +490,24 @@ function HistoryTab() {
         <div className="flex gap-1 border border-surface-border rounded-xl p-1 bg-surface-DEFAULT overflow-x-auto scrollbar-hide">
           {['all', 'deposits', 'withdrawals'].map(f => (
             <button key={f} onClick={() => setActiveFilter(f)}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-lg capitalize transition-colors ${activeFilter === f ? 'bg-gold/20 text-gold-light' : 'text-[#4A4B50] hover:text-white'}`}>
+              className={`px-4 py-1.5 text-xs font-semibold rounded-lg capitalize transition-colors ${activeFilter === f ? 'bg-gold/20 text-gold-light' : 'text-white hover:text-white'}`}>
               {f}
             </button>
           ))}
         </div>
         <button onClick={load} disabled={loading}
-          className="flex items-center gap-1.5 text-xs text-[#4A4B50] hover:text-white transition-colors disabled:opacity-40">
+          className="flex items-center gap-1.5 text-xs text-white hover:text-white transition-colors disabled:opacity-40">
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
       </div>
 
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-16 gap-3 text-[#4A4B50]">
+          <div className="flex items-center justify-center py-16 gap-3 text-white">
             <RefreshCw size={20} className="animate-spin" /> Loading history…
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-[#4A4B50]">
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-white">
             <Clock size={32} />
             <p>No {activeFilter === 'all' ? '' : activeFilter} transactions yet</p>
           </div>
@@ -515,7 +515,7 @@ function HistoryTab() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="text-[11px] text-[#4A4B50] uppercase tracking-wider border-b border-surface-border">
+                <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
                   {['Date', 'Type', 'Asset', 'Amount', 'Reference', 'Network', 'Status'].map(h => (
                     <th key={h} className={`px-5 py-3 ${h === 'Date' || h === 'Type' || h === 'Asset' ? 'text-left' : h === 'Status' ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
@@ -524,7 +524,7 @@ function HistoryTab() {
               <tbody>
                 {filtered.map(r => (
                   <tr key={r.id} className="border-b border-surface-border/40 hover:bg-white/[.02] transition-colors">
-                    <td className="px-5 py-3 text-xs text-[#4A4B50] whitespace-nowrap">{fmt(r.created_at)}</td>
+                    <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{fmt(r.created_at)}</td>
                     <td className="px-5 py-3">
                       <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${r.kind === 'deposit' ? 'text-green-400' : 'text-red-400'}`}>
                         {r.kind === 'deposit' ? <ArrowDownCircle size={12} /> : <ArrowUpCircle size={12} />}
@@ -533,13 +533,13 @@ function HistoryTab() {
                     </td>
                     <td className="px-5 py-3 text-sm text-white font-bold">{r.asset}</td>
                     <td className="px-5 py-3 text-sm text-white font-mono">{r.amount.toFixed(r.asset === 'USDT' ? 2 : 6)}</td>
-                    <td className="px-5 py-3 text-xs text-[#4A4B50] font-mono">
+                    <td className="px-5 py-3 text-xs text-white font-mono">
                       <span className="flex items-center gap-1">
                         {(r.tx_hash || r.address || '—').slice(0, 16)}…
                         {(r.tx_hash || r.address) && <CopyBtn text={r.tx_hash || r.address} />}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-xs text-[#8A8B90] whitespace-nowrap">{r.network}</td>
+                    <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{r.network}</td>
                     <td className="px-5 py-3 text-right"><StatusBadge status={r.status} /></td>
                   </tr>
                 ))}
@@ -561,38 +561,74 @@ const TABS = [
   { id: 'history',     label: 'History',     icon: Clock },
 ];
 
+function tabFromSearchParams(params) {
+  const t = params.get('tab');
+  return TABS.some(x => x.id === t) ? t : 'balances';
+}
+
 export default function WalletPage() {
   const { user, walletAssets, walletLoading, fetchWallet } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState('balances');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => tabFromSearchParams(searchParams));
+
+  useEffect(() => {
+    setTab(tabFromSearchParams(searchParams));
+  }, [searchParams]);
+
+  const selectTab = id => {
+    setTab(id);
+    if (id === 'balances') setSearchParams({}, { replace: true });
+    else setSearchParams({ tab: id }, { replace: true });
+  };
 
   if (!user) { navigate('/login'); return null; }
 
   return (
-    <div className="min-h-screen bg-surface-dark">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-          <p className="text-[#4A4B50] text-sm mb-1">Manage your funds</p>
-          <h1 className="text-3xl font-extrabold text-white flex items-center gap-3">
-            <Wallet className="text-gold-light" size={28} /> My Wallet
+    <div className="min-h-screen bg-surface-dark w-full overflow-x-hidden">
+      <div className="w-full px-4 sm:px-5 md:px-6 lg:px-8 xl:px-10 2xl:px-12 py-6 sm:py-8">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+          <p className="text-white/70 text-sm mb-1">Manage your funds</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white flex flex-wrap items-center gap-3">
+            <Wallet className="text-gold-light flex-shrink-0" size={26} /> Wallet
           </h1>
-          <p className="text-[#4A4B50] text-sm mt-1">{user.email}</p>
+          <p className="text-white/60 text-sm mt-1 truncate max-w-full">{user.email}</p>
         </motion.div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-surface-border mb-8 overflow-x-auto scrollbar-hide">
-          {TABS.map(t => {
-            const Icon = t.icon;
-            return (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-colors ${
-                  tab === t.id ? 'border-gold text-gold-light' : 'border-transparent text-[#4A4B50] hover:text-[#8A8B90]'
-                }`}>
-                <Icon size={15} /> {t.label}
-              </button>
-            );
-          })}
+        {/* Tabs + actions — one toolbar row uses full width without duplicating balance stats */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-surface-border pb-0 mb-6 w-full min-w-0">
+          <div className="flex gap-1 overflow-x-auto scrollbar-hide -mb-px flex-1 min-w-0">
+            {TABS.map(t => {
+              const Icon = t.icon;
+              return (
+                <button key={t.id} type="button" onClick={() => selectTab(t.id)}
+                  className={`flex items-center gap-2 px-4 sm:px-5 py-3 text-sm font-bold border-b-2 whitespace-nowrap transition-colors flex-shrink-0 ${
+                    tab === t.id ? 'border-gold text-gold-light' : 'border-transparent text-white/85 hover:text-white'
+                  }`}>
+                  <Icon size={15} /> {t.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2 shrink-0 pb-3 sm:pb-0 justify-end">
+            <button
+              type="button"
+              onClick={() => fetchWallet()}
+              disabled={walletLoading}
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold border border-surface-border
+                text-white hover:border-gold/40 hover:bg-white/[.04] transition-all disabled:opacity-40"
+            >
+              <RefreshCw size={14} className={walletLoading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+            <Link
+              to="/trade/BZXUSDT"
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold
+                bg-gradient-to-r from-gold to-gold-light text-surface-dark hover:opacity-95 transition-opacity"
+            >
+              <BarChart2 size={14} /> Trade
+            </Link>
+          </div>
         </div>
 
         {/* Tab content */}

@@ -1,17 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap } from 'lucide-react';
+import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { marketApi } from '@/services/marketApi';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const TOKEN_SITE_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
+
+function userAvatarSrc(user) {
+  if (!user?.avatar_url) return null;
+  const u = user.avatar_url;
+  if (u.startsWith('http')) return u;
+  const base = API.replace(/\/$/, '');
+  return `${base}${u.startsWith('/') ? u : `/${u}`}`;
+}
 const TICKER_PAIRS   = ['BZXUSDT','BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT'];
 
 const NAV_LINKS = [
-  { label: 'Markets',     to: '/markets' },
-  { label: 'Trade',       to: '/trade/BZXUSDT' },
+  { label: 'Markets', to: '/markets' },
+  { label: 'Trade',   to: '/trade/BZXUSDT' },
+  { label: 'Wallet',  to: '/wallet' },
+  { label: 'P&L',     to: '/portfolio' },
 ];
 
 function LiveTicker() {
@@ -46,8 +57,8 @@ function LiveTicker() {
             const base = t.symbol.replace('USDT','');
             return (
               <Link key={i} to={`/trade/${t.symbol}`}
-                className="flex items-center gap-2.5 text-sm hover:opacity-80 transition-opacity">
-                <span className="text-[#8A8B90] font-semibold">{base}/USDT</span>
+                className="bitzx-ticker-link flex items-center gap-2.5 text-sm opacity-90 hover:opacity-100">
+                <span className="text-white font-semibold">{base}/USDT</span>
                 <span className="text-white font-mono font-medium">
                   ${parseFloat(t.price || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
                 </span>
@@ -73,6 +84,7 @@ export default function Navbar() {
   const userRef = useRef(null);
 
   const isTrade = location.pathname.startsWith('/trade');
+  const isHome = location.pathname === '/';
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -87,11 +99,12 @@ export default function Navbar() {
   }, []);
 
   const handleLogout = () => { logout(); navigate('/'); };
+  const navAvatarSrc = user ? userAvatarSrc(user) : null;
 
   return (
     <>
-      {/* Hide ticker only on /trade pages to maximise chart height */}
-      {!isTrade && <LiveTicker />}
+      {/* Hide on trade (chart height) and on home (clean video hero) */}
+      {!isTrade && !isHome && <LiveTicker />}
       <header
         className="sticky top-0 z-50 transition-all duration-300"
         style={{
@@ -103,7 +116,7 @@ export default function Navbar() {
         }}
       >
         {/* Main nav bar — taller and full-width */}
-        <div className="flex items-center gap-3 sm:gap-6 px-4 sm:px-6 lg:px-12 2xl:px-20 h-18" style={{ height: '70px' }}>
+        <div className="w-full flex items-center gap-3 sm:gap-6 px-4 sm:px-6 lg:px-10 xl:px-14 2xl:px-16 h-18" style={{ height: '70px' }}>
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3 flex-shrink-0 group">
             <motion.img
@@ -115,34 +128,37 @@ export default function Navbar() {
             <span className="font-extrabold text-xl tracking-tight">
               <span className="text-white">BITZ</span>
               <span className="text-gradient">X</span>
-              <span className="ml-2 text-xs font-bold text-[#4A4B50] tracking-widest uppercase">Exchange</span>
+              <span className="ml-2 text-xs font-bold text-white tracking-widest uppercase">Exchange</span>
             </span>
           </Link>
 
           {/* Desktop nav links */}
           <nav className="hidden md:flex items-center gap-1 ml-4">
-            {NAV_LINKS.map(l => (
-              <Link
-                key={l.to}
-                to={l.to}
-                className={`px-4 py-2 rounded-lg text-base font-semibold transition-colors ${
-                  location.pathname === l.to ||
-                  location.pathname.startsWith(l.to.split('/').slice(0, 2).join('/'))
-                    ? 'text-gold-light bg-gold/10'
-                    : 'text-[#8A8B90] hover:text-white hover:bg-surface-hover'
-                }`}
-              >
-                {l.label}
-              </Link>
-            ))}
+            {NAV_LINKS.map(l => {
+              const active =
+                location.pathname === l.to ||
+                location.pathname.startsWith(l.to.split('/').slice(0, 2).join('/'));
+              return (
+                <Link
+                  key={l.to}
+                  to={l.to}
+                  className={`px-4 py-2 rounded-lg text-base font-semibold transition-colors ${
+                    active
+                      ? 'text-gold-light bg-gold/10'
+                      : 'text-white hover:text-white hover:bg-surface-hover bitzx-nav-link'
+                  }`}
+                >
+                  {l.label}
+                </Link>
+              );
+            })}
           </nav>
 
           {/* Quick Trade — dedicated page link */}
           <Link
             to="/quick-trade"
-            className="hidden sm:flex items-center gap-2 ml-4 px-4 py-2 rounded-xl
-              font-extrabold text-sm transition-all
-              hover:shadow-lg hover:shadow-gold/20 hover:scale-[1.03]"
+            className="bitzx-hover-scale hidden sm:flex items-center gap-2 ml-4 px-4 py-2 rounded-xl
+              font-extrabold text-sm shadow-md shadow-black/20"
             style={{
               background: 'linear-gradient(135deg, rgba(156,121,65,0.22), rgba(235,211,141,0.18))',
               border: '1px solid rgba(235,211,141,0.38)',
@@ -161,7 +177,7 @@ export default function Navbar() {
               href={TOKEN_SITE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden lg:flex items-center gap-1.5 text-sm text-[#4A4B50] hover:text-[#8A8B90] transition-colors border border-surface-border px-3 py-1.5 rounded-lg hover:border-[#4A4B50]/50"
+              className="hidden lg:flex items-center gap-1.5 text-sm text-white hover:text-white transition-colors border border-surface-border px-3 py-1.5 rounded-lg hover:border-white/40"
             >
               <ExternalLink size={13} /> Token Site
             </a>
@@ -169,7 +185,7 @@ export default function Navbar() {
             {user ? (
               <>
                 {/* Notification */}
-                <button className="relative p-2.5 rounded-lg text-[#4A4B50] hover:text-white hover:bg-surface-hover transition-colors">
+                <button className="relative p-2.5 rounded-lg text-white hover:text-white hover:bg-surface-hover transition-colors">
                   <Bell size={18} />
                   <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-gold rounded-full" />
                 </button>
@@ -180,13 +196,17 @@ export default function Navbar() {
                     onClick={() => setUserOpen(v => !v)}
                     className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-surface-card border border-surface-border hover:border-gold/40 transition-colors"
                   >
-                    <div className="w-7 h-7 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-sm font-bold">
-                      {user.name?.[0]?.toUpperCase()}
+                    <div className="w-7 h-7 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-sm font-bold overflow-hidden flex-shrink-0">
+                      {navAvatarSrc ? (
+                        <img src={navAvatarSrc} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        user.name?.[0]?.toUpperCase()
+                      )}
                     </div>
                     <span className="hidden sm:block text-base text-white font-semibold max-w-[100px] truncate">
                       {user.name}
                     </span>
-                    <ChevronDown size={15} className="text-[#4A4B50]" />
+                    <ChevronDown size={15} className="text-white" />
                   </button>
 
                   <AnimatePresence>
@@ -196,19 +216,23 @@ export default function Navbar() {
                         className="absolute right-0 top-full mt-2 w-52 bg-surface-card border border-surface-border rounded-xl shadow-2xl py-1 z-50"
                       >
                         <Link to="/dashboard" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-[#D5D5D0] hover:bg-surface-hover hover:text-white transition-colors">
+                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
                           <LayoutDashboard size={16} /> Dashboard
                         </Link>
+                        <Link to="/portfolio" onClick={() => setUserOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                          <LineChart size={16} /> P&amp;L &amp; fills
+                        </Link>
                         <Link to="/wallet" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-[#D5D5D0] hover:bg-surface-hover hover:text-white transition-colors">
+                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
                           <Wallet size={16} /> My Wallet
                         </Link>
                         <Link to="/profile" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-[#D5D5D0] hover:bg-surface-hover hover:text-white transition-colors">
+                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
                           <User size={16} /> Edit Profile
                         </Link>
                         <Link to="/kyc" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-[#D5D5D0] hover:bg-surface-hover hover:text-white transition-colors">
+                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
                           <Shield size={16} /> KYC Verification
                         </Link>
                         <div className="border-t border-surface-border my-1" />
@@ -224,7 +248,7 @@ export default function Navbar() {
             ) : (
               <div className="flex items-center gap-3">
                 <Link to="/login"
-                  className="hidden sm:block px-5 py-2 text-base font-semibold text-[#8A8B90] hover:text-white transition-colors">
+                  className="hidden sm:block px-5 py-2 text-base font-semibold text-white hover:text-white transition-colors">
                   Log In
                 </Link>
                 <Link to="/register"
@@ -235,7 +259,7 @@ export default function Navbar() {
             )}
 
             {/* Mobile hamburger */}
-            <button onClick={() => setMenuOpen(v => !v)} className="md:hidden p-2 text-[#8A8B90] hover:text-white">
+            <button onClick={() => setMenuOpen(v => !v)} className="md:hidden p-2 text-white hover:text-white">
               {menuOpen ? <X size={22} /> : <Menu size={22} />}
             </button>
           </div>
@@ -265,32 +289,28 @@ export default function Navbar() {
 
                 {NAV_LINKS.map(l => (
                   <Link key={l.to} to={l.to} onClick={() => setMenuOpen(false)}
-                    className="block px-4 py-3 rounded-xl text-base font-semibold text-[#8A8B90] hover:text-white hover:bg-surface-hover transition-colors">
+                    className="block px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
                     {l.label}
                   </Link>
                 ))}
                 {user && (
                   <>
-                    <Link to="/wallet" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-[#8A8B90] hover:text-white hover:bg-surface-hover transition-colors">
-                      <Wallet size={15} /> Wallet
-                    </Link>
                     <Link to="/dashboard" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-[#8A8B90] hover:text-white hover:bg-surface-hover transition-colors">
+                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
                       <LayoutDashboard size={15} /> Dashboard
                     </Link>
                     <Link to="/profile" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-[#8A8B90] hover:text-white hover:bg-surface-hover transition-colors">
+                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
                       <User size={15} /> Edit Profile
                     </Link>
                     <Link to="/kyc" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-[#8A8B90] hover:text-white hover:bg-surface-hover transition-colors">
+                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
                       <Shield size={15} /> KYC Verification
                     </Link>
                   </>
                 )}
                 <a href={TOKEN_SITE_URL} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-3 text-base text-[#4A4B50] hover:text-[#8A8B90] transition-colors">
+                  className="flex items-center gap-2 px-4 py-3 text-base text-white hover:text-white transition-colors">
                   <ExternalLink size={14} /> Token Site
                 </a>
               </div>

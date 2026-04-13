@@ -1,8 +1,7 @@
 /**
  * TVChart — full TradingView Advanced Real-Time Chart widget.
  *
- * Features: 100+ indicators, drawing tools (Fibonacci, trend lines, shapes…),
- * all chart types (candle, bar, Heikin-Ashi…), replay, date-range selector,
+ * Features: 100+ indicators, drawing tools (left toolbar), chart types, date-range selector,
  * full-screen pop-out, and more — all provided by TradingView.
  *
  * Symbol mapping:
@@ -80,7 +79,7 @@ export default function TVChart({ symbol }) {
       allow_symbol_change: false,
       calendar:            false,
       withdateranges:      true,
-      hide_side_toolbar:   false,           // show drawing tools sidebar
+      hide_side_toolbar:   false,           // left drawing-tools column (keep visible)
       details:             true,
       hotlist:             false,
       show_popup_button:   true,

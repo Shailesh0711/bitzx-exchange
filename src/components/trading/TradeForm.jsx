@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wallet, TrendingUp, AlertCircle, CheckCircle, Shield, Clock } from 'lucide-react';
+import { Wallet, Plus, TrendingUp, AlertCircle, CheckCircle, Shield, Clock } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 
@@ -65,13 +65,13 @@ export default function TradeForm({ symbol, currentPrice }) {
       {/* Buy / Sell tabs */}
       <div className="flex border-b border-surface-border flex-shrink-0">
         {['buy', 'sell'].map(s => (
-          <button key={s} onClick={() => setSide(s)}
+          <button key={s} type="button" onClick={() => setSide(s)}
             className={`flex-1 py-4 text-base font-extrabold capitalize transition-colors border-b-2 tracking-wide ${
               side === s
                 ? s === 'buy'
                   ? 'border-green-400 text-green-400 bg-green-500/[.07]'
                   : 'border-red-400 text-red-400 bg-red-500/[.07]'
-                : 'border-transparent text-[#4A4B50] hover:text-[#8A8B90]'
+                : 'border-transparent text-white hover:text-white'
             }`}>
             {s === 'buy' ? `▲ Buy ${base}` : `▼ Sell ${base}`}
           </button>
@@ -85,21 +85,31 @@ export default function TradeForm({ symbol, currentPrice }) {
           {['limit', 'market'].map(t => (
             <button key={t} onClick={() => setType(t)}
               className={`flex-1 py-2.5 text-sm capitalize rounded-lg font-bold transition-colors ${
-                type === t ? 'bg-surface-hover text-white shadow' : 'text-[#4A4B50] hover:text-[#8A8B90]'
+                type === t ? 'bg-surface-hover text-white shadow' : 'text-white hover:text-white'
               }`}>{t === 'limit' ? 'Limit' : 'Market'}</button>
           ))}
         </div>
 
-        {/* Available balance */}
-        <div className="flex items-center justify-between text-sm text-[#8A8B90] px-1">
-          <span className="flex items-center gap-1.5 font-semibold">
-            <Wallet size={14} /> Available
+        {/* Available balance + deposit */}
+        <div className="flex items-center justify-between gap-2 text-sm text-white px-1">
+          <span className="flex items-center gap-1.5 font-semibold min-w-0">
+            <Wallet size={14} className="shrink-0" aria-hidden /> Available
           </span>
-          <span className="text-white font-mono font-bold text-base">
-            {isBuy
-              ? `${avail.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT`
-              : `${avail.toFixed(6)} ${base}`}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-white font-mono font-bold text-base tabular-nums">
+              {isBuy
+                ? `${avail.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT`
+                : `${avail.toFixed(6)} ${base}`}
+            </span>
+            <Link
+              to="/wallet?tab=deposit"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gold/35 bg-gold/10 text-gold-light hover:bg-gold/20 hover:border-gold/55 transition-colors"
+              title="Deposit"
+              aria-label="Deposit"
+            >
+              <Plus size={20} strokeWidth={2.75} className="shrink-0" aria-hidden />
+            </Link>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -107,7 +117,7 @@ export default function TradeForm({ symbol, currentPrice }) {
           {/* Price input */}
           {!isMarket ? (
             <div>
-              <label className="block text-xs text-[#4A4B50] mb-2 uppercase tracking-widest font-extrabold">
+              <label className="block text-xs text-white mb-2 uppercase tracking-widest font-extrabold">
                 Price (USDT)
               </label>
               <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 focus-within:border-gold/60 transition-colors">
@@ -118,19 +128,19 @@ export default function TradeForm({ symbol, currentPrice }) {
                   placeholder={currentPrice || '0.0000'}
                   className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
                 />
-                <span className="text-sm text-[#4A4B50] ml-2 font-bold flex-shrink-0">USDT</span>
+                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
               </div>
             </div>
           ) : (
             <div className="bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 flex justify-between items-center">
-              <span className="text-sm text-[#4A4B50] font-bold">Market Price</span>
+              <span className="text-sm text-white font-bold">Market Price</span>
               <span className="text-lg text-white font-mono font-bold">{currentPrice || '—'}</span>
             </div>
           )}
 
           {/* Amount input */}
           <div>
-            <label className="block text-xs text-[#4A4B50] mb-2 uppercase tracking-widest font-extrabold">
+            <label className="block text-xs text-white mb-2 uppercase tracking-widest font-extrabold">
               Amount ({base})
             </label>
             <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 focus-within:border-gold/60 transition-colors">
@@ -141,7 +151,7 @@ export default function TradeForm({ symbol, currentPrice }) {
                 placeholder="0.0000"
                 className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
               />
-              <span className="text-sm text-[#4A4B50] ml-2 font-bold flex-shrink-0">{base}</span>
+              <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{base}</span>
             </div>
           </div>
 
@@ -149,7 +159,7 @@ export default function TradeForm({ symbol, currentPrice }) {
           <div className="grid grid-cols-4 gap-2">
             {PCTS.map(pct => (
               <button key={pct} type="button" onClick={() => setPct(pct)}
-                className="py-3 text-sm rounded-xl bg-surface-card text-[#4A4B50]
+                className="py-3 text-sm rounded-xl bg-surface-card text-white
                   hover:bg-gold/10 hover:text-gold-light
                   border border-surface-border transition-colors font-bold">
                 {pct}%
@@ -160,15 +170,15 @@ export default function TradeForm({ symbol, currentPrice }) {
           {/* Total + fee */}
           <div className="bg-surface-card border border-surface-border rounded-xl px-4 py-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[#4A4B50] font-semibold">Order Total</span>
+              <span className="text-sm text-white font-semibold">Order Total</span>
               <span className="text-base text-white font-mono font-bold">
                 {total.toFixed(4)} USDT
               </span>
             </div>
             {amount && parseFloat(amount) > 0 && (
-              <div className="flex items-center justify-between text-xs text-[#4A4B50] pt-1 border-t border-surface-border/60">
+              <div className="flex items-center justify-between text-xs text-white pt-1 border-t border-surface-border/60">
                 <span className="font-semibold">Est. Fee (0.1%)</span>
-                <span className="font-mono font-bold text-[#6B6B70]">
+                <span className="font-mono font-bold text-white">
                   {isBuy
                     ? `${(parseFloat(amount) * 0.001).toFixed(6)} ${base}`
                     : `${(total * 0.001).toFixed(4)} USDT`}
@@ -180,7 +190,7 @@ export default function TradeForm({ symbol, currentPrice }) {
           {/* Not logged in */}
           {!user && (
             <div className="text-center py-2">
-              <p className="text-sm text-[#4A4B50] mb-3">Sign in to start trading</p>
+              <p className="text-sm text-white mb-3">Sign in to start trading</p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => navigate('/login')}
                   className="flex-1 py-3 bg-gold/90 hover:bg-gold text-surface-dark font-bold rounded-xl text-sm transition-all">
@@ -207,7 +217,7 @@ export default function TradeForm({ symbol, currentPrice }) {
                   ? <><Clock size={14} /> KYC Under Review</>
                   : <><Shield size={14} /> KYC Verification Required</>}
               </p>
-              <p className="text-[#8A8B90] text-xs mb-3 leading-relaxed">
+              <p className="text-white text-xs mb-3 leading-relaxed">
                 {kyc?.status === 'pending'
                   ? 'Your documents are being reviewed. Trading will be enabled once approved.'
                   : kyc?.status === 'rejected'
@@ -260,14 +270,14 @@ export default function TradeForm({ symbol, currentPrice }) {
                   <CheckCircle size={15} />
                   {result.order.status === 'filled' ? 'Order Filled!' : `Order Placed (${result.order.status})`}
                 </p>
-                <p className="text-sm text-[#8A8B90] font-mono">
+                <p className="text-sm text-white font-mono">
                   {result.order.side.toUpperCase()}{' '}
                   {result.order.filled > 0 ? result.order.filled.toFixed(4) : result.order.amount.toFixed(4)}{' '}
                   {base}
                   {result.order.avg_price > 0 && ` @ $${result.order.avg_price.toFixed(4)}`}
                 </p>
                 {result.order.total_fee > 0 && (
-                  <p className="text-xs text-[#4A4B50] font-mono">
+                  <p className="text-xs text-white font-mono">
                     Fee: {result.order.total_fee.toFixed(6)} {result.order.total_fee_asset}
                   </p>
                 )}

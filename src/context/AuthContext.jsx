@@ -21,14 +21,13 @@ const store = {
 
 export function authFetch(url, options = {}) {
   const token = store.getToken();
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const headers = { ...(options.headers || {}) };
+  if (!isFormData && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(url, { ...options, headers });
 }
 
 // ── Wallet transform helper ───────────────────────────────────────────────────
@@ -152,9 +151,17 @@ export function AuthProvider({ children }) {
     setKyc(null);
   }, []);
 
+  const updateUser = useCallback((next) => {
+    setUser((prev) => {
+      const merged = typeof next === 'function' ? next(prev) : { ...prev, ...next };
+      if (merged) store.setUser(merged);
+      return merged;
+    });
+  }, []);
+
   return (
     <AuthContext.Provider value={{
-      user, authLoading,
+      user, authLoading, updateUser,
       // Wallet
       walletAssets, balance, lockedBalance, walletLoading, fetchWallet,
       // Orders (read-only state — mutations go through API in TradeForm / OpenOrders)

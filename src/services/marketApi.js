@@ -74,26 +74,47 @@ export const marketApi = {
       safeFetch(`${BINANCE}/ticker/24hr?symbols=[${syms}]`, []),
     ]);
 
+    const px = parseFloat(bzxRaw?.price || BZX_PRICE);
+    const spr = px * 0.0004;
     const bzx = {
-      symbol: 'BZXUSDT', base: 'BZX',
-      price:              bzxRaw?.price              || String(BZX_PRICE),
+      symbol: 'BZXUSDT',
+      base: 'BZX',
+      source: 'internal',
+      price: bzxRaw?.price || String(BZX_PRICE),
+      priceChange: bzxRaw?.priceChange ?? String((BZX_PRICE * BZX_CHANGE) / 100),
       priceChangePercent: bzxRaw?.priceChangePercent || String(BZX_CHANGE),
-      highPrice:          bzxRaw?.highPrice           || String(BZX_HIGH),
-      lowPrice:           bzxRaw?.lowPrice            || String(BZX_LOW),
-      volume:             bzxRaw?.volume              || String(BZX_VOL),
-      quoteVolume:        bzxRaw?.quoteVolume         || String(BZX_VOL * BZX_PRICE),
+      openPrice: bzxRaw?.openPrice ?? String(BZX_PRICE / (1 + BZX_CHANGE / 100)),
+      highPrice: bzxRaw?.highPrice || String(BZX_HIGH),
+      lowPrice: bzxRaw?.lowPrice || String(BZX_LOW),
+      volume: bzxRaw?.volume || String(BZX_VOL),
+      quoteVolume: bzxRaw?.quoteVolume ?? String(BZX_VOL * BZX_PRICE),
+      weightedAvgPrice: bzxRaw?.weightedAvgPrice ?? String(BZX_PRICE),
+      bidPrice: bzxRaw?.bidPrice ?? String(Math.max(px - spr / 2, 1e-8)),
+      askPrice: bzxRaw?.askPrice ?? String(px + spr / 2),
+      prevClosePrice: bzxRaw?.prevClosePrice,
+      count: bzxRaw?.count != null ? String(bzxRaw.count) : '12000',
     };
 
-    const others = Array.isArray(binance) ? binance.map(t => ({
-      symbol: t.symbol,
-      base:   t.symbol.replace('USDT', ''),
-      price:              t.lastPrice,
-      priceChangePercent: t.priceChangePercent,
-      highPrice:          t.highPrice,
-      lowPrice:           t.lowPrice,
-      volume:             t.volume,
-      quoteVolume:        t.quoteVolume,
-    })) : [];
+    const others = Array.isArray(binance)
+      ? binance.map(t => ({
+          symbol: t.symbol,
+          base: t.symbol.replace('USDT', ''),
+          source: 'binance',
+          price: t.lastPrice,
+          priceChange: t.priceChange,
+          priceChangePercent: t.priceChangePercent,
+          openPrice: t.openPrice,
+          highPrice: t.highPrice,
+          lowPrice: t.lowPrice,
+          volume: t.volume,
+          quoteVolume: t.quoteVolume,
+          weightedAvgPrice: t.weightedAvgPrice,
+          bidPrice: t.bidPrice,
+          askPrice: t.askPrice,
+          prevClosePrice: t.prevClosePrice,
+          count: t.count != null ? String(t.count) : undefined,
+        }))
+      : [];
 
     return [bzx, ...others];
   },

@@ -30,7 +30,7 @@ function FloatingCard({ stat, delay }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay }}
-      className="bg-white/[.04] border border-white/[.07] rounded-2xl px-5 py-4
+      className="bitzx-hover-lift bitzx-hover-glow bg-white/[.04] border border-white/[.07] rounded-2xl px-5 py-4
         backdrop-blur-sm flex items-center gap-4"
     >
       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -39,7 +39,7 @@ function FloatingCard({ stat, delay }) {
       </div>
       <div>
         <p className="text-xl font-extrabold text-white leading-none">{stat.value}</p>
-        <p className="text-xs text-[#4A4B50] mt-0.5">{stat.label}</p>
+        <p className="text-xs text-white mt-0.5">{stat.label}</p>
       </div>
     </motion.div>
   );
@@ -88,7 +88,7 @@ export default function LoginPage() {
               <span className="text-white">BITZ</span>
               <span className="text-gradient">X</span>
             </span>
-            <span className="block text-[10px] text-[#4A4B50] font-bold uppercase tracking-widest -mt-1">
+            <span className="block text-[10px] text-white font-bold uppercase tracking-widest -mt-1">
               Exchange
             </span>
           </div>
@@ -104,7 +104,7 @@ export default function LoginPage() {
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }}
-            className="text-lg text-[#8A8B90] leading-relaxed max-w-md">
+            className="text-lg text-white leading-relaxed max-w-md">
             Professional-grade crypto exchange with real-time charts, a live order book,
             and institutional-level security — all in one place.
           </motion.p>
@@ -125,7 +125,7 @@ export default function LoginPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-gold mt-2 flex-shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-white">{f.title}</p>
-                <p className="text-xs text-[#4A4B50]">{f.desc}</p>
+                <p className="text-xs text-white">{f.desc}</p>
               </div>
             </motion.div>
           ))}
@@ -153,7 +153,7 @@ export default function LoginPage() {
 
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
           <h2 className="text-3xl xl:text-4xl font-extrabold text-white mb-1">Welcome back</h2>
-          <p className="text-[#4A4B50] text-base mb-8">Sign in to your exchange account</p>
+          <p className="text-white text-base mb-8">Sign in to your exchange account</p>
 
           {/* Error */}
           {error && (
@@ -167,33 +167,33 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email */}
             <div>
-              <label className="block text-sm font-semibold text-[#8A8B90] mb-2">
+              <label className="block text-sm font-semibold text-white mb-2">
                 Email Address
               </label>
               <div className="flex items-center bg-surface-card border border-surface-border
                 rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
-                <Mail size={17} className="text-[#4A4B50] mr-3 group-focus-within:text-gold transition-colors" />
+                <Mail size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
                   placeholder="you@email.com"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-[#2a2d35]" />
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
               </div>
             </div>
 
             {/* Password */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-[#8A8B90]">Password</label>
+                <label className="text-sm font-semibold text-white">Password</label>
                 <a href="#" className="text-xs text-gold-light hover:underline">Forgot password?</a>
               </div>
               <div className="flex items-center bg-surface-card border border-surface-border
                 rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
-                <Lock size={17} className="text-[#4A4B50] mr-3 group-focus-within:text-gold transition-colors" />
+                <Lock size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                 <input type={showPw ? 'text' : 'password'} value={password}
                   onChange={e => setPassword(e.target.value)} required
                   placeholder="Your password"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-[#2a2d35]" />
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
                 <button type="button" onClick={() => setShowPw(v => !v)}
-                  className="text-[#4A4B50] hover:text-white transition-colors ml-2">
+                  className="text-white hover:text-white transition-colors ml-2">
                   {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
@@ -206,7 +206,7 @@ export default function LoginPage() {
                 <div className="w-4 h-4 rounded border border-surface-border bg-surface-card
                   peer-checked:bg-gold peer-checked:border-gold transition-colors" />
               </div>
-              <span className="text-sm text-[#4A4B50]">Remember me on this device</span>
+              <span className="text-sm text-white">Remember me on this device</span>
             </label>
 
             {/* Submit */}
@@ -224,19 +224,19 @@ export default function LoginPage() {
 
           <div className="flex items-center gap-3 my-7">
             <div className="flex-1 h-px bg-surface-border" />
-            <span className="text-xs text-[#4A4B50]">OR</span>
+            <span className="text-xs text-white">OR</span>
             <div className="flex-1 h-px bg-surface-border" />
           </div>
 
-          <p className="text-center text-[#4A4B50] text-sm">
+          <p className="text-center text-white text-sm">
             New to BITZX?{' '}
             <Link to="/register" className="text-gold-light font-bold hover:underline">
               Create a free account
             </Link>
           </p>
 
-          <p className="text-center text-xs text-[#2a2d35] mt-6">
-            <a href={TOKEN_URL} className="hover:text-[#4A4B50] transition-colors">
+          <p className="text-center text-xs text-white mt-6">
+            <a href={TOKEN_URL} className="hover:text-white transition-colors">
               ← Back to Token Website
             </a>
           </p>

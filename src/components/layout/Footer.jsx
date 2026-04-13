@@ -31,7 +31,7 @@ const SOCIAL = [
 export default function Footer() {
   return (
     <footer className="bg-surface-dark border-t border-surface-border mt-auto">
-      <div className="max-w-10xl mx-auto px-4 sm:px-8 lg:px-16 2xl:px-24 py-10 sm:py-16">
+      <div className="w-full px-4 sm:px-6 lg:px-10 xl:px-14 2xl:px-16 py-10 sm:py-16">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6 sm:gap-8">
           {/* Brand */}
           <div className="col-span-2">
@@ -40,10 +40,10 @@ export default function Footer() {
             <span className="font-extrabold text-xl">
               <span className="text-white">BITZ</span>
               <span className="text-gradient">X</span>
-              <span className="ml-2 text-xs text-[#4A4B50] font-semibold tracking-widest">EXCHANGE</span>
+              <span className="ml-2 text-xs text-white font-semibold tracking-widest">EXCHANGE</span>
             </span>
             </div>
-            <p className="text-[#4A4B50] text-base leading-relaxed max-w-xs mb-6">
+            <p className="text-white text-base leading-relaxed max-w-xs mb-6">
               Next-generation centralized crypto exchange. Fast, secure, and built for everyone.
             </p>
             <div className="flex items-center gap-2 mb-4">
@@ -55,7 +55,7 @@ export default function Footer() {
             <div className="flex items-center gap-3">
               {SOCIAL.map(s => (
                 <a key={s.label} href={s.href} aria-label={s.label}
-                  className="p-2 rounded-lg bg-surface-card border border-surface-border text-[#4A4B50] hover:text-gold-light hover:border-gold/30 transition-all">
+                  className="bitzx-social-btn p-2 rounded-lg bg-surface-card border border-surface-border text-white hover:text-gold-light hover:border-gold/30">
                   <s.icon size={15} />
                 </a>
               ))}
@@ -70,12 +70,12 @@ export default function Footer() {
                 {items.map(item => (
                   <li key={item.label}>
                     {item.to ? (
-                      <Link to={item.to} className="text-[#4A4B50] hover:text-[#8A8B90] text-base transition-colors">
+                      <Link to={item.to} className="bitzx-footer-link text-white/90 text-base">
                         {item.label}
                       </Link>
                     ) : (
                       <a href={item.href} target="_blank" rel="noopener noreferrer"
-                        className="text-[#4A4B50] hover:text-[#8A8B90] text-base transition-colors">
+                        className="bitzx-footer-link text-white/90 text-base">
                         {item.label}
                       </a>
                     )}
@@ -87,8 +87,8 @@ export default function Footer() {
         </div>
 
         <div className="border-t border-surface-border mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-[#4A4B50] text-sm">© 2026 BITZX Exchange. All rights reserved.</p>
-          <div className="flex items-center gap-5 text-[#4A4B50] text-sm">
+          <p className="text-white text-sm">© 2026 BITZX Exchange. All rights reserved.</p>
+          <div className="flex items-center gap-5 text-white text-sm">
             <span className="flex items-center gap-1"><Shield size={11} /> Secured</span>
             <span className="flex items-center gap-1"><Zap size={11} /> Fast Execution</span>
             <span>Trading involves risk. Demo platform only.</span>

@@ -43,16 +43,16 @@ function StatusBanner({ kyc }) {
       </div>
       <div>
         <p className="text-lg font-extrabold mb-1.5" style={{ color }}>{title}</p>
-        <p className="text-base text-[#8A8B90] leading-relaxed">{msg}</p>
+        <p className="text-base text-white leading-relaxed">{msg}</p>
         <div className="flex flex-wrap gap-4 mt-3">
           {kyc.submitted_at && (
-            <p className="text-sm text-[#4A4B50]">
-              Submitted: <span className="text-[#8A8B90]">{new Date(kyc.submitted_at).toLocaleString()}</span>
+            <p className="text-sm text-white">
+              Submitted: <span className="text-white">{new Date(kyc.submitted_at).toLocaleString()}</span>
             </p>
           )}
           {kyc.reviewed_at && (
-            <p className="text-sm text-[#4A4B50]">
-              Reviewed: <span className="text-[#8A8B90]">{new Date(kyc.reviewed_at).toLocaleString()}</span>
+            <p className="text-sm text-white">
+              Reviewed: <span className="text-white">{new Date(kyc.reviewed_at).toLocaleString()}</span>
             </p>
           )}
         </div>
@@ -77,12 +77,12 @@ function StepIndicator({ current }) {
             <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold
               transition-all ${i < current  ? 'bg-green-500 text-white'
                              : i === current ? 'text-surface-dark'
-                                             : 'text-[#4A4B50]'}`}
+                                             : 'text-white'}`}
               style={i === current ? { background: 'linear-gradient(135deg, #9C7941, #EBD38D)' } : {}}>
               {i < current ? <CheckCircle size={16} /> : <Icon size={16} />}
             </div>
             <span className={`mt-1.5 text-[10px] sm:text-xs font-bold text-center ${
-              i === current ? 'text-gold-light' : i < current ? 'text-green-400' : 'text-[#4A4B50]'}`}>
+              i === current ? 'text-gold-light' : i < current ? 'text-green-400' : 'text-white'}`}>
               {label}
             </span>
           </div>
@@ -100,13 +100,13 @@ function StepIndicator({ current }) {
 function FormInput({ label, required, ...props }) {
   return (
     <div>
-      <label className="block text-sm font-semibold text-[#8A8B90] mb-2">
+      <label className="block text-sm font-semibold text-white mb-2">
         {label} {required && <span className="text-red-400">*</span>}
       </label>
       <input
         {...props}
         className="w-full rounded-xl px-4 py-3.5 text-white text-base outline-none
-          focus:border-gold/50 transition-colors placeholder:text-[#2a2d35]"
+          focus:border-gold/50 transition-colors placeholder:text-white/45"
         style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
       />
     </div>
@@ -150,7 +150,7 @@ function Step2({ data, onChange }) {
   return (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-semibold text-[#8A8B90] mb-3">
+        <label className="block text-sm font-semibold text-white mb-3">
           Document Type <span className="text-red-400">*</span>
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -162,7 +162,7 @@ function Step2({ data, onChange }) {
                 : { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="text-2xl mb-2">{emoji}</div>
               <p className={`text-sm font-bold ${data.document_type === value ? 'text-gold-light' : 'text-white'}`}>{label}</p>
-              <p className="text-xs text-[#4A4B50] mt-1">{desc}</p>
+              <p className="text-xs text-white mt-1">{desc}</p>
             </button>
           ))}
         </div>
@@ -182,7 +182,7 @@ function Step2({ data, onChange }) {
         <FileText size={22} className="text-blue-400 flex-shrink-0 mt-0.5" />
         <div>
           <p className="text-base font-bold text-white mb-1.5">Document Upload — Coming Soon</p>
-          <p className="text-sm text-[#8A8B90] leading-relaxed">
+          <p className="text-sm text-white leading-relaxed">
             Physical document scan upload will be available in the next update.
             After you submit, our team will contact you via email to complete the verification process.
           </p>
@@ -197,7 +197,7 @@ function Step3({ personal, document: doc }) {
   const Row = ({ label, value }) => (
     <div className="flex items-center justify-between py-3 border-b last:border-0"
       style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-      <span className="text-sm text-[#4A4B50]">{label}</span>
+      <span className="text-sm text-white">{label}</span>
       <span className="text-sm text-white font-semibold text-right max-w-[60%] truncate">{value || '—'}</span>
     </div>
   );
@@ -206,7 +206,7 @@ function Step3({ personal, document: doc }) {
     <div className="space-y-5">
       <div className="rounded-2xl p-5"
         style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-        <p className="text-xs font-bold text-[#4A4B50] uppercase tracking-wider mb-3 flex items-center gap-2">
+        <p className="text-xs font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-2">
           <User size={13} /> Personal Information
         </p>
         <Row label="Full Name"      value={personal.full_name} />
@@ -220,7 +220,7 @@ function Step3({ personal, document: doc }) {
 
       <div className="rounded-2xl p-5"
         style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-        <p className="text-xs font-bold text-[#4A4B50] uppercase tracking-wider mb-3 flex items-center gap-2">
+        <p className="text-xs font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-2">
           <FileText size={13} /> Document Information
         </p>
         <Row label="Document Type"
@@ -231,7 +231,7 @@ function Step3({ personal, document: doc }) {
 
       <div className="rounded-2xl p-5"
         style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
-        <p className="text-sm text-[#8A8B90] leading-relaxed">
+        <p className="text-sm text-white leading-relaxed">
           <span className="text-amber-400 font-bold">Declaration: </span>
           By submitting, you confirm that all information is accurate and the documents belong to you.
           False submissions may result in permanent account suspension.
@@ -327,7 +327,7 @@ export default function KYCPage() {
             Identity<br />
             <span className="text-gradient">Verification</span>
           </h2>
-          <p className="text-[#8A8B90] text-base leading-relaxed">
+          <p className="text-white text-base leading-relaxed">
             Complete KYC to unlock your full exchange access. This one-time process takes less than 5 minutes.
           </p>
         </motion.div>
@@ -345,7 +345,7 @@ export default function KYCPage() {
               </div>
               <div>
                 <p className="text-sm font-bold text-white">{title}</p>
-                <p className="text-xs text-[#4A4B50]">{desc}</p>
+                <p className="text-xs text-white">{desc}</p>
               </div>
             </motion.div>
           ))}
@@ -355,17 +355,17 @@ export default function KYCPage() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
           className="relative z-10 mt-8 rounded-2xl p-5 space-y-2"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <p className="text-xs font-bold text-[#4A4B50] uppercase tracking-wider mb-3">Verification Process</p>
+          <p className="text-xs font-bold text-white uppercase tracking-wider mb-3">Verification Process</p>
           {STEPS.map(({ label, icon: Icon }, i) => (
             <div key={label} className="flex items-center gap-3">
               <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
-                i < step ? 'bg-green-500 text-white' : i === step ? 'text-surface-dark' : 'text-[#4A4B50]'}`}
+                i < step ? 'bg-green-500 text-white' : i === step ? 'text-surface-dark' : 'text-white'}`}
                 style={i === step ? { background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }
                   : i < step ? {} : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 {i < step ? '✓' : i + 1}
               </div>
               <span className={`text-sm font-semibold ${
-                i === step ? 'text-gold-light' : i < step ? 'text-green-400' : 'text-[#4A4B50]'}`}>
+                i === step ? 'text-gold-light' : i < step ? 'text-green-400' : 'text-white'}`}>
                 {label}
               </span>
             </div>
@@ -375,12 +375,12 @@ export default function KYCPage() {
 
       {/* ══ RIGHT — Content area ══════════════════════════════════════════════ */}
       <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-10">
-        <div className="max-w-2xl mx-auto">
+        <div className="w-full max-w-6xl mx-auto">
 
           {/* Page header */}
           <div className="mb-8">
             <h1 className="text-3xl xl:text-4xl font-extrabold text-white mb-2">KYC Verification</h1>
-            <p className="text-[#4A4B50] text-base">
+            <p className="text-white text-base">
               Verify your identity to unlock full trading and withdrawal access.
             </p>
           </div>
@@ -400,7 +400,7 @@ export default function KYCPage() {
                 <Clock size={36} className="text-amber-400" />
               </div>
               <h2 className="text-2xl font-extrabold text-white">KYC Submitted Successfully!</h2>
-              <p className="text-[#8A8B90] text-base leading-relaxed max-w-md mx-auto">
+              <p className="text-white text-base leading-relaxed max-w-md mx-auto">
                 Your identity documents are under review. We'll notify you via email once your
                 identity is verified — usually within 1–2 business days.
               </p>
@@ -436,7 +436,7 @@ export default function KYCPage() {
               <div className="flex items-center justify-between mt-8 pt-6"
                 style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                 <button onClick={() => setStep(s => s - 1)} disabled={step === 0}
-                  className="flex items-center gap-2 px-6 py-3 rounded-xl text-[#4A4B50]
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl text-white
                     hover:text-white transition-colors text-base font-semibold disabled:opacity-0"
                   style={{ border: '1px solid rgba(255,255,255,0.09)' }}>
                   <ChevronLeft size={17} /> Back
@@ -472,7 +472,7 @@ export default function KYCPage() {
                 <Clock size={28} className="text-amber-400" />
               </div>
               <p className="text-lg font-bold text-white">Your application is under review</p>
-              <p className="text-[#8A8B90] text-base max-w-md mx-auto">
+              <p className="text-white text-base max-w-md mx-auto">
                 We are processing your documents. You will receive an email notification once the
                 review is complete (1–2 business days).
               </p>

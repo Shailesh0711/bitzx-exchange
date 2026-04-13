@@ -82,7 +82,7 @@ export default function RegisterPage() {
               <span className="text-white">BITZ</span>
               <span className="text-gradient">X</span>
             </span>
-            <span className="block text-[10px] text-[#4A4B50] font-bold uppercase tracking-widest -mt-1">Exchange</span>
+            <span className="block text-[10px] text-white font-bold uppercase tracking-widest -mt-1">Exchange</span>
           </div>
         </motion.div>
 
@@ -94,7 +94,7 @@ export default function RegisterPage() {
             Start trading<br />
             <span className="text-gradient">in minutes</span>
           </h2>
-          <p className="text-[#8A8B90] text-base leading-relaxed">
+          <p className="text-white text-base leading-relaxed">
             Get a free demo account with instant balances — no deposit required.
             Full trading experience from day one.
           </p>
@@ -106,14 +106,14 @@ export default function RegisterPage() {
             <motion.div key={title}
               initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.4, delay: 0.25 + i * 0.07 }}
-              className="flex items-center gap-4">
+              className="bitzx-hover-lift bitzx-hover-border flex items-center gap-4 rounded-xl px-2 py-2 -mx-2">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: `${color}18`, border: `1px solid ${color}30` }}>
                 <Icon size={16} style={{ color }} />
               </div>
               <div>
                 <p className="text-sm font-bold text-white">{title}</p>
-                <p className="text-xs text-[#4A4B50]">{desc}</p>
+                <p className="text-xs text-white">{desc}</p>
               </div>
             </motion.div>
           ))}
@@ -122,8 +122,8 @@ export default function RegisterPage() {
         {/* Live ticker preview */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.7 }}
-          className="relative z-10 mt-8 bg-white/[.03] border border-white/[.06] rounded-2xl p-4">
-          <p className="text-[10px] font-bold text-[#4A4B50] uppercase tracking-widest mb-3">
+          className="relative z-10 mt-8 bitzx-hover-lift bitzx-hover-glow bg-white/[.03] border border-white/[.06] rounded-2xl p-4">
+          <p className="text-[10px] font-bold text-white uppercase tracking-widest mb-3">
             Live Market
           </p>
           <div className="space-y-2">
@@ -131,7 +131,7 @@ export default function RegisterPage() {
               <div key={t.pair} className="flex items-center justify-between">
                 <span className="text-xs font-bold text-white">{t.pair}</span>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-[#8A8B90] font-mono">{t.price}</span>
+                  <span className="text-xs text-white font-mono">{t.price}</span>
                   <span className={`text-[11px] font-bold ${t.up ? 'text-green-400' : 'text-red-400'}`}>
                     {t.change}
                   </span>
@@ -164,7 +164,7 @@ export default function RegisterPage() {
           className="max-w-lg w-full mx-auto">
 
           <h1 className="text-3xl xl:text-4xl font-extrabold text-white mb-1">Create your account</h1>
-          <p className="text-[#4A4B50] text-base mb-8">Free demo · No deposit required</p>
+          <p className="text-white text-base mb-8">Free demo · No deposit required</p>
 
           {/* Error */}
           {error && (
@@ -183,13 +183,13 @@ export default function RegisterPage() {
                 { label: 'Email',     value: email, set: setEmail, icon: Mail, type: 'email', placeholder: 'you@email.com' },
               ].map(f => (
                 <div key={f.label}>
-                  <label className="block text-sm font-semibold text-[#8A8B90] mb-2">{f.label}</label>
+                  <label className="block text-sm font-semibold text-white mb-2">{f.label}</label>
                   <div className="flex items-center bg-surface-card border border-surface-border
                     rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
-                    <f.icon size={16} className="text-[#4A4B50] mr-3 group-focus-within:text-gold transition-colors" />
+                    <f.icon size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                     <input type={f.type} value={f.value}
                       onChange={e => f.set(e.target.value)} required placeholder={f.placeholder}
-                      className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-[#2a2d35]" />
+                      className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
                   </div>
                 </div>
               ))}
@@ -197,16 +197,16 @@ export default function RegisterPage() {
 
             {/* Password */}
             <div>
-              <label className="block text-sm font-semibold text-[#8A8B90] mb-2">Password</label>
+              <label className="block text-sm font-semibold text-white mb-2">Password</label>
               <div className="flex items-center bg-surface-card border border-surface-border
                 rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
-                <Lock size={16} className="text-[#4A4B50] mr-3 group-focus-within:text-gold transition-colors" />
+                <Lock size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                 <input type={showPw ? 'text' : 'password'} value={password}
                   onChange={e => setPassword(e.target.value)} required
                   placeholder="Minimum 8 characters"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-[#2a2d35]" />
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
                 <button type="button" onClick={() => setShowPw(v => !v)}
-                  className="text-[#4A4B50] hover:text-white transition-colors ml-2">
+                  className="text-white hover:text-white transition-colors ml-2">
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
@@ -225,16 +225,16 @@ export default function RegisterPage() {
 
             {/* Confirm */}
             <div>
-              <label className="block text-sm font-semibold text-[#8A8B90] mb-2">Confirm Password</label>
+              <label className="block text-sm font-semibold text-white mb-2">Confirm Password</label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5
                 focus-within:border-gold/50 transition-colors ${
                 confirm && confirm !== password ? 'border-red-500/50' : 'border-surface-border'
               }`}>
-                <Lock size={16} className="text-[#4A4B50] mr-3" />
+                <Lock size={16} className="text-white mr-3" />
                 <input type="password" value={confirm}
                   onChange={e => setConfirm(e.target.value)} required
                   placeholder="Repeat your password"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-[#2a2d35]" />
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
                 {confirm && confirm === password && (
                   <CheckCircle size={16} className="text-green-400 ml-2" />
                 )}
@@ -247,7 +247,7 @@ export default function RegisterPage() {
                 <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)}
                   className="w-4 h-4 rounded border-surface-border accent-gold cursor-pointer" />
               </div>
-              <span className="text-sm text-[#4A4B50] leading-relaxed">
+              <span className="text-sm text-white leading-relaxed">
                 I agree to the{' '}
                 <a href="#" className="text-gold-light hover:underline">Terms of Service</a>
                 {' '}and{' '}
@@ -269,7 +269,7 @@ export default function RegisterPage() {
             </button>
           </form>
 
-          <p className="text-center text-[#4A4B50] text-sm mt-6">
+          <p className="text-center text-white text-sm mt-6">
             Already have an account?{' '}
             <Link to="/login" className="text-gold-light font-bold hover:underline">Sign In</Link>
           </p>

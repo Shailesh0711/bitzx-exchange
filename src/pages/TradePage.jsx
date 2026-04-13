@@ -6,10 +6,10 @@
  * ├──────────────────────────────────────────────────────────────────┤
  * │  ZONE 1 — height: calc(100vh - 70px)  fills the visible screen  │
  * │  ┌──────────────────────────────────────────────────────────┐   │
- * │  │  Page header: pair selector · live price · quick trade   │   │
+ * │  │  Page header: pair selector · live price · 24h stats     │   │
  * │  ├────────────────────┬──────────────┬─────────────────────┤   │
  * │  │  TradingView Chart │  Order Book  │  Trade Form         │   │
- * │  │   (flex-1)         │   (310px)    │   (420px, scroll)   │   │
+ * │  │   (flex-1)         │   (~340px)   │   (420px, scroll)   │   │
  * │  └────────────────────┴──────────────┴─────────────────────┘   │
  * └──────────────────────────────────────────────────────────────────┘  ← fold
  *
@@ -17,19 +17,20 @@
  * │  ZONE 2 — Positions | Open Orders | Order History                │
  * └──────────────────────────────────────────────────────────────────┘
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal }  from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  ChevronDown, TrendingUp, TrendingDown, Star, Globe,
-  ArrowUpDown, RefreshCw, X, Clock, CheckCircle, AlertCircle,
-  Zap, BarChart2, DollarSign,
+  ChevronDown, TrendingUp, TrendingDown, Globe,
+  RefreshCw, X, Clock, CheckCircle, AlertCircle,
+  BarChart2, DollarSign,
 } from 'lucide-react';
 import { marketApi, COIN_ICONS, PAIRS } from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import TradingChart    from '@/components/trading/TradingChart';
 import OrderBook       from '@/components/trading/OrderBook';
 import TradeForm       from '@/components/trading/TradeForm';
+import ClosePositionModal from '@/components/trading/ClosePositionModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtP = (v, base) => {
@@ -50,7 +51,7 @@ const fmtVol = v => {
 function StatItem({ label, value, color }) {
   return (
     <div className="flex flex-col gap-0.5 pl-5 border-l border-white/[.06]">
-      <span className="text-[11px] text-[#4A4B50] uppercase tracking-widest font-bold whitespace-nowrap">{label}</span>
+      <span className="text-[11px] text-[#ffffff] uppercase tracking-widest font-bold whitespace-nowrap">{label}</span>
       <span className={`text-[15px] font-mono font-extrabold whitespace-nowrap ${color ?? 'text-white'}`}>{value}</span>
     </div>
   );
@@ -70,12 +71,87 @@ const fmtOrdP = v => {
                    : n.toFixed(6);
 };
 
+async function parseApiError(res) {
+  try {
+    const j = await res.json();
+    if (typeof j.detail === 'string') return j.detail;
+    if (Array.isArray(j.detail)) {
+      return j.detail.map(e => (typeof e === 'string' ? e : e.msg || JSON.stringify(e))).join('; ');
+    }
+    return res.statusText || 'Request failed';
+  } catch {
+    return res.statusText || 'Request failed';
+  }
+}
+
+/** Short context line under tabs (Binance-style “what is this table”). */
+function TabHint({ children }) {
+  return (
+    <div
+      style={{
+        padding: '10px 22px 12px',
+        fontSize: 12,
+        color: '#ffffff',
+        lineHeight: 1.5,
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: 'rgba(0,0,0,0.22)',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Two-line column header: title + plain-English hint. */
+function Th({ main, sub, align, title: tip }) {
+  const a = align === 'right' ? 'right' : 'left';
+  return (
+    <span
+      title={tip}
+      style={{
+        textAlign: a,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+        fontSize: 11,
+        color: '#ffffff',
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        fontWeight: 800,
+      }}
+    >
+      <span>{main}</span>
+      {sub ? (
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: '#ffffff',
+            textTransform: 'none',
+            letterSpacing: '0.02em',
+            lineHeight: 1.3,
+            whiteSpace: 'normal',
+          }}
+        >
+          {sub}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function shortOrderId(id) {
+  if (!id || typeof id !== 'string') return '—';
+  return id.length > 14 ? `${id.slice(0, 10)}…` : id;
+}
+
 // ─── Positions tab — live P&L ─────────────────────────────────────────────────
 function PositionsTab({ activePair }) {
-  const { user } = useAuth();
+  const { user, fetchWallet, fetchOrders } = useAuth();
   const [positions, setPositions] = useState([]);
   const [prices,    setPrices]    = useState({});   // { "BTC": 71000, ... }
   const [loading,   setLoading]   = useState(false);
+  const [closeTarget, setCloseTarget] = useState(null);
 
   const fetchPositions = useCallback(async () => {
     if (!user) return;
@@ -106,7 +182,7 @@ function PositionsTab({ activePair }) {
   }, [fetchPositions]);
 
   if (!user) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#4A4B50' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#ffffff' }}>
       <BarChart2 size={28} />
       <span style={{ fontSize: 14 }}>Please log in to view positions</span>
       <Link to="/login" style={{ color: '#EBD38D', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>Sign in →</Link>
@@ -114,16 +190,18 @@ function PositionsTab({ activePair }) {
   );
 
   if (loading && positions.length === 0) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 8, color: '#4A4B50', fontSize: 14 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 8, color: '#ffffff', fontSize: 14 }}>
       <RefreshCw size={16} className="animate-spin" /> Loading positions…
     </div>
   );
 
   if (positions.length === 0) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#4A4B50' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#ffffff', textAlign: 'center', maxWidth: 360, margin: '0 auto' }}>
       <DollarSign size={28} />
-      <span style={{ fontSize: 14 }}>No open positions</span>
-      <span style={{ fontSize: 12 }}>Place a trade to see your positions here</span>
+      <span style={{ fontSize: 15, fontWeight: 700, color: '#ffffff' }}>No spot assets</span>
+      <span style={{ fontSize: 12, lineHeight: 1.45 }}>
+        Buy crypto on the right to build a balance. Like Binance / Coinbase spot, each coin is one row with size and unrealized P&amp;L (USDT).
+      </span>
     </div>
   );
 
@@ -139,63 +217,76 @@ function PositionsTab({ activePair }) {
 
   return (
     <div style={{ flex: 1 }}>
-      {/* Portfolio summary strip */}
+      {/* Portfolio summary — USDT, labels match typical exchange “assets” strip */}
       <div style={{
-        display: 'flex', gap: 24, padding: '12px 16px',
+        display: 'flex', gap: 28, padding: '14px 20px',
         background: 'rgba(255,255,255,0.025)',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
-        alignItems: 'center', flexWrap: 'wrap', overflowX: 'auto',
+        alignItems: 'flex-start', flexWrap: 'wrap', overflowX: 'auto',
       }} className="scrollbar-hide">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ color: '#4A4B50', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total Value</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Total value</span>
+          <span style={{ color: '#ffffff', fontSize: 11 }}>Est. worth at mark price</span>
           <span style={{ color: '#fff', fontFamily: 'monospace', fontWeight: 900, fontSize: 20 }}>
-            ${totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            ${totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#ffffff' }}>USDT</span>
           </span>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ color: '#4A4B50', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Invested</span>
-          <span style={{ color: '#D5D5D0', fontFamily: 'monospace', fontWeight: 700, fontSize: 18 }}>
-            ${totalInvested.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Cost basis</span>
+          <span style={{ color: '#ffffff', fontSize: 11 }}>Avg. buy cost × size</span>
+          <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 800, fontSize: 18 }}>
+            ${totalInvested.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#ffffff' }}>USDT</span>
           </span>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ color: '#4A4B50', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unrealized P&L</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Unrealized P&amp;L</span>
+          <span style={{ color: '#ffffff', fontSize: 11 }}>Not sold yet — vs cost basis</span>
           <span style={{
             fontFamily: 'monospace', fontWeight: 900, fontSize: 20,
             color: totalPnl >= 0 ? '#22c55e' : '#ef4444',
           }}>
-            {totalPnl >= 0 ? '+' : ''}{totalPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            <span style={{ fontSize: 14, marginLeft: 8, opacity: 0.8 }}>
+            {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
+            <span style={{ fontSize: 14, fontWeight: 800, opacity: 0.9 }}>
               ({totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%)
             </span>
           </span>
         </div>
-        <button onClick={fetchPositions} disabled={loading}
-          style={{ marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', color: '#4A4B50', opacity: loading ? 0.4 : 1 }}
-          className="hover:text-white transition-colors">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Link
+            to="/portfolio"
+            style={{ fontSize: 12, fontWeight: 800, color: '#EBD38D', textDecoration: 'none', whiteSpace: 'nowrap' }}
+            className="hover:underline"
+          >
+            P&amp;L analysis →
+          </Link>
+          <button onClick={fetchPositions} disabled={loading}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: loading ? 0.4 : 1 }}
+            className="hover:text-white transition-colors">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
-      {/* Scrollable grid table */}
+      {/* Spot assets table — similar to exchange “assets / wallet” breakdown */}
       <div style={{ overflowX: 'auto' }}>
-      {/* Column headers */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '0.8fr 1fr 1fr 1fr 1.2fr 1.2fr 1fr',
-        gap: 8, padding: '12px 24px', minWidth: 680,
-        fontSize: 12, color: '#4A4B50', textTransform: 'uppercase',
-        letterSpacing: '0.06em', fontWeight: 800,
+        gridTemplateColumns: 'minmax(120px,1.1fr) 0.9fr 0.95fr 0.95fr 0.95fr 1fr 1.35fr minmax(88px,0.75fr)',
+        gap: 10, padding: '12px 20px', minWidth: 920,
         borderBottom: '1px solid rgba(255,255,255,0.05)',
         background: 'rgba(255,255,255,0.015)',
+        alignItems: 'end',
       }}>
-        <span>Asset</span>
-        <span style={{ textAlign: 'right' }}>Amount</span>
-        <span style={{ textAlign: 'right' }}>Avg Cost</span>
-        <span style={{ textAlign: 'right' }}>Cur Price</span>
-        <span style={{ textAlign: 'right' }}>Value</span>
-        <span style={{ textAlign: 'right' }}>P&L</span>
-        <span style={{ textAlign: 'right' }}>P&L %</span>
+        <Th main="Coin" sub="Spot pair" title="Asset you hold" />
+        <Th main="Size" sub="Total balance" align="right" title="Total coins in wallet (incl. locked in orders)" />
+        <Th main="Available" sub="Free to sell" align="right" title="Balance not locked in open sell orders" />
+        <Th main="Avg. entry" sub="USDT per coin" align="right" title="Average buy price from your trade history" />
+        <Th main="Mark" sub="Last / index" align="right" title="Current market price in USDT" />
+        <Th main="Value" sub="USDT" align="right" title="Size × mark price" />
+        <Th main="Unrealized P&amp;L" sub="USDT &amp; ROI %" align="right" title="Value minus cost basis; profit if you sold at mark" />
+        <Th main="Action" sub="Reduce / close" align="right" />
       </div>
 
       {/* Rows */}
@@ -206,72 +297,126 @@ function PositionsTab({ activePair }) {
         const pnlPct       = (pos.total_invested ?? 0) > 0 ? (pnl / pos.total_invested) * 100 : 0;
         const isUp         = pnl >= 0;
         const icon         = COIN_ICONS[pos.asset];
+        const isActivePair = activePair && pos.symbol === String(activePair).toUpperCase();
 
+        const locked = Number(pos.locked ?? 0);
         return (
           <div key={pos.asset}
             style={{
               display: 'grid',
-              gridTemplateColumns: '0.8fr 1fr 1fr 1fr 1.2fr 1.2fr 1fr',
-              gap: 8, padding: '16px 24px', alignItems: 'center',
+              gridTemplateColumns: 'minmax(120px,1.1fr) 0.9fr 0.95fr 0.95fr 0.95fr 1fr 1.35fr minmax(88px,0.75fr)',
+              gap: 10, padding: '14px 20px', alignItems: 'center', minWidth: 920,
               borderBottom: '1px solid rgba(255,255,255,0.04)',
+              borderLeft: isActivePair ? '3px solid rgba(235,211,141,0.65)' : '3px solid transparent',
               transition: 'background 0.15s',
             }}
             className="hover:bg-white/[.03]">
 
-            {/* Asset */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {icon && <img src={icon} alt={pos.asset} style={{ width: 28, height: 28, borderRadius: '50%' }} />}
               <div>
-                <div style={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>{pos.asset}</div>
-                <div style={{ color: '#4A4B50', fontSize: 11, fontWeight: 600 }}>USDT Pair</div>
+                <div style={{ color: '#fff', fontWeight: 800, fontSize: 15 }}>{pos.asset}</div>
+                <div style={{ color: '#ffffff', fontSize: 11, fontWeight: 600 }}>{pos.symbol?.replace('USDT', '/USDT') || `${pos.asset}/USDT`}</div>
               </div>
             </div>
 
-            {/* Amount */}
-            <span style={{ textAlign: 'right', color: '#D5D5D0', fontFamily: 'monospace', fontSize: 14, fontWeight: 700 }}>
-              {pos.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+            <span style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
+              {pos.amount.toLocaleString(undefined, { maximumFractionDigits: 8 })}{' '}
+              <span style={{ color: '#ffffff', fontSize: 11 }}>{pos.asset}</span>
             </span>
 
-            {/* Avg Cost */}
-            <span style={{ textAlign: 'right', color: '#8A8B90', fontFamily: 'monospace', fontSize: 14, fontWeight: 600 }}>
+            <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 13 }}>
+              <span style={{ color: '#fff', fontWeight: 700 }}>{Number(pos.available ?? 0).toLocaleString(undefined, { maximumFractionDigits: 8 })}</span>
+              {locked > 1e-10 && (
+                <span style={{ display: 'block', fontSize: 10, color: '#ffffff', marginTop: 2 }}>
+                  {locked.toLocaleString(undefined, { maximumFractionDigits: 6 })} locked
+                </span>
+              )}
+            </span>
+
+            <span style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 600 }}>
               ${fmtOrdP(pos.avg_cost)}
             </span>
 
-            {/* Current Price — live */}
-            <span style={{ textAlign: 'right', color: '#fff', fontFamily: 'monospace', fontSize: 14, fontWeight: 800 }}>
-              {currentPrice ? `$${fmtOrdP(currentPrice)}` : <span style={{ color: '#4A4B50' }}>—</span>}
+            <span style={{ textAlign: 'right', color: '#fff', fontFamily: 'monospace', fontSize: 13, fontWeight: 800 }}>
+              {currentPrice ? `$${fmtOrdP(currentPrice)}` : <span style={{ color: '#ffffff' }}>—</span>}
             </span>
 
-            {/* Value */}
-            <span style={{ textAlign: 'right', color: '#fff', fontFamily: 'monospace', fontWeight: 800, fontSize: 15 }}>
+            <span style={{ textAlign: 'right', color: '#fff', fontFamily: 'monospace', fontWeight: 800, fontSize: 14 }}>
               ${currentValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </span>
 
-            {/* P&L */}
-            <span style={{
-              textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, fontSize: 15,
-              color: isUp ? '#22c55e' : '#ef4444',
-            }}>
-              {isUp ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
-
-            {/* P&L % badge */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <span style={{
-                fontFamily: 'monospace', fontWeight: 800, fontSize: 14,
-                padding: '4px 10px', borderRadius: 8,
-                background: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                color: isUp ? '#22c55e' : '#ef4444',
-              }}>
+            <div style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+              <span style={{ fontWeight: 900, fontSize: 14, color: isUp ? '#22c55e' : '#ef4444' }}>
+                {isUp ? '+' : ''}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </span>
+              <span
+                style={{
+                  display: 'inline-block',
+                  marginLeft: 8,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  background: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                  color: isUp ? '#22c55e' : '#ef4444',
+                }}
+              >
                 {isUp ? '+' : ''}{pnlPct.toFixed(2)}%
               </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setCloseTarget({
+                  ...pos,
+                  symbol: String(pos.symbol || '').replace(/\//g, '').toUpperCase(),
+                  current_price: pos.current_price ?? currentPrice,
+                })}
+                style={{
+                  padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800,
+                  color: '#EBD38D', background: 'rgba(235,211,141,0.12)',
+                  border: '1px solid rgba(235,211,141,0.35)', cursor: 'pointer',
+                }}
+                className="hover:bg-gold/20 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         );
       })}
       </div>{/* end overflow-x-auto */}
+
+      {closeTarget && (
+        <ClosePositionModal
+          position={closeTarget}
+          onDismiss={() => setCloseTarget(null)}
+          onSuccess={async () => {
+            await fetchPositions();
+            await Promise.all([fetchWallet(), fetchOrders()]);
+          }}
+        />
+      )}
     </div>
   );
+}
+
+// ─── Map order id → sum of realized P&L (USDT) from sell fills ───────────────
+function buildOrderRealizedPnlMap(trades) {
+  const m = new Map();
+  if (!Array.isArray(trades)) return m;
+  for (const t of trades) {
+    const oid = t.order_id;
+    if (!oid) continue;
+    const sd = String(t.side || '').toLowerCase();
+    if (sd !== 'sell') continue;
+    const rp = t.realized_pnl;
+    if (rp == null || Number.isNaN(Number(rp))) continue;
+    m.set(oid, (m.get(oid) || 0) + Number(rp));
+  }
+  return m;
 }
 
 // ─── ZONE 2: Unified bottom panel ─────────────────────────────────────────────
@@ -279,20 +424,63 @@ function BottomPanel({ symbol }) {
   const { user, openOrders, orderHistory, ordersLoading, fetchOrders, fetchWallet } = useAuth();
   const [tab,        setTab]        = useState('positions');
   const [cancelling, setCancelling] = useState(null);
+  const [cancelError, setCancelError] = useState(null);
+  const [trades, setTrades] = useState([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
+
+  const fetchTrades = useCallback(async () => {
+    if (!user) return;
+    setTradesLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/orders/trades`);
+      if (res.ok) setTrades(await res.json());
+    } catch { /* keep previous */ }
+    finally { setTradesLoading(false); }
+  }, [user]);
+
+  useEffect(() => {
+    if (tab !== 'orders') setCancelError(null);
+  }, [tab]);
+
+  useEffect(() => {
+    if (user && tab === 'history') fetchTrades();
+  }, [user, tab, fetchTrades]);
+
+  const orderPnlById = useMemo(() => buildOrderRealizedPnlMap(trades), [trades]);
+
+  const historyTotalRealizedPnl = useMemo(() => {
+    let s = 0;
+    for (const o of orderHistory) {
+      if (String(o.side || '').toLowerCase() !== 'sell') continue;
+      if ((o.filled ?? 0) < 1e-10) continue;
+      const v = orderPnlById.get(o.id);
+      if (v != null && !Number.isNaN(v)) s += v;
+    }
+    return s;
+  }, [orderHistory, orderPnlById]);
 
   const handleCancel = async id => {
+    if (!window.confirm('Cancel this open order? Any locked funds for this order will be returned.')) return;
+    setCancelError(null);
     setCancelling(id);
     try {
       const res = await authFetch(`${API}/api/orders/${id}`, { method: 'DELETE' });
-      if (res.ok) await Promise.all([fetchOrders(), fetchWallet()]);
-    } catch { /* ignore */ }
-    finally { setCancelling(null); }
+      if (res.ok) {
+        await Promise.all([fetchOrders(), fetchWallet()]);
+      } else {
+        setCancelError(await parseApiError(res));
+      }
+    } catch (e) {
+      setCancelError(e.message || 'Network error');
+    } finally {
+      setCancelling(null);
+    }
   };
 
   const statusColor = s =>
     s === 'filled'           ? '#22c55e' :
     s === 'partially_filled' ? '#60a5fa' :
-    s === 'cancelled'        ? '#ef4444' : '#6B6B70';
+    s === 'cancelled'        ? '#ef4444' : '#ffffff';
 
   const statusIcon = s =>
     s === 'filled'    ? <CheckCircle size={11} /> :
@@ -300,9 +488,9 @@ function BottomPanel({ symbol }) {
                       : <Clock size={11} />;
 
   const TABS = [
-    { id: 'positions', label: 'Positions',    badge: null },
-    { id: 'orders',    label: 'Open Orders',  badge: openOrders.length || null },
-    { id: 'history',   label: 'Order History' },
+    { id: 'positions', label: 'Assets',       badge: null },
+    { id: 'orders',    label: 'Open orders',  badge: openOrders.length || null },
+    { id: 'history',   label: 'Order history' },
   ];
 
   return (
@@ -321,7 +509,7 @@ function BottomPanel({ symbol }) {
             style={{
               padding: '14px 22px', fontSize: 15, fontWeight: 700,
               borderBottom: `2px solid ${tab === t.id ? '#EBD38D' : 'transparent'}`,
-              color: tab === t.id ? '#EBD38D' : '#4A4B50',
+              color: tab === t.id ? '#EBD38D' : '#ffffff',
               background: 'transparent', border: 'none',
               cursor: 'pointer', transition: 'color 0.15s, border-color 0.15s',
               display: 'flex', alignItems: 'center', gap: 8,
@@ -336,13 +524,40 @@ function BottomPanel({ symbol }) {
         ))}
 
         {(tab === 'orders' || tab === 'history') && (
-          <button onClick={fetchOrders} disabled={ordersLoading}
-            style={{ marginLeft: 'auto', padding: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#4A4B50', opacity: ordersLoading ? 0.4 : 1 }}
-            className="hover:text-white transition-colors">
-            <RefreshCw size={16} className={ordersLoading ? 'animate-spin' : ''} />
+          <button
+            onClick={async () => {
+              await fetchOrders();
+              if (tab === 'history') await fetchTrades();
+            }}
+            disabled={ordersLoading || (tab === 'history' && tradesLoading)}
+            style={{ marginLeft: 'auto', padding: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: ordersLoading || (tab === 'history' && tradesLoading) ? 0.4 : 1 }}
+            className="hover:text-white transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={16} className={ordersLoading || (tab === 'history' && tradesLoading) ? 'animate-spin' : ''} />
           </button>
         )}
       </div>
+
+      {tab === 'positions' && (
+        <TabHint>
+          <strong style={{ color: '#ffffff' }}>Spot holdings</strong> (like Binance &quot;Assets&quot; or Coinbase balance): one row per coin.
+          <strong style={{ color: '#ffffff' }}> Unrealized P&amp;L</strong> is estimated profit or loss in USDT if you sold at the mark price, using your average buy cost.
+        </TabHint>
+      )}
+      {tab === 'orders' && (
+        <TabHint>
+          Orders that are <strong style={{ color: '#ffffff' }}>working on the book</strong> (limit) or waiting to complete (market).
+          Nothing here is final P&amp;L until the order <strong style={{ color: '#ffffff' }}>fills</strong> — then it moves to order history and your asset balance updates.
+        </TabHint>
+      )}
+      {tab === 'history' && (
+        <TabHint>
+          <strong style={{ color: '#ffffff' }}>Ledger of past orders</strong> (each row = one order you placed).
+          <strong style={{ color: '#ffffff' }}> Realized P&amp;L</strong> (USDT) only on <strong style={{ color: '#ffffff' }}>sells</strong> that executed — buys open or add to your position; they show &quot;—&quot; here.
+          For every individual fill, use the <Link to="/portfolio" style={{ color: '#EBD38D', fontWeight: 700 }}>P&amp;L</Link> page.
+        </TabHint>
+      )}
 
       {/* Positions */}
       {tab === 'positions' && <PositionsTab activePair={symbol} />}
@@ -350,83 +565,191 @@ function BottomPanel({ symbol }) {
       {/* Open Orders / History */}
       {(tab === 'orders' || tab === 'history') && (() => {
         const rows = tab === 'orders' ? openOrders : orderHistory;
+        const histPnl = tab === 'history';
+        const gridCols = histPnl
+          ? '1.22fr 0.78fr 0.48fr 0.48fr 0.88fr 0.88fr 1.05fr 1.02fr 0.88fr 0.62fr'
+          : '1.38fr 0.85fr 0.5fr 0.5fr 0.92fr 0.88fr 0.92fr 0.9fr';
+        const minW = histPnl ? 980 : 760;
         return (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'auto' }}>
-            {/* Column headers */}
+            {tab === 'orders' && cancelError && (
+              <div
+                style={{
+                  margin: '8px 16px 0', padding: '10px 14px', borderRadius: 10,
+                  background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)',
+                  color: '#fca5a5', fontSize: 13, fontWeight: 600,
+                }}
+                role="alert"
+              >
+                {cancelError}
+              </div>
+            )}
+            {histPnl && user && rows.length > 0 && (
+              <div
+                style={{
+                  margin: '10px 16px 0',
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 12,
+                  fontSize: 13,
+                }}
+              >
+                <span style={{ color: '#ffffff', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Total realized P&amp;L (USDT)
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 900,
+                    fontSize: 16,
+                    color: historyTotalRealizedPnl >= 0 ? '#22c55e' : '#ef4444',
+                  }}
+                >
+                  {historyTotalRealizedPnl >= 0 ? '+' : ''}
+                  ${historyTotalRealizedPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </span>
+                <span style={{ color: '#ffffff', fontSize: 12, maxWidth: 480, lineHeight: 1.45 }}>
+                  Sum of the <strong style={{ color: '#ffffff' }}>Realized P&amp;L</strong> column below (only rows where you <strong style={{ color: '#ffffff' }}>sold</strong> and the order executed). Same average-cost method as major spot exchanges. Per-fill detail:{' '}
+                  <Link to="/portfolio" style={{ color: '#EBD38D', fontWeight: 700, textDecoration: 'none' }} className="hover:underline">
+                    P&amp;L &amp; fills
+                  </Link>
+                  .
+                </span>
+              </div>
+            )}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1.6fr 1fr 0.8fr 0.8fr 1.2fr 1.2fr 1.2fr 1fr',
-              gap: 8, padding: '12px 24px', minWidth: 700,
-              fontSize: 12, color: '#4A4B50', textTransform: 'uppercase',
-              letterSpacing: '0.06em', fontWeight: 800,
+              gridTemplateColumns: gridCols,
+              gap: 10, padding: '12px 20px', minWidth: minW,
               borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0,
               background: 'rgba(255,255,255,0.015)',
+              alignItems: 'end',
             }}>
-              <span>Date / Time</span>
-              <span>Pair</span>
-              <span>Type</span>
-              <span>Side</span>
-              <span style={{ textAlign: 'right' }}>Price</span>
-              <span style={{ textAlign: 'right' }}>Amount</span>
-              <span style={{ textAlign: 'right' }}>Filled</span>
-              <span style={{ textAlign: 'right' }}>{tab === 'orders' ? 'Action' : 'Status'}</span>
+              <Th main="Time" sub="Order placed" title="When you submitted the order" />
+              <Th main="Pair" sub="Market" />
+              <Th main="Type" sub="Limit / market" />
+              <Th main="Side" sub="Buy or sell" />
+              <Th main="Order price" sub="Limit or MKT" align="right" title="Limit: your price. Market: executes at book." />
+              {histPnl && (
+                <Th main="Avg. fill" sub="Execution" align="right" title="Volume-weighted average price of filled size (USDT)" />
+              )}
+              <Th main={histPnl ? 'Executed' : 'Order qty'} sub={histPnl ? 'Filled / total' : 'Requested size'} align="right" />
+              {!histPnl && <Th main="Filled" sub="So far" align="right" title="Amount already matched" />}
+              {histPnl && (
+                <Th main="Realized P&amp;L" sub="USDT · sells" align="right" title="Profit or loss on sold size for this order (avg. cost)" />
+              )}
+              <Th main={tab === 'orders' ? 'Action' : 'Status'} sub={tab === 'orders' ? 'Cancel' : 'Final state'} align="right" />
+              {histPnl && <Th main="Order ID" sub="Reference" title="Internal order id — support may ask for this" />}
             </div>
 
             {/* Rows */}
             <div style={{ flex: 1 }}>
               {ordersLoading && rows.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#4A4B50', fontSize: 15 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#ffffff', fontSize: 15 }}>
                   <RefreshCw size={18} className="animate-spin" /> Loading…
                 </div>
               ) : !user ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 12, color: '#4A4B50' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 12, color: '#ffffff' }}>
                   <Clock size={32} />
                   <span style={{ fontSize: 16, fontWeight: 600 }}>Please log in to view orders</span>
                   <Link to="/login" style={{ color: '#EBD38D', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>Sign in →</Link>
                 </div>
               ) : rows.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 12, color: '#4A4B50' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 56, gap: 10, color: '#ffffff', textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
                   <Clock size={32} />
-                  <span style={{ fontSize: 16, fontWeight: 600 }}>No {tab === 'orders' ? 'open orders' : 'order history'}</span>
-                  {tab === 'orders' && (
-                    <span style={{ fontSize: 13 }}>Resting limit orders will appear here</span>
-                  )}
+                  <span style={{ fontSize: 16, fontWeight: 700, color: '#ffffff' }}>
+                    {tab === 'orders' ? 'No open orders' : 'No order history yet'}
+                  </span>
+                  <span style={{ fontSize: 12, lineHeight: 1.45 }}>
+                    {tab === 'orders'
+                      ? 'Place a limit order (or a market order that rests) and it will show here until it fills or you cancel.'
+                      : 'Completed and cancelled orders appear here — like an account ledger. Realized P&L shows on sells that executed.'}
+                  </span>
                 </div>
-              ) : rows.map(o => (
+              ) : rows.map(o => {
+                const sellSide = String(o.side || '').toLowerCase() === 'sell';
+                const hasFill = (o.filled ?? 0) > 1e-10;
+                const rowPnl = histPnl && sellSide && hasFill ? orderPnlById.get(o.id) : null;
+                const showRowPnl = rowPnl != null && !Number.isNaN(Number(rowPnl));
+                const baseSym = o.symbol?.replace('USDT', '') || '';
+                const avgFill = hasFill && (o.avg_price ?? 0) > 0 ? o.avg_price : null;
+                return (
                 <div key={o.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.6fr 1fr 0.8fr 0.8fr 1.2fr 1.2fr 1.2fr 1fr',
-                    gap: 8, padding: '14px 24px', alignItems: 'center', minWidth: 700,
+                    gridTemplateColumns: gridCols,
+                    gap: 10, padding: '14px 20px', alignItems: 'center', minWidth: minW,
                     borderBottom: '1px solid rgba(255,255,255,0.04)',
                     transition: 'background 0.15s',
                   }}
                   className="hover:bg-white/[.03]">
-                  <span style={{ color: '#6B6B70', fontSize: 13, fontFamily: 'monospace' }}>{ORDER_FMT(o.created_at)}</span>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: 15 }}>{o.symbol.replace('USDT', '/USDT')}</span>
-                  <span style={{ color: '#8A8B90', textTransform: 'capitalize', fontSize: 14, fontWeight: 600 }}>{o.type}</span>
+                  <span style={{ color: '#ffffff', fontSize: 12, fontFamily: 'monospace' }}>{ORDER_FMT(o.created_at)}</span>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>{o.symbol.replace('USDT', '/USDT')}</span>
+                  <span style={{ color: '#ffffff', textTransform: 'capitalize', fontSize: 13, fontWeight: 600 }}>{o.type}</span>
                   <span style={{
                     color: o.side === 'buy' ? '#22c55e' : '#ef4444',
-                    fontWeight: 800, textTransform: 'uppercase', fontSize: 14,
+                    fontWeight: 800, textTransform: 'uppercase', fontSize: 13,
                     background: o.side === 'buy' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
                     padding: '2px 8px', borderRadius: 6, display: 'inline-block',
                   }}>
                     {o.side}
                   </span>
-                  <span style={{ textAlign: 'right', color: '#D5D5D0', fontFamily: 'monospace', fontSize: 14, fontWeight: 700 }}>
-                    {o.type === 'market' ? <span style={{ color: '#4A4B50', fontWeight: 800 }}>MKT</span> : `$${fmtOrdP(o.price)}`}
+                  <span style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
+                    {o.type === 'market' ? <span style={{ color: '#ffffff', fontWeight: 800 }}>Market</span> : `$${fmtOrdP(o.price)}`}
                   </span>
-                  <span style={{ textAlign: 'right', color: '#D5D5D0', fontFamily: 'monospace', fontSize: 14, fontWeight: 700 }}>
-                    {o.amount.toFixed(4)}
-                  </span>
-                  <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 14 }}>
-                    <span style={{ color: o.filled > 0 ? '#fff' : '#4A4B50', fontWeight: 700 }}>{o.filled.toFixed(4)}</span>
-                    {o.amount > 0 && (
-                      <span style={{ color: '#4A4B50', fontSize: 12, marginLeft: 4 }}>
-                        ({((o.filled / o.amount) * 100).toFixed(0)}%)
+                  {histPnl && (
+                    <span style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
+                      {avgFill != null ? `$${fmtOrdP(avgFill)}` : <span style={{ color: '#ffffff' }}>—</span>}
+                    </span>
+                  )}
+                  {histPnl ? (
+                    <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: '#ffffff' }}>
+                      <span style={{ color: o.filled > 0 ? '#fff' : '#ffffff', fontWeight: 700 }}>{Number(o.filled).toFixed(6)}</span>
+                      <span style={{ color: '#ffffff', margin: '0 4px' }}>/</span>
+                      <span style={{ fontWeight: 600 }}>{Number(o.amount).toFixed(6)}</span>
+                      {o.amount > 0 && (
+                        <span style={{ display: 'block', fontSize: 10, color: '#ffffff', marginTop: 2 }}>
+                          {((o.filled / o.amount) * 100).toFixed(0)}% {baseSym}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <>
+                      <span style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
+                        {Number(o.amount).toFixed(6)} <span style={{ color: '#ffffff', fontSize: 11 }}>{baseSym}</span>
                       </span>
-                    )}
-                  </span>
+                      <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 13 }}>
+                        <span style={{ color: o.filled > 0 ? '#fff' : '#ffffff', fontWeight: 700 }}>{Number(o.filled).toFixed(6)}</span>
+                        {o.amount > 0 && (
+                          <span style={{ color: '#ffffff', fontSize: 11, marginLeft: 4 }}>
+                            ({((o.filled / o.amount) * 100).toFixed(0)}%)
+                          </span>
+                        )}
+                      </span>
+                    </>
+                  )}
+                  {histPnl && (
+                    <span
+                      style={{
+                        textAlign: 'right',
+                        fontFamily: 'monospace',
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: showRowPnl ? (rowPnl >= 0 ? '#22c55e' : '#ef4444') : '#ffffff',
+                      }}
+                    >
+                      {showRowPnl ? (
+                        <>{rowPnl >= 0 ? '+' : ''}${Number(rowPnl).toLocaleString(undefined, { maximumFractionDigits: 2 })}</>
+                      ) : (
+                        '—'
+                      )}
+                    </span>
+                  )}
                   {tab === 'orders' ? (
                     <div style={{ textAlign: 'right' }}>
                       <button onClick={() => handleCancel(o.id)} disabled={cancelling === o.id}
@@ -444,13 +767,19 @@ function BottomPanel({ symbol }) {
                   ) : (
                     <div style={{
                       display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 5,
-                      color: statusColor(o.status), fontSize: 14, fontWeight: 700, textTransform: 'capitalize',
+                      color: statusColor(o.status), fontSize: 13, fontWeight: 700, textTransform: 'capitalize',
                     }}>
                       {statusIcon(o.status)} {o.status.replace('_', ' ')}
                     </div>
                   )}
+                  {histPnl && (
+                    <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 11, color: '#ffffff' }} title={o.id}>
+                      {shortOrderId(o.id)}
+                    </span>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -465,16 +794,12 @@ function BottomPanel({ symbol }) {
 export default function TradePage() {
   const { symbol: p } = useParams();
   const navigate = useNavigate();
-  const { user, balance, lockedBalance } = useAuth();
 
   const [symbol,        setSymbol]        = useState((p || 'BZXUSDT').toUpperCase());
   const [ticker,        setTicker]        = useState(null);
   const [pairOpen,      setPairOpen]      = useState(false);
   const [formPrice,     setFormPrice]     = useState('');
   const [mobilePanelTab, setMobilePanelTab] = useState('trade'); // 'trade' | 'book'
-  const [favorites,  setFavorites]  = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bitzxex_favs') || '[]'); } catch { return []; }
-  });
 
   const dropRef = useRef(null);
   const timer   = useRef(null);
@@ -498,22 +823,15 @@ export default function TradePage() {
     setPairOpen(false); setFormPrice('');
   };
 
-  const toggleFav = () => {
-    const next = favorites.includes(symbol)
-      ? favorites.filter(f => f !== symbol)
-      : [...favorites, symbol];
-    setFavorites(next); localStorage.setItem('bitzxex_favs', JSON.stringify(next));
-  };
+  const onOrderBookPrice = useCallback(pr => { setFormPrice(pr); }, []);
+  const onOrderBookPriceMobile = useCallback(pr => {
+    setFormPrice(pr);
+    setMobilePanelTab('trade');
+  }, []);
 
   const pct       = parseFloat(ticker?.priceChangePercent ?? 0);
   const isUp      = pct >= 0;
   const livePrice = ticker?.price ?? null;
-  const isFav     = favorites.includes(symbol);
-
-  const availQuote  = parseFloat(balance?.USDT   ?? 0);
-  const availBase   = parseFloat(balance?.[base]  ?? 0);
-  const lockedQuote = parseFloat(lockedBalance?.USDT   ?? 0);
-  const lockedBase  = parseFloat(lockedBalance?.[base] ?? 0);
 
   /* ── Shared header JSX (used in both mobile & desktop) ── */
   const PairDropdown = (
@@ -533,11 +851,12 @@ export default function TradePage() {
             background: '#161820',
             border: `1px solid ${pairOpen ? 'rgba(235,211,141,0.45)' : 'rgba(255,255,255,0.07)'}`,
             cursor: 'pointer', transition: 'border-color 0.2s', flexShrink: 0,
-          }}>
+          }}
+          className="bitzx-chip">
           {icon && <img src={icon} alt={base} style={{ width: 24, height: 24, borderRadius: '50%' }} />}
           <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{base}</span>
-          <span style={{ fontSize: 13, color: '#4A4B50' }}>/USDT</span>
-          <ChevronDown size={13} color="#4A4B50"
+          <span style={{ fontSize: 13, color: '#ffffff' }}>/USDT</span>
+          <ChevronDown size={13} color="#ffffff"
             style={{ transform: pairOpen ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
         </button>
       </div>
@@ -559,14 +878,14 @@ export default function TradePage() {
                     width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                     padding: '11px 16px', cursor: 'pointer',
                     background: q === symbol ? 'rgba(235,211,141,0.07)' : 'transparent',
-                    border: 'none', color: q === symbol ? '#EBD38D' : '#D5D5D0',
+                    border: 'none', color: q === symbol ? '#EBD38D' : '#ffffff',
                     transition: 'background 0.15s',
                   }}
                   className="hover:bg-white/5">
                   {COIN_ICONS[b] && <img src={COIN_ICONS[b]} alt={b} style={{ width: 26, height: 26, borderRadius: '50%' }} />}
                   <div style={{ flex: 1, textAlign: 'left' }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{b}/USDT</div>
-                    <div style={{ fontSize: 11, color: '#4A4B50', marginTop: 1 }}>Spot</div>
+                    <div style={{ fontSize: 11, color: '#ffffff', marginTop: 1 }}>Spot</div>
                   </div>
                   {q === symbol && (
                     <span style={{ fontSize: 10, background: 'rgba(235,211,141,0.15)', color: '#EBD38D', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
@@ -578,7 +897,7 @@ export default function TradePage() {
             })}
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '4px 0' }}>
               <Link to="/markets" onClick={() => setPairOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', color: '#8A8B90', fontSize: 14, textDecoration: 'none' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', color: '#ffffff', fontSize: 14, textDecoration: 'none' }}
                 className="hover:text-white hover:bg-white/5 transition-colors">
                 <Globe size={15} /> All markets
               </Link>
@@ -604,7 +923,6 @@ export default function TradePage() {
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           background: '#0d0f14', position: 'relative', zIndex: 200,
         }}>
-          {/* Row 1: pair + price + fav */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflowX: 'auto' }}
             className="scrollbar-hide">
             {PairDropdown}
@@ -624,44 +942,7 @@ export default function TradePage() {
                 <div style={{ height: 28, width: 140, background: '#161820', borderRadius: 6 }} className="animate-pulse" />
               </div>
             )}
-
-            <button
-              onClick={() => navigate('/quick-trade')}
-              style={{
-                flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
-                padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
-                background: 'linear-gradient(135deg, rgba(156,121,65,0.2), rgba(235,211,141,0.15))',
-                border: '1px solid rgba(235,211,141,0.35)',
-                color: '#EBD38D', fontSize: 11, fontWeight: 800,
-              }}>
-              <Zap size={12} /> Quick
-            </button>
-
-            <button onClick={toggleFav}
-              style={{ flexShrink: 0, padding: 5, borderRadius: 7, background: 'transparent', border: 'none', cursor: 'pointer' }}>
-              <Star size={16} color={isFav ? '#EBD38D' : '#4A4B50'} fill={isFav ? '#EBD38D' : 'none'} />
-            </button>
           </div>
-
-          {/* Row 2: balances (mobile) */}
-          {user && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.04)', overflowX: 'auto' }}
-              className="scrollbar-hide">
-              <span style={{ color: '#4A4B50', flexShrink: 0, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avail.</span>
-              <span style={{ flexShrink: 0, color: '#fff', fontFamily: 'monospace', fontWeight: 800, fontSize: 12 }}>
-                {availQuote.toFixed(2)} <span style={{ color: '#6B6B70', fontSize: 11 }}>USDT</span>
-              </span>
-              <span style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-              <span style={{ flexShrink: 0, color: '#fff', fontFamily: 'monospace', fontWeight: 800, fontSize: 12 }}>
-                {availBase.toFixed(4)} <span style={{ color: '#6B6B70', fontSize: 11 }}>{base}</span>
-              </span>
-              <Link to="/wallet"
-                style={{ marginLeft: 'auto', color: '#EBD38D', fontSize: 11, fontWeight: 800, textDecoration: 'none', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}
-                className="hover:opacity-80">
-                <ArrowUpDown size={11} /> Deposit
-              </Link>
-            </div>
-          )}
         </div>
 
         {/* Mobile Chart — explicit pixel height so TradingView renders */}
@@ -669,18 +950,17 @@ export default function TradePage() {
           <TradingChart symbol={symbol} />
         </div>
 
-        {/* Mobile panel tabs */}
         <div style={{
           display: 'flex', background: '#0d0f14',
           borderTop: '1px solid rgba(255,255,255,0.06)',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           position: 'sticky', top: 0, zIndex: 100,
         }}>
-          {[['trade','Trade'],['book','Order Book']].map(([id, label]) => (
-            <button key={id} onClick={() => setMobilePanelTab(id)}
+          {[['trade', 'Trade'], ['book', 'Order Book']].map(([id, label]) => (
+            <button key={id} type="button" onClick={() => setMobilePanelTab(id)}
               style={{
                 flex: 1, padding: '13px 0', fontSize: 14, fontWeight: 700,
-                color: mobilePanelTab === id ? '#EBD38D' : '#4A4B50',
+                color: mobilePanelTab === id ? '#EBD38D' : '#ffffff',
                 background: 'transparent', border: 'none', cursor: 'pointer',
                 borderBottom: `2px solid ${mobilePanelTab === id ? '#EBD38D' : 'transparent'}`,
                 transition: 'color 0.15s',
@@ -690,12 +970,16 @@ export default function TradePage() {
           ))}
         </div>
 
-        {/* Mobile active panel — natural height, page scrolls */}
         <div style={{ background: '#0a0b0f', minHeight: 520 }}>
           {mobilePanelTab === 'trade'
             ? <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} />
             : <div style={{ height: 520, position: 'relative', overflow: 'hidden' }}>
-                <OrderBook symbol={symbol} onPriceClick={pr => { setFormPrice(pr); setMobilePanelTab('trade'); }} />
+                <OrderBook
+                  symbol={symbol}
+                  baseAsset={base}
+                  lastPrice={livePrice}
+                  onPriceClick={onOrderBookPriceMobile}
+                />
               </div>
           }
         </div>
@@ -748,65 +1032,22 @@ export default function TradePage() {
                 <div style={{ height: 34, width: 220, background: '#161820', borderRadius: 8 }} className="animate-pulse" />
               </div>
             )}
-
-            <button onClick={() => navigate('/quick-trade')}
-              style={{
-                flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7,
-                padding: '8px 16px', borderRadius: 10, cursor: 'pointer',
-                background: 'linear-gradient(135deg, rgba(156,121,65,0.2), rgba(235,211,141,0.15))',
-                border: '1px solid rgba(235,211,141,0.35)',
-                color: '#EBD38D', fontSize: 13, fontWeight: 800, transition: 'all 0.2s',
-              }}
-              className="hover:border-gold/60 hover:bg-gold/20">
-              <Zap size={14} /> Quick Trade
-            </button>
-
-            <button onClick={toggleFav}
-              style={{ flexShrink: 0, padding: 6, borderRadius: 8, background: 'transparent', border: 'none', cursor: 'pointer' }}
-              className="hover:bg-white/5 transition-colors">
-              <Star size={18} color={isFav ? '#EBD38D' : '#4A4B50'} fill={isFav ? '#EBD38D' : 'none'} />
-            </button>
           </div>
-
-          {user && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.04)', overflowX: 'auto' }}
-              className="scrollbar-hide">
-              <span style={{ color: '#4A4B50', flexShrink: 0, fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Available</span>
-              <span style={{ flexShrink: 0 }}>
-                <span style={{ color: '#fff', fontWeight: 800, fontFamily: 'monospace', fontSize: 14 }}>
-                  {availQuote.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span style={{ color: '#6B6B70', marginLeft: 4, fontWeight: 700, fontSize: 12 }}>USDT</span>
-                {lockedQuote > 0.0001 && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: 12, fontWeight: 700 }}>({lockedQuote.toFixed(2)} locked)</span>}
-              </span>
-              <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-              <span style={{ flexShrink: 0 }}>
-                <span style={{ color: '#fff', fontWeight: 800, fontFamily: 'monospace', fontSize: 14 }}>
-                  {availBase.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 6 })}
-                </span>
-                <span style={{ color: '#6B6B70', marginLeft: 4, fontWeight: 700, fontSize: 12 }}>{base}</span>
-                {lockedBase > 0.0001 && <span style={{ color: '#f59e0b', marginLeft: 8, fontSize: 12, fontWeight: 700 }}>({lockedBase.toFixed(6)} locked)</span>}
-              </span>
-              <Link to="/wallet"
-                style={{ marginLeft: 'auto', color: '#EBD38D', fontSize: 12, fontWeight: 800, textDecoration: 'none', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5 }}
-                className="hover:opacity-80">
-                <ArrowUpDown size={12} /> Deposit / Withdraw
-              </Link>
-            </div>
-          )}
         </div>
 
         {/* Desktop three columns */}
         <div style={{ display: 'flex', flex: '1 1 0', minHeight: 0 }}>
-          {/* Chart */}
           <div style={{ flex: '1 1 0', minWidth: 0, position: 'relative', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)', pointerEvents: pairOpen ? 'none' : 'auto' }}>
             <TradingChart symbol={symbol} />
           </div>
-          {/* Order Book */}
-          <div style={{ width: 310, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-            <OrderBook symbol={symbol} onPriceClick={pr => setFormPrice(pr)} />
+          <div style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+            <OrderBook
+              symbol={symbol}
+              baseAsset={base}
+              lastPrice={livePrice}
+              onPriceClick={onOrderBookPrice}
+            />
           </div>
-          {/* Trade Form */}
           <div style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ flex: '1 1 0', overflowY: 'auto' }} className="scrollbar-hide">
               <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} />

@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useInView, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import {
   ArrowRight, Shield, Zap, BarChart2, Wallet, Lock,
   TrendingUp, TrendingDown, Globe, Star, ChevronRight,
   Users, Activity, Award, RefreshCw, CheckCircle, X,
-  Cpu, Eye, Sparkles,
+  Cpu, Eye, Sparkles, ArrowUpRight,
+  LayoutDashboard, LineChart, Flame, Snowflake,
 } from 'lucide-react';
 import { marketApi, COIN_ICONS, PAIRS } from '@/services/marketApi';
 
@@ -21,13 +22,6 @@ const FEATURES = [
   { icon: Lock,      color: '#ec4899', title: 'Fully KYC Compliant',   desc: 'Regulated platform serving 100+ countries. Identity verified, funds protected.' },
 ];
 
-const STATS = [
-  { label: '24h Volume',    value: '$3.28B', suffix: '', icon: Activity,  color: '#EBD38D' },
-  { label: 'Trading Pairs', value: '100+',   suffix: '', icon: BarChart2, color: '#60a5fa' },
-  { label: 'Active Traders',value: '2.55M+', suffix: '', icon: Users,     color: '#22c55e' },
-  { label: 'Uptime',        value: '99.98%', suffix: '', icon: Award,     color: '#a78bfa' },
-];
-
 const HOW_STEPS = [
   { n: '01', icon: Users,      title: 'Create Account',  desc: 'Sign up free in under 2 minutes. Complete KYC verification to unlock all features.' },
   { n: '02', icon: Wallet,     title: 'Deposit Funds',   desc: 'Add USDT or crypto via wallet transfer. Funds appear instantly in your account.' },
@@ -41,13 +35,103 @@ const TESTIMONIALS = [
 ];
 
 const VS_TABLE = [
-  { feature: 'Trading Fee',      bitzx: '0.1%',          other: '0.1–0.5%' },
-  { feature: 'KYC Onboarding',   bitzx: '< 5 minutes',   other: '1–3 days'  },
-  { feature: 'Charting',         bitzx: 'TradingView Pro', other: 'Basic'   },
-  { feature: 'Demo Account',     bitzx: 'Yes — free',    other: 'Limited'   },
-  { feature: 'P&L Tracking',     bitzx: 'Real-time',     other: 'Manual'    },
-  { feature: 'Quick Trade',      bitzx: 'Dedicated page', other: 'No'       },
+  { feature: 'Trading fee (spot)', bitzx: 'From 0.05% maker', other: 'Often 0.1–0.5%' },
+  { feature: 'Markets snapshot',   bitzx: 'Full 24h OHLC + vol', other: 'Varies by app' },
+  { feature: 'Charting',           bitzx: 'TradingView-grade', other: 'Basic' },
+  { feature: 'Portfolio & P&amp;L', bitzx: 'Unified dashboard', other: 'Split tools' },
+  { feature: 'Quick trade',        bitzx: 'Dedicated flow',   other: 'Not always' },
+  { feature: 'KYC & withdrawals', bitzx: 'Guided, secure', other: 'Slow / opaque' },
 ];
+
+/** Landing market table — volume helpers */
+function fmtLandingVol(v) {
+  const n = parseFloat(v);
+  if (!Number.isFinite(n) || n === 0) return '—';
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  return n.toFixed(2);
+}
+
+function fmtLandingPrice(v, base) {
+  const n = parseFloat(v);
+  if (!Number.isFinite(n)) return '—';
+  if (base === 'BTC') return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (n >= 1) return n.toFixed(4);
+  return n.toFixed(6);
+}
+
+const num = v => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/** Live market intelligence: volume, top movers, breadth — from API tickers */
+function useMarketIntel(markets) {
+  return useMemo(() => {
+    if (!markets?.length) {
+      return {
+        totalQuoteVol: 0,
+        pairCount: 0,
+        gainers: [],
+        losers: [],
+        upCount: 0,
+        downCount: 0,
+        flatCount: 0,
+      };
+    }
+    const totalQuoteVol = markets.reduce((s, m) => s + num(m.quoteVolume), 0);
+    const gainers = [...markets]
+      .filter(m => num(m.priceChangePercent) > 0)
+      .sort((a, b) => num(b.priceChangePercent) - num(a.priceChangePercent))
+      .slice(0, 5);
+    const losers = [...markets]
+      .filter(m => num(m.priceChangePercent) < 0)
+      .sort((a, b) => num(a.priceChangePercent) - num(b.priceChangePercent))
+      .slice(0, 5);
+    const upCount = markets.filter(m => num(m.priceChangePercent) > 0).length;
+    const downCount = markets.filter(m => num(m.priceChangePercent) < 0).length;
+    const flatCount = markets.filter(m => num(m.priceChangePercent) === 0).length;
+    return {
+      totalQuoteVol,
+      pairCount: markets.length,
+      gainers,
+      losers,
+      upCount,
+      downCount,
+      flatCount,
+    };
+  }, [markets]);
+}
+
+function PulsePairRow({ market, rank }) {
+  const pct = num(market.priceChangePercent);
+  const up = pct >= 0;
+  const base = market.base || market.symbol?.replace('USDT', '');
+  const icon = COIN_ICONS[base];
+  return (
+    <Link
+      to={`/trade/${market.symbol}`}
+      className="group flex items-center gap-3 py-3 px-3 -mx-1 rounded-xl border border-transparent hover:border-white/[0.08] hover:bg-white/[0.04] transition-all"
+    >
+      <span className="text-[10px] font-mono text-white/30 w-4 tabular-nums">{rank}</span>
+      {icon ? (
+        <img src={icon} alt="" className="w-8 h-8 rounded-full ring-1 ring-white/10 flex-shrink-0" />
+      ) : (
+        <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-[10px] font-bold text-gold-light flex-shrink-0">{base?.slice(0, 2)}</div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-[15px] font-semibold text-white truncate">{base}<span className="text-zinc-500 font-normal">/USDT</span></p>
+        <p className="text-[12px] font-mono text-zinc-500">${fmtLandingPrice(market.price, base)}</p>
+      </div>
+      <span className={`text-[15px] font-semibold tabular-nums flex-shrink-0 ${up ? 'text-emerald-400' : 'text-red-400'}`}>
+        {up ? '+' : ''}{pct.toFixed(2)}%
+      </span>
+      <ChevronRight size={14} className="text-white/20 group-hover:text-gold-light/70 flex-shrink-0" />
+    </Link>
+  );
+}
 
 // ── Animated counter ──────────────────────────────────────────────────────────
 function AnimatedCounter({ end, duration = 2 }) {
@@ -99,108 +183,142 @@ function TiltCard({ children, className, style }) {
   );
 }
 
-// ── Floating notification card ────────────────────────────────────────────────
-function FloatNotification({ text, sub, color, icon: Icon, delay, x, y }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.8, y: 20 }}
-      animate={{ opacity: 1, scale: 1, y: [0, -8, 0] }}
-      transition={{ delay, duration: 4, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }}
-      className="absolute flex items-center gap-3 px-4 py-3 rounded-2xl select-none pointer-events-none"
-      style={{
-        left: x, top: y,
-        background: 'rgba(13,15,20,0.92)',
-        border: `1px solid ${color}30`,
-        backdropFilter: 'blur(12px)',
-        boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px ${color}15`,
-        zIndex: 20,
-        minWidth: 200,
-      }}
-    >
-      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: `${color}20` }}>
-        <Icon size={16} style={{ color }} />
-      </div>
-      <div>
-        <p className="text-white font-bold text-sm leading-none">{text}</p>
-        <p className="text-[10px] mt-1 font-semibold" style={{ color: 'rgba(255,255,255,0.4)' }}>{sub}</p>
-      </div>
-    </motion.div>
-  );
+/** Hero background — Earth in space (stars / light). Override with VITE_HERO_VIDEO_URL. */
+function heroVideoSources() {
+  const env = import.meta.env.VITE_HERO_VIDEO_URL;
+  const list = [];
+  if (env) list.push(env);
+  // Full HD when CDN allows — Earth & sunlight / orbit (Pexels, pexels.com/license)
+  list.push('https://videos.pexels.com/video-files/10415311/10415311-hd_1920_1080_24fps.mp4');
+  // Bundled HD (720p): Mixkit "3D rendering of planet earth rotating in space" — works offline / same clip
+  list.push('/hero-bg.mp4');
+  list.push('https://assets.mixkit.co/videos/34314/34314-720.mp4');
+  return list;
 }
 
-// ── Animated mock chart ───────────────────────────────────────────────────────
-function MockChart() {
-  const bars = [42, 58, 51, 72, 63, 88, 70, 84, 68, 95, 78, 90, 75, 100, 82, 95, 88, 100, 85, 98];
+function HeroVideoBackground() {
+  const videoRef = useRef(null);
+  const [srcIndex, setSrcIndex] = useState(0);
+  const [allowMotion, setAllowMotion] = useState(true);
+  const sources = useMemo(() => heroVideoSources(), []);
+  const activeSrc = sources[srcIndex] ?? '';
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => setAllowMotion(!mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !allowMotion || !activeSrc) return;
+    const tryPlay = () => {
+      el.play().catch(() => {});
+    };
+    el.addEventListener('loadeddata', tryPlay);
+    tryPlay();
+    return () => el.removeEventListener('loadeddata', tryPlay);
+  }, [activeSrc, allowMotion]);
+
+  const onVideoError = () => {
+    if (srcIndex < sources.length - 1) setSrcIndex(i => i + 1);
+  };
+
+  if (!allowMotion) return null;
+
   return (
-    <div className="flex items-end gap-1 h-24 w-full px-1">
-      {bars.map((h, i) => (
-        <motion.div key={i}
-          className="flex-1 rounded-sm"
-          style={{ background: i % 3 === 0 ? 'rgba(239,68,68,0.6)' : 'rgba(34,197,94,0.6)' }}
-          initial={{ height: 0 }} animate={{ height: `${h}%` }}
-          transition={{ delay: i * 0.03, duration: 0.35, ease: 'easeOut' }}
-        />
-      ))}
+    <div
+      className="pointer-events-none absolute inset-0 z-[1] overflow-hidden bg-[#030405]"
+      aria-hidden
+    >
+      <video
+        key={activeSrc}
+        ref={videoRef}
+        className="absolute left-1/2 top-1/2 min-h-full min-w-full -translate-x-1/2 -translate-y-1/2 scale-[1.12] object-cover opacity-95"
+        style={{
+          width: '100vw',
+          height: '56.25vw',
+          minHeight: '100vh',
+          minWidth: '177.77vh',
+          filter: 'brightness(0.52) contrast(1.08) saturate(1.05)',
+        }}
+        src={activeSrc}
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        onError={onVideoError}
+      />
     </div>
   );
 }
 
-// ── Market row ────────────────────────────────────────────────────────────────
+// ── Market row (CoinSwitch-style dense table: OHLC + volumes) ────────────────
 function MarketRow({ market, i }) {
-  const pct  = parseFloat(market.priceChangePercent ?? 0);
+  const pct = parseFloat(market.priceChangePercent ?? 0);
   const isUp = pct >= 0;
   const base = market.base || market.symbol?.replace('USDT', '');
   const icon = COIN_ICONS[base];
-  const p    = parseFloat(market.price ?? 0);
+  const price = market.price;
 
   return (
     <motion.tr
-      initial={{ opacity: 0, x: -16 }} whileInView={{ opacity: 1, x: 0 }}
-      viewport={{ once: true }} transition={{ delay: i * 0.06 }}
-      className="border-b border-surface-border/50 hover:bg-white/[.025] group transition-colors"
+      initial={{ opacity: 0, x: -12 }} whileInView={{ opacity: 1, x: 0 }}
+      viewport={{ once: true }} transition={{ delay: Math.min(i * 0.04, 0.4) }}
+      className="border-b border-white/[0.06] hover:bg-white/[0.04] group transition-colors"
     >
-      <td className="px-6 py-5">
-        <div className="flex items-center gap-4">
-          {icon
-            ? <motion.img src={icon} alt={base} className="w-10 h-10 rounded-full" whileHover={{ scale: 1.15, rotate: 8 }} transition={{ type: 'spring', stiffness: 300 }} />
-            : <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-sm font-bold">{base?.slice(0, 2)}</div>
-          }
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-white font-bold text-base">{base}</span>
-              <span className="text-[#6B6B78] text-sm">/USDT</span>
+      <td className="sticky left-0 z-[1] bg-[#0c0e12] px-3 sm:px-5 py-4 sm:py-4 border-r border-white/[0.04] group-hover:bg-white/[0.04]">
+        <div className="flex items-center gap-3 min-w-[140px] sm:min-w-[180px]">
+          {icon ? (
+            <img src={icon} alt={base} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex-shrink-0 ring-1 ring-white/10" />
+          ) : (
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-xs font-bold flex-shrink-0">
+              {base?.slice(0, 2)}
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-white font-semibold text-[15px] sm:text-base">{base}</span>
+              <span className="text-zinc-500 text-xs sm:text-sm font-normal">/ USDT</span>
               {base === 'BZX' && (
-                <motion.span animate={{ opacity: [0.6, 1, 0.6] }} transition={{ duration: 2, repeat: Infinity }}
-                  className="text-xs bg-gold/20 text-gold-light px-2 py-0.5 rounded font-bold">
-                  BZX
-                </motion.span>
+                <span className="text-[10px] bg-gold/15 text-gold-light px-1.5 py-0.5 rounded font-bold border border-gold/25">BITZX</span>
               )}
             </div>
+            <p className="text-[10px] text-white/35 font-medium mt-0.5 hidden sm:block">Spot</p>
           </div>
         </div>
       </td>
-      <td className="px-6 py-5 font-mono font-bold text-white text-base">
-        ${p >= 1000 ? p.toLocaleString(undefined, { maximumFractionDigits: 2 }) : p >= 1 ? p.toFixed(4) : p.toFixed(6)}
+      <td className="px-3 sm:px-4 py-4 font-mono font-semibold text-white text-sm sm:text-base whitespace-nowrap tabular-nums">
+        ${fmtLandingPrice(price, base)}
       </td>
-      <td className="px-6 py-5">
-        <motion.span
-          className={`inline-flex items-center gap-1.5 font-extrabold text-base px-3 py-1 rounded-lg ${isUp ? 'text-green-400 bg-green-500/10' : 'text-red-400 bg-red-500/10'}`}
-          animate={{ scale: [1, 1.04, 1] }} transition={{ duration: 3, repeat: Infinity, delay: i * 0.3 }}
-        >
-          {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+      <td className="px-3 sm:px-4 py-4 whitespace-nowrap">
+        <span className={`inline-flex items-center gap-1 font-semibold text-[15px] sm:text-base tabular-nums ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+          {isUp ? <TrendingUp size={14} className="flex-shrink-0 opacity-90" /> : <TrendingDown size={14} className="flex-shrink-0 opacity-90" />}
           {isUp ? '+' : ''}{pct.toFixed(2)}%
-        </motion.span>
+        </span>
       </td>
-      <td className="px-6 py-5">
-        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
-          <Link to={`/trade/${market.symbol}`}
-            className="inline-flex items-center gap-1.5 text-sm font-bold text-gold-light
-              bg-gold/10 hover:bg-gold/25 border border-gold/20 hover:border-gold/50
-              px-4 py-2 rounded-xl opacity-0 group-hover:opacity-100 transition-all">
-            Trade <ArrowRight size={14} />
-          </Link>
-        </motion.div>
+      <td className="hidden md:table-cell px-3 sm:px-4 py-4 font-mono text-sm text-white/90 tabular-nums whitespace-nowrap">
+        ${fmtLandingPrice(market.highPrice, base)}
+      </td>
+      <td className="hidden md:table-cell px-3 sm:px-4 py-4 font-mono text-sm text-white/90 tabular-nums whitespace-nowrap">
+        ${fmtLandingPrice(market.lowPrice, base)}
+      </td>
+      <td className="hidden lg:table-cell px-3 sm:px-4 py-4 font-mono text-sm text-white/80 tabular-nums whitespace-nowrap">
+        {fmtLandingVol(market.volume)} <span className="text-white/35 text-xs ml-1">{base}</span>
+      </td>
+      <td className="px-3 sm:px-4 py-4 font-mono text-sm text-white/90 tabular-nums whitespace-nowrap">
+        ${fmtLandingVol(market.quoteVolume)}
+      </td>
+      <td className="sticky right-0 z-[1] bg-[#0c0e12] px-3 sm:px-5 py-4 text-right border-l border-white/[0.04] group-hover:bg-white/[0.04]">
+        <Link
+          to={`/trade/${market.symbol}`}
+          className="inline-flex items-center gap-1.5 text-[13px] sm:text-sm font-medium text-gold-light bg-gold/10 hover:bg-gold/20 border border-gold/25 hover:border-gold/40 px-3 sm:px-4 py-2 rounded-lg transition-colors"
+        >
+          Trade <ArrowRight size={14} />
+        </Link>
       </td>
     </motion.tr>
   );
@@ -209,15 +327,53 @@ function MarketRow({ market, i }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function LandingPage() {
   const [markets, setMarkets] = useState([]);
+  const [liveMarketFilter, setLiveMarketFilter] = useState('all');
 
   useEffect(() => {
     const load = () => marketApi.getMarkets()
-      .then(d => setMarkets(d.slice(0, 8)))
+      .then(d => setMarkets(d))
       .catch(() => {});
     load();
     const t = setInterval(load, 6000);
     return () => clearInterval(t);
   }, []);
+
+  const marketIntel = useMarketIntel(markets);
+
+  const filteredLandingMarkets = useMemo(() => {
+    if (!markets.length) return [];
+    if (liveMarketFilter === 'gainers') {
+      return [...markets]
+        .filter(m => num(m.priceChangePercent) > 0)
+        .sort((a, b) => num(b.priceChangePercent) - num(a.priceChangePercent));
+    }
+    if (liveMarketFilter === 'losers') {
+      return [...markets]
+        .filter(m => num(m.priceChangePercent) < 0)
+        .sort((a, b) => num(a.priceChangePercent) - num(b.priceChangePercent));
+    }
+    if (liveMarketFilter === 'volume') {
+      return [...markets].sort((a, b) => num(b.quoteVolume) - num(a.quoteVolume));
+    }
+    return markets;
+  }, [markets, liveMarketFilter]);
+
+  const heroStatCards = useMemo(() => {
+    const volDisplay =
+      marketIntel.totalQuoteVol > 0
+        ? `$${fmtLandingVol(marketIntel.totalQuoteVol)}`
+        : '—';
+    const breadth =
+      marketIntel.pairCount > 0
+        ? `${marketIntel.upCount} ↑ · ${marketIntel.downCount} ↓`
+        : '—';
+    return [
+      { label: '24h volume (USDT)', value: volDisplay, sub: 'Quote volume, all pairs', icon: Activity, color: '#EBD38D' },
+      { label: 'Spot pairs live', value: String(marketIntel.pairCount || '—'), sub: 'USDT markets', icon: BarChart2, color: '#60a5fa' },
+      { label: '24h breadth', value: breadth, sub: 'Gainers vs losers', icon: TrendingUp, color: '#22c55e' },
+      { label: 'Users (est.)', value: '2.55M+', sub: 'Registered globally', icon: Users, color: '#a78bfa' },
+    ];
+  }, [marketIntel]);
 
   return (
     <div className="overflow-x-hidden" style={{ background: 'transparent' }}>
@@ -225,242 +381,314 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           HERO
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="relative min-h-screen flex flex-col overflow-hidden">
+      <section className="relative min-h-[100svh] flex flex-col overflow-hidden">
 
-        {/* Hero section overlays — star canvas is now global (fixed) in App.jsx */}
-        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1 }}>
-          {/* Vignette so bottom text stays readable */}
-          <div className="absolute inset-0"
-            style={{ background: 'linear-gradient(to bottom, transparent 60%, rgba(8,9,12,0.70) 100%)' }} />
-          {/* Very faint grid */}
-          <div className="absolute inset-0 opacity-[.025]"
-            style={{ backgroundImage: 'linear-gradient(#9C7941 1px,transparent 1px),linear-gradient(90deg,#9C7941 1px,transparent 1px)', backgroundSize: '70px 70px' }} />
+        <div className="absolute inset-0 z-0 bg-[#030405]" />
+        <HeroVideoBackground />
+        <div
+          className="pointer-events-none absolute inset-0 z-[2] opacity-90"
+          style={{ background: 'radial-gradient(ellipse 100% 70% at 50% -15%, rgba(156,121,65,0.12), transparent 52%)' }}
+        />
+        <div
+          className="pointer-events-none absolute inset-0 z-[2] opacity-70"
+          style={{ background: 'radial-gradient(ellipse 50% 45% at 95% 25%, rgba(59,130,246,0.06), transparent 50%)' }}
+        />
+        <div
+          className="pointer-events-none absolute inset-0 z-[2] opacity-50"
+          style={{ background: 'radial-gradient(ellipse 40% 35% at 5% 60%, rgba(168,85,247,0.05), transparent 55%)' }}
+        />
+        <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-b from-transparent via-transparent to-[#0a0b0d]" />
+        <div
+          className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-r from-[#030405]/95 via-[#030405]/45 to-transparent sm:max-w-[75%]"
+          aria-hidden
+        />
+
+        <div className="pointer-events-none absolute inset-0 z-[2]">
+          <div
+            className="absolute inset-0 opacity-[0.028]"
+            style={{
+              backgroundImage: 'linear-gradient(rgba(156,121,65,0.9) 1px, transparent 1px), linear-gradient(90deg, rgba(156,121,65,0.9) 1px, transparent 1px)',
+              backgroundSize: '56px 56px',
+            }}
+          />
+          <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_35%,rgba(8,9,12,0.94)_100%)]" />
         </div>
 
+        <div className="relative z-[3] flex-1 flex flex-col justify-center">
+          <div className="bitzx-landing-container py-14 sm:py-16 md:py-20 lg:py-24">
+            <div className="max-w-3xl xl:max-w-4xl">
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5 }}
+                  className="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 mb-7 sm:mb-8 backdrop-blur-md"
+                >
+                  <Sparkles size={14} className="text-gold-light shrink-0" />
+                  <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.2em] text-zinc-300">
+                    Spot · USDT · Pro charts
+                  </span>
+                  <span className="hidden sm:inline w-px h-3.5 bg-white/15" />
+                  <span className="hidden sm:inline text-[11px] font-medium text-emerald-400/95 tracking-wide">Live matching engine</span>
+                </motion.div>
 
-        {/* ── Main hero content ── */}
-        <div className="relative flex-1 flex items-center" style={{ zIndex: 3 }}>
-          <div className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24 py-12 sm:py-16 lg:py-24 grid lg:grid-cols-2 gap-10 lg:gap-16 xl:gap-24 items-center">
-
-            {/* LEFT — Text + CTAs */}
-            <div>
-              {/* Badge */}
-              <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-                <span className="inline-flex items-center gap-2.5 bg-gold/10 border border-gold/25 text-gold-light text-sm font-bold px-5 py-2.5 rounded-full mb-8">
-                  <motion.span className="w-2 h-2 bg-green-400 rounded-full" animate={{ scale: [1, 1.5, 1], opacity: [1, 0.6, 1] }} transition={{ duration: 1.5, repeat: Infinity }} />
-                  Live Trading — Open 24/7
-                </span>
-              </motion.div>
-
-              {/* Headline */}
-              <div className="mb-8 overflow-hidden">
-                {['Trade Crypto', 'Like a Pro.'].map((line, li) => (
-                  <motion.div key={line}
-                    initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
-                    transition={{ duration: 0.7, delay: 0.1 + li * 0.12, ease: [0.22, 1, 0.36, 1] }}
+                <div className="mb-6 sm:mb-8 space-y-4">
+                  <motion.h1
+                    initial={{ opacity: 0, y: 24 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.65, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
+                    className="bitzx-display [text-shadow:0_4px_48px_rgba(0,0,0,0.85)]"
                   >
-                    <h1 className={`font-extrabold leading-[1.0] ${li === 0 ? 'text-4xl sm:text-5xl md:text-7xl xl:text-8xl text-white' : 'text-4xl sm:text-5xl md:text-7xl xl:text-8xl text-gradient'}`}>
-                      {line}
-                    </h1>
-                  </motion.div>
-                ))}
-              </div>
-
-              {/* Description */}
-              <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
-                className="text-base sm:text-xl text-[#C5C6CC] leading-relaxed max-w-xl mb-8 sm:mb-10">
-                The next-generation centralized exchange. Real-time TradingView charts, a professional
-                matching engine, live P&L tracking, and instant market orders — all in one platform.
-              </motion.p>
-
-              {/* CTA buttons */}
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }}
-                className="flex flex-wrap gap-4 mb-12">
-                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
-                  <Link to="/register"
-                    className="group flex items-center gap-2.5 bg-gradient-to-r from-gold to-gold-light
-                      text-surface-dark font-extrabold px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl text-base sm:text-lg
-                      gold-glow transition-all shadow-xl shadow-gold/20">
-                    Get Started Free
-                    <ArrowRight size={20} className="group-hover:translate-x-1.5 transition-transform" />
-                  </Link>
-                </motion.div>
-                <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
-                  <Link to="/quick-trade"
-                    className="flex items-center gap-2.5 border-2 border-white/20 text-white
-                      hover:border-gold/50 font-semibold px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl text-base sm:text-lg transition-all
-                      bg-white/[.05] hover:bg-white/[.09]">
-                    <Zap size={18} className="text-gold" /> Quick Trade
-                  </Link>
-                </motion.div>
-              </motion.div>
-
-              {/* Trust pills */}
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
-                className="flex flex-wrap gap-3">
-                {[
-                  { text: '0.1% fees',          color: '#EBD38D' },
-                  { text: 'Instant execution',  color: '#22c55e' },
-                  { text: 'KYC secured',         color: '#60a5fa' },
-                  { text: '24/7 support',        color: '#a78bfa' },
-                ].map(({ text, color }) => (
-                  <motion.span key={text} whileHover={{ y: -2, scale: 1.05 }}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-sm font-bold text-[#8A8B90] cursor-default"
-                    style={{ background: `${color}0d`, border: `1px solid ${color}25`, color }}>
-                    <CheckCircle size={12} /> {text}
-                  </motion.span>
-                ))}
-              </motion.div>
-            </div>
-
-            {/* RIGHT — Premium trading card mockup */}
-            <motion.div
-              initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.9, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="relative hidden lg:block"
-            >
-              {/* Floating notification cards */}
-              <FloatNotification text="+$1,248.30" sub="BTC/USDT · Profit" color="#22c55e" icon={TrendingUp}   delay={0.8} x="0%"   y="8%" />
-              <FloatNotification text="Order Filled" sub="0.045 ETH @ $3,241" color="#60a5fa" icon={CheckCircle} delay={1.4} x="58%"  y="0%" />
-              <FloatNotification text="KYC Verified" sub="Full access unlocked" color="#EBD38D" icon={Shield}      delay={2.0} x="5%"   y="80%" />
-
-              <TiltCard className="relative z-10">
-                <div className="rounded-3xl overflow-hidden shadow-[0_48px_96px_rgba(0,0,0,0.6)]"
-                  style={{ border: '1px solid rgba(235,211,141,0.18)', background: '#0d0f14' }}>
-
-                  {/* Terminal title bar */}
-                  <div className="flex items-center gap-2 px-5 py-3"
-                    style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    {['#ef4444','#f59e0b','#22c55e'].map(c => (
-                      <div key={c} className="w-3 h-3 rounded-full" style={{ background: c }} />
-                    ))}
-                    <span className="ml-3 text-xs text-[#4A4B50] font-mono">BITZX Exchange · BZX/USDT</span>
-                    <motion.span className="ml-auto text-xs font-bold text-green-400 flex items-center gap-1"
-                      animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                      ● LIVE
-                    </motion.span>
-                  </div>
-
-                  {/* Price header */}
-                  <div className="flex items-center justify-between px-6 py-5"
-                    style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div className="flex items-center gap-3">
-                      <img src={LOGO} alt="BZX" className="w-10 h-10 object-contain" />
-                      <div>
-                        <p className="text-white font-extrabold text-lg leading-none">BZX / USDT</p>
-                        <p className="text-[#4A4B50] text-xs mt-1">BITZX Token · Spot</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <motion.p className="text-white font-mono font-extrabold text-2xl leading-none"
-                        animate={{ color: ['#ffffff', '#22c55e', '#ffffff'] }}
-                        transition={{ duration: 4, repeat: Infinity }}>
-                        $0.4523
-                      </motion.p>
-                      <p className="text-green-400 text-sm font-bold mt-1">▲ +2.33%</p>
-                    </div>
-                  </div>
-
-                  {/* Chart */}
-                  <div className="px-6 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    <MockChart />
-                    {/* Volume bars */}
-                    <div className="flex items-end gap-1 h-6 mt-1 opacity-40">
-                      {[30,50,40,70,55,80,65,75,60,90,70,85,65,95,80,90,85,95,80,100].map((h, i) => (
-                        <motion.div key={i} className="flex-1 rounded-sm bg-gold/60"
-                          initial={{ height: 0 }} animate={{ height: `${h}%` }}
-                          transition={{ delay: 0.6 + i * 0.03, duration: 0.3 }} />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Order book mini */}
-                  <div className="grid grid-cols-2 gap-px px-6 py-4"
-                    style={{ background: 'rgba(255,255,255,0.01)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div>
-                      <p className="text-[10px] text-red-400/70 font-bold uppercase tracking-widest mb-2">Asks</p>
-                      {['0.4561','0.4545','0.4532'].map((p, i) => (
-                        <motion.div key={p} className="flex justify-between text-xs font-mono mb-1"
-                          animate={{ opacity: [0.7, 1, 0.7] }} transition={{ duration: 2 + i * 0.5, repeat: Infinity }}>
-                          <span className="text-red-400">{p}</span>
-                          <span className="text-[#4A4B50]">{(1.2 - i * 0.3).toFixed(2)}</span>
-                        </motion.div>
-                      ))}
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-green-400/70 font-bold uppercase tracking-widest mb-2 text-right">Bids</p>
-                      {['0.4521','0.4510','0.4498'].map((p, i) => (
-                        <motion.div key={p} className="flex justify-between text-xs font-mono mb-1"
-                          animate={{ opacity: [0.7, 1, 0.7] }} transition={{ duration: 2.5 + i * 0.5, repeat: Infinity }}>
-                          <span className="text-[#4A4B50]">{(0.9 + i * 0.2).toFixed(2)}</span>
-                          <span className="text-green-400">{p}</span>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Stat row */}
-                  <div className="grid grid-cols-3 gap-px" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                    {[['24h High','$0.4812','#22c55e'],['24h Low','$0.4156','#ef4444'],['Volume','7.28M','#EBD38D']].map(([l, v, c]) => (
-                      <div key={l} className="px-4 py-3" style={{ background: '#0d0f14' }}>
-                        <p className="text-[10px] text-[#4A4B50] font-bold uppercase tracking-wider mb-1">{l}</p>
-                        <p className="font-mono font-bold text-sm" style={{ color: c }}>{v}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* CTA */}
-                  <div className="p-5">
-                    <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                      <Link to="/trade/BZXUSDT"
-                        className="w-full flex items-center justify-center gap-2.5 py-4 rounded-xl
-                          font-extrabold text-base text-surface-dark transition-all"
-                        style={{ background: 'linear-gradient(135deg, #9C7941, #EBD38D)', boxShadow: '0 8px 24px rgba(156,121,65,0.4)' }}>
-                        <Zap size={18} /> Trade BZX Now
-                      </Link>
-                    </motion.div>
-                  </div>
+                    Buy &amp; sell crypto on one exchange
+                  </motion.h1>
+                  <motion.p
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, delay: 0.12 }}
+                    className="text-lg sm:text-xl md:text-2xl font-semibold text-gradient leading-snug tracking-tight max-w-[22ch]"
+                  >
+                    Spot markets, depth &amp; full 24h stats
+                  </motion.p>
                 </div>
-              </TiltCard>
 
-              {/* Glow behind card */}
-              <div className="absolute inset-0 -z-10 blur-3xl scale-90 opacity-30"
-                style={{ background: 'radial-gradient(ellipse, rgba(156,121,65,0.5), transparent 70%)' }} />
-            </motion.div>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.25 }}
+                  className="bitzx-lead mb-9 sm:mb-10"
+                >
+                  Trade USDT pairs with live order books, full 24h OHLC, volumes in base &amp; quote, TradingView charts,
+                  portfolio P&amp;L, and bank-grade security — everything you need in a single professional terminal.
+                </motion.p>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-3.5 mb-11 sm:mb-12"
+                >
+                  <Link
+                    to="/register"
+                    className="bitzx-hover-scale group inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-gold to-gold-light px-8 py-3.5 text-[15px] font-semibold text-surface-dark shadow-xl shadow-gold/20"
+                  >
+                    Create account
+                    <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+                  </Link>
+                  <Link
+                    to="/quick-trade"
+                    className="bitzx-hover-border bitzx-hover-glow inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.05] px-8 py-3.5 text-[15px] font-medium text-white"
+                  >
+                    <Zap size={18} className="text-gold-light" />
+                    Quick trade
+                  </Link>
+                  <Link to="/markets" className="group bitzx-footer-link inline-flex items-center justify-center gap-1.5 py-3.5 text-[15px] font-medium text-gold-light/95">
+                    Browse markets <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </Link>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.45 }}
+                  className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4"
+                >
+                  {[
+                    { k: 'Maker fee', v: '0.05%', icon: BarChart2 },
+                    { k: 'Taker fee', v: '0.10%', icon: Activity },
+                    { k: 'Cold storage', v: 'Majority', icon: Shield },
+                    { k: 'Uptime', v: '99.98%', icon: Award },
+                  ].map(({ k, v, icon: Icon }, i) => (
+                    <div
+                      key={k}
+                      className="bitzx-hover-lift bitzx-hover-border rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-4 sm:py-4"
+                    >
+                      <Icon size={15} className="text-gold-light/85 mb-2.5" />
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{k}</p>
+                      <p className="text-[15px] sm:text-base font-semibold text-white mt-1 tabular-nums">{v}</p>
+                    </div>
+                  ))}
+                </motion.div>
+            </div>
           </div>
         </div>
 
-        {/* Scroll indicator */}
-        <motion.div animate={{ y: [0, 10, 0] }} transition={{ repeat: Infinity, duration: 2 }}
-          className="relative flex flex-col items-center gap-2 text-[#8A8B90] pb-10" style={{ zIndex: 3 }}>
-          <span className="text-sm font-semibold">Scroll to explore</span>
-          <div className="w-px h-8 bg-gradient-to-b from-[#8A8B90] to-transparent" />
+        <motion.div
+          animate={{ y: [0, 8, 0] }}
+          transition={{ repeat: Infinity, duration: 2.2 }}
+          className="relative z-[3] flex flex-col items-center gap-2 text-white/50 pb-8 pt-2"
+        >
+          <span className="text-xs font-semibold uppercase tracking-widest">Explore</span>
+          <div className="w-px h-7 bg-gradient-to-b from-white/40 to-transparent rounded-full" />
         </motion.div>
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
-          STATS
+          PRODUCT STRIP — CoinSwitch-style quick access (Spot · Markets · Portfolio)
+          ══════════════════════════════════════════════════════════════════ */}
+      <section
+        className="relative z-[3] border-y border-white/[0.06]"
+        style={{ background: 'linear-gradient(180deg, rgba(10,11,14,0.98) 0%, rgba(8,9,12,1) 100%)' }}
+      >
+        <div className="bitzx-landing-container py-8 md:py-10">
+          <p className="text-center bitzx-eyebrow bitzx-muted mb-6 tracking-[0.22em]">
+            One platform — spot trading, markets &amp; portfolio
+          </p>
+          <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
+            {[
+              { to: '/trade/BZXUSDT', label: 'Spot trade', sub: 'Limit · Market · Charts', icon: BarChart2 },
+              { to: '/markets', label: 'Markets', sub: 'All pairs · 24h data', icon: Globe },
+              { to: '/dashboard', label: 'Portfolio', sub: 'P&L · Balances', icon: LayoutDashboard },
+              { to: '/portfolio', label: 'Analytics', sub: 'Fills · Performance', icon: LineChart },
+              { to: '/wallet', label: 'Wallet', sub: 'Deposit · Withdraw', icon: Wallet },
+            ].map(({ to, label, sub, icon: Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                className="group bitzx-hover-border flex items-center gap-3.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 sm:px-6 sm:py-4 min-w-[148px] sm:min-w-[168px] transition-colors hover:bg-white/[0.06]"
+              >
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gold/10 border border-gold/20 text-gold-light flex-shrink-0">
+                  <Icon size={19} />
+                </div>
+                <div className="text-left min-w-0">
+                  <p className="text-[15px] font-semibold text-white leading-snug">{label}</p>
+                  <p className="text-[11px] sm:text-xs text-zinc-500 font-normal mt-1 line-clamp-2 leading-relaxed">{sub}</p>
+                </div>
+                <ChevronRight size={16} className="text-white/25 group-hover:text-gold-light/80 flex-shrink-0 hidden sm:block" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          MARKET PULSE — live gainers / losers (API)
+          ══════════════════════════════════════════════════════════════════ */}
+      <section
+        className="relative z-[2] border-b border-white/[0.06] overflow-hidden"
+        style={{ background: 'linear-gradient(165deg, rgba(8,9,12,1) 0%, rgba(12,14,20,0.98) 45%, rgba(10,11,15,1) 100%)' }}
+      >
+        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(235,211,141,0.08),transparent_55%)]" />
+        <div className="relative bitzx-landing-container bitzx-section-y-tight">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8 lg:gap-10 mb-10 md:mb-12"
+          >
+            <div className="max-w-xl">
+              <p className="bitzx-eyebrow mb-3">Live snapshot</p>
+              <h2 className="bitzx-title-lg mb-3">Market pulse</h2>
+              <p className="bitzx-lead text-zinc-500 max-w-none">
+                Top movers by 24h change — tap a pair to open the terminal. Totals aggregate every listed USDT market.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 sm:gap-3.5">
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-4 min-w-[148px]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">24h quote volume</p>
+                <p className="text-xl font-semibold text-white tabular-nums mt-1.5 tracking-tight">
+                  {marketIntel.totalQuoteVol > 0 ? `$${fmtLandingVol(marketIntel.totalQuoteVol)}` : '—'}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] px-5 py-4 min-w-[124px]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Pairs</p>
+                <p className="text-xl font-semibold text-white tabular-nums mt-1.5 tracking-tight">{marketIntel.pairCount || '—'}</p>
+              </div>
+              <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.06] px-5 py-4 min-w-[104px]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-400/90">Up 24h</p>
+                <p className="text-xl font-semibold text-emerald-300 tabular-nums mt-1.5 tracking-tight">{marketIntel.pairCount ? marketIntel.upCount : '—'}</p>
+              </div>
+              <div className="rounded-2xl border border-red-500/15 bg-red-500/[0.06] px-5 py-4 min-w-[104px]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-red-400/90">Down 24h</p>
+                <p className="text-xl font-semibold text-red-300 tabular-nums mt-1.5 tracking-tight">{marketIntel.pairCount ? marketIntel.downCount : '—'}</p>
+              </div>
+            </div>
+          </motion.div>
+
+          <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/40 via-[#0c0d12] to-[#0a0b0f] p-1 shadow-[0_0_0_1px_rgba(16,185,129,0.06)]"
+            >
+              <div className="rounded-[22px] bg-[#0a0b0f]/90 backdrop-blur-sm border border-white/[0.06] p-5 sm:p-6 h-full">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/15 border border-emerald-400/25">
+                    <Flame className="text-emerald-400" size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-[17px] font-semibold text-white tracking-tight">Hot gainers</h3>
+                    <p className="text-[13px] text-zinc-500 font-normal mt-0.5">Highest 24h % change</p>
+                  </div>
+                </div>
+                <div className="divide-y divide-white/[0.06]">
+                  {markets.length === 0 ? (
+                    <p className="text-sm text-white/45 py-8 text-center">Loading tickers…</p>
+                  ) : marketIntel.gainers.length === 0 ? (
+                    <p className="text-sm text-white/45 py-8 text-center">No advancers in this snapshot.</p>
+                  ) : (
+                    marketIntel.gainers.map((m, idx) => <PulsePairRow key={m.symbol} market={m} rank={idx + 1} />)
+                  )}
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.08 }}
+              className="rounded-3xl border border-red-500/20 bg-gradient-to-br from-red-950/35 via-[#0c0d12] to-[#0a0b0f] p-1 shadow-[0_0_0_1px_rgba(239,68,68,0.06)]"
+            >
+              <div className="rounded-[22px] bg-[#0a0b0f]/90 backdrop-blur-sm border border-white/[0.06] p-5 sm:p-6 h-full">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/15 border border-red-400/25">
+                    <Snowflake className="text-red-400" size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-[17px] font-semibold text-white tracking-tight">24h losers</h3>
+                    <p className="text-[13px] text-zinc-500 font-normal mt-0.5">Largest negative 24h %</p>
+                  </div>
+                </div>
+                <div className="divide-y divide-white/[0.06]">
+                  {markets.length === 0 ? (
+                    <p className="text-sm text-white/45 py-8 text-center">Loading tickers…</p>
+                  ) : marketIntel.losers.length === 0 ? (
+                    <p className="text-sm text-white/45 py-8 text-center">No decliners in this snapshot.</p>
+                  ) : (
+                    marketIntel.losers.map((m, idx) => <PulsePairRow key={m.symbol} market={m} rank={idx + 1} />)
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          STATS (live + brand)
           ══════════════════════════════════════════════════════════════════ */}
       <section className="border-y border-surface-border"
         style={{ background: 'linear-gradient(135deg, rgba(10,11,15,0.96), rgba(13,15,20,0.98))' }}>
-        <div className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24 py-12 sm:py-16 grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-8">
-          {STATS.map((s, i) => (
+        <div className="bitzx-landing-container bitzx-section-y grid grid-cols-2 md:grid-cols-4 gap-5 md:gap-8 lg:gap-10">
+          {heroStatCards.map((s, i) => (
             <motion.div key={s.label}
               initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ delay: i * 0.1, duration: 0.6 }}
             >
-              <TiltCard className="flex flex-col items-center text-center p-6 rounded-2xl cursor-default"
+              <TiltCard className="bitzx-hover-glow flex flex-col items-center text-center p-7 sm:p-8 rounded-2xl cursor-default min-h-[200px] justify-center"
                 style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                <motion.div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+                <motion.div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mb-4"
                   style={{ background: `${s.color}15`, border: `1px solid ${s.color}25` }}
-                  whileHover={{ rotate: [0, -8, 8, 0], scale: 1.1 }}
+                  whileHover={{ rotate: [0, -8, 8, 0], scale: 1.08 }}
                   transition={{ duration: 0.5 }}>
-                  <s.icon size={26} style={{ color: s.color }} />
+                  <s.icon size={24} style={{ color: s.color }} />
                 </motion.div>
-                <p className="text-4xl font-extrabold text-white mb-1">
-                  <AnimatedCounter end={s.value} />
+                <p className="text-2xl sm:text-3xl lg:text-[2rem] font-semibold text-white mb-2 tabular-nums tracking-tight">
+                  {s.label === 'Users (est.)' ? <AnimatedCounter end="2.55M+" /> : s.value}
                 </p>
-                <p className="text-base text-[#A0A1A8] font-semibold">{s.label}</p>
+                <p className="text-[15px] text-white font-medium leading-snug">{s.label}</p>
+                {s.sub && <p className="text-[12px] text-zinc-500 font-normal mt-2 max-w-[13rem] mx-auto leading-relaxed">{s.sub}</p>}
               </TiltCard>
             </motion.div>
           ))}
@@ -470,20 +698,20 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           PLATFORM PREVIEW STRIP
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="relative py-16 sm:py-28 overflow-hidden" style={{ background: 'rgba(10,11,15,0.97)' }}>
+      <section className="relative bitzx-section-y overflow-hidden" style={{ background: 'rgba(10,11,15,0.97)' }}>
         <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_50%,rgba(96,165,250,0.04),transparent_65%)]" />
-        <div className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24">
+        <div className="bitzx-landing-container">
           <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-            className="text-center mb-10 sm:mb-14">
-            <p className="text-gold text-sm font-extrabold uppercase tracking-widest mb-4">Platform Features</p>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-5">Everything You Need to Win</h2>
-            <p className="text-[#C5C6CC] text-base sm:text-xl max-w-2xl mx-auto leading-relaxed">
-              Purpose-built for traders who demand speed, depth, and reliability.
+            className="text-center mb-12 md:mb-16 max-w-3xl mx-auto">
+            <p className="bitzx-eyebrow mb-4">Pro platform</p>
+            <h2 className="bitzx-title-lg mb-5">Spot · Charts · Portfolio in one place</h2>
+            <p className="bitzx-lead-wide mx-auto text-zinc-400">
+              Same workflow as leading pro apps: pick a market, read full 24h stats, trade with depth, track P&amp;L — without switching tools.
             </p>
           </motion.div>
 
           {/* Feature highlights — icon + text horizontal list */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-10 sm:mb-16">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6 mb-12 md:mb-20">
             {[
               { icon: Cpu,       color: '#EBD38D', title: 'Matching Engine',   stat: '< 1ms latency'    },
               { icon: BarChart2, color: '#60a5fa', title: 'TradingView Charts', stat: '100+ indicators' },
@@ -493,16 +721,17 @@ export default function LandingPage() {
               <motion.div key={item.title}
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }} transition={{ delay: i * 0.1 }}
-                whileHover={{ y: -6, scale: 1.02 }}
-                className="flex items-start gap-4 p-5 rounded-2xl cursor-default"
+                whileHover={{ y: -3, scale: 1.008 }}
+                transition={{ type: 'tween', duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+                className="bitzx-hover-glow flex items-start gap-4 p-6 rounded-2xl cursor-default"
                 style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${item.color}20` }}>
                 <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
                   style={{ background: `${item.color}15`, border: `1px solid ${item.color}30` }}>
                   <item.icon size={20} style={{ color: item.color }} />
                 </div>
                 <div>
-                  <p className="text-white font-bold text-base">{item.title}</p>
-                  <p className="text-sm font-semibold mt-0.5" style={{ color: item.color }}>{item.stat}</p>
+                  <p className="text-white font-semibold text-[15px] leading-snug">{item.title}</p>
+                  <p className="text-[13px] font-medium mt-1.5 opacity-90" style={{ color: item.color }}>{item.stat}</p>
                 </div>
               </motion.div>
             ))}
@@ -516,16 +745,17 @@ export default function LandingPage() {
                 <motion.div key={pair.symbol}
                   initial={{ opacity: 0, scale: 0.8 }} whileInView={{ opacity: 1, scale: 1 }}
                   viewport={{ once: true }} transition={{ delay: i * 0.05 }}
-                  whileHover={{ y: -8, scale: 1.1 }}
+                  whileHover={{ y: -4, scale: 1.04 }}
+                  transition={{ type: 'tween', duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
                 >
                   <Link to={`/trade/${pair.symbol}`}
-                    className="flex flex-col items-center gap-2 p-4 rounded-2xl w-20 transition-all"
+                    className="bitzx-hover-border flex flex-col items-center gap-2 p-4 rounded-2xl w-20"
                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                     {icon
                       ? <img src={icon} alt={pair.base} className="w-10 h-10 rounded-full" />
                       : <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center font-bold text-gold-light text-sm">{pair.base[0]}</div>
                     }
-                    <span className="text-xs font-bold text-[#C0C1C8]">{pair.base}</span>
+                    <span className="text-xs font-bold text-white">{pair.base}</span>
                   </Link>
                 </motion.div>
               );
@@ -535,38 +765,79 @@ export default function LandingPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
-          LIVE MARKETS
+          LIVE MARKETS — CoinSwitch-style snapshot (pair · last · 24h · OHLC · vol)
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24 pb-16 sm:pb-28" style={{ background: 'rgba(10,11,15,0.97)' }}>
+      <section className="w-full bitzx-landing-container pb-20 md:pb-28 pt-4 md:pt-6" style={{ background: 'rgba(10,11,15,0.97)' }}>
         <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-          className="flex flex-wrap items-end justify-between gap-4 mb-8 sm:mb-10">
-          <div>
-            <p className="text-gold text-sm font-extrabold uppercase tracking-widest mb-2">Live Markets</p>
-            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-extrabold text-white">Top Trading Pairs</h2>
+          className="flex flex-wrap items-end justify-between gap-6 mb-8 md:mb-10">
+          <div className="max-w-2xl">
+            <p className="bitzx-eyebrow mb-3">Markets</p>
+            <h2 className="bitzx-title-lg mb-3">Live USDT pairs</h2>
+            <p className="bitzx-lead text-zinc-500 max-w-none">
+              Last price, 24h change, high / low, volume in coin and in USDT — same fields you expect on a pro markets screen.
+            </p>
           </div>
-          <motion.div whileHover={{ x: 4 }}>
-            <Link to="/markets" className="flex items-center gap-2 text-gold-light text-sm sm:text-base font-bold">
-              View All <ArrowRight size={16} />
+          <motion.div whileHover={{ x: 3 }} transition={{ type: 'tween', duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
+            <Link to="/markets" className="flex items-center gap-2 text-gold-light text-[15px] font-medium">
+              Full markets <ArrowRight size={16} />
             </Link>
           </motion.div>
         </motion.div>
 
-        <div className="rounded-2xl overflow-x-auto"
+        <div className="flex flex-wrap gap-2.5 mb-5">
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'gainers', label: '24h Gainers' },
+            { id: 'losers', label: '24h Losers' },
+            { id: 'volume', label: 'By volume' },
+          ].map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setLiveMarketFilter(id)}
+              className={`rounded-full px-5 py-2.5 text-[13px] sm:text-sm font-medium transition-colors ${
+                liveMarketFilter === id
+                  ? 'bg-gold text-surface-dark shadow-md shadow-gold/10'
+                  : 'bg-white/[0.05] text-zinc-300 border border-white/10 hover:border-gold/30'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="bitzx-hover-lift bitzx-hover-border rounded-2xl overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:thin]"
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <table className="w-full" style={{ minWidth: 460 }}>
-            <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-              <tr className="text-xs text-[#8A8B90] uppercase tracking-widest font-extrabold">
-                {['Pair', 'Price', '24h Change', ''].map(h => (
-                  <th key={h} className="px-4 sm:px-6 py-4 sm:py-5 text-left">{h}</th>
-                ))}
+          <table className="w-full text-left" style={{ minWidth: 920 }}>
+            <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <tr className="text-[11px] sm:text-xs text-zinc-400 uppercase tracking-[0.14em] font-semibold">
+                <th className="sticky left-0 z-[2] bg-[#0a0b0f] px-4 sm:px-5 py-4 border-r border-white/[0.06]">Pair</th>
+                <th className="px-3 sm:px-4 py-4 whitespace-nowrap">Last (USDT)</th>
+                <th className="px-3 sm:px-4 py-4 whitespace-nowrap">24h Change</th>
+                <th className="hidden md:table-cell px-3 sm:px-4 py-4 whitespace-nowrap">24h High</th>
+                <th className="hidden md:table-cell px-3 sm:px-4 py-4 whitespace-nowrap">24h Low</th>
+                <th className="hidden lg:table-cell px-3 sm:px-4 py-4 whitespace-nowrap">24h Vol (base)</th>
+                <th className="px-3 sm:px-4 py-4 whitespace-nowrap">24h Vol (USDT)</th>
+                <th className="sticky right-0 z-[2] bg-[#0a0b0f] px-3 sm:px-5 py-3 sm:py-4 text-right border-l border-white/[0.06] w-[100px] sm:w-auto"> </th>
               </tr>
             </thead>
             <tbody>
               {markets.length === 0 ? (
-                <tr><td colSpan={4} className="text-center py-16">
-                  <RefreshCw size={28} className="animate-spin text-[#4A4B50] mx-auto" />
-                </td></tr>
-              ) : markets.map((m, i) => <MarketRow key={m.symbol} market={m} i={i} />)}
+                <tr>
+                  <td colSpan={8} className="text-center py-16 text-white/50">
+                    <RefreshCw size={28} className="animate-spin text-gold-light mx-auto mb-2" />
+                    Loading markets…
+                  </td>
+                </tr>
+              ) : filteredLandingMarkets.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-12 text-white/50 text-sm">
+                    No pairs match this filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredLandingMarkets.map((m, i) => <MarketRow key={m.symbol} market={m} i={i} />)
+              )}
             </tbody>
           </table>
         </div>
@@ -575,41 +846,42 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           FEATURES
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="py-16 sm:py-28 border-y border-surface-border"
+      <section className="bitzx-section-y border-y border-surface-border"
         style={{ background: 'rgba(10,11,15,0.97)' }}>
-        <div className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24">
+        <div className="bitzx-landing-container">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-            className="text-center mb-10 sm:mb-16">
-            <p className="text-gold text-sm font-extrabold uppercase tracking-widest mb-4">Why BITZX</p>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-5">Built for Serious Traders</h2>
-            <p className="text-[#C5C6CC] max-w-2xl mx-auto text-xl leading-relaxed">
+            className="text-center mb-12 md:mb-16 max-w-2xl mx-auto">
+            <p className="bitzx-eyebrow mb-4">Why BITZX</p>
+            <h2 className="bitzx-title-lg mb-5">Built for serious traders</h2>
+            <p className="bitzx-lead-wide mx-auto text-zinc-400">
               Everything you need to trade with confidence — from beginner to professional.
             </p>
           </motion.div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
             {FEATURES.map((f, i) => (
               <motion.div key={f.title}
                 initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }} transition={{ delay: i * 0.1, duration: 0.5 }}
-                whileHover={{ y: -8, scale: 1.02 }}
-                className="group glass rounded-2xl p-8 cursor-default transition-all duration-300"
+                whileHover={{ y: -4, scale: 1.012 }}
+                transition={{ type: 'tween', duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                className="group bitzx-hover-glow glass rounded-2xl p-8 sm:p-9 cursor-default"
                 style={{ border: '1px solid rgba(255,255,255,0.07)' }}
               >
                 <motion.div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6"
                   style={{ background: `${f.color}15`, border: `1px solid ${f.color}25` }}
-                  whileHover={{ rotate: [0, -10, 10, 0], scale: 1.15 }}
-                  transition={{ duration: 0.5 }}>
-                  <f.icon size={26} style={{ color: f.color }} />
+                  whileHover={{ rotate: [0, -5, 5, 0], scale: 1.06 }}
+                  transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
+                  <f.icon size={24} style={{ color: f.color }} />
                 </motion.div>
-                <h3 className="text-white font-extrabold text-xl mb-3 group-hover:text-gradient transition-all">
+                <h3 className="text-white font-semibold text-[17px] sm:text-lg mb-3 leading-snug group-hover:text-gradient transition-all">
                   {f.title}
                 </h3>
-                <p className="text-[#C0C1C8] text-base leading-relaxed">{f.desc}</p>
+                <p className="text-zinc-400 text-[15px] leading-[1.65]">{f.desc}</p>
 
                 {/* Animated bottom line on hover */}
                 <motion.div className="h-0.5 mt-6 rounded-full" initial={{ width: 0 }}
-                  whileHover={{ width: '100%' }} transition={{ duration: 0.3 }}
+                  whileHover={{ width: '100%' }} transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
                   style={{ background: `linear-gradient(90deg, ${f.color}, transparent)` }} />
               </motion.div>
             ))}
@@ -620,14 +892,14 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           HOW IT WORKS
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24 py-16 sm:py-28" style={{ background: 'rgba(10,11,15,0.97)' }}>
+      <section className="w-full bitzx-landing-container bitzx-section-y" style={{ background: 'rgba(10,11,15,0.97)' }}>
         <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-          className="text-center mb-10 sm:mb-16">
-          <p className="text-gold text-sm font-extrabold uppercase tracking-widest mb-4">Get Started</p>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-white">Start in 3 Simple Steps</h2>
+          className="text-center mb-12 md:mb-16 max-w-2xl mx-auto">
+          <p className="bitzx-eyebrow mb-4">Get started</p>
+          <h2 className="bitzx-title-lg">Start in three simple steps</h2>
         </motion.div>
 
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-8 sm:gap-10 relative">
+        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-10 md:gap-12 relative">
           {/* Connector line */}
           <div className="hidden md:block absolute top-14 left-[calc(16%+48px)] right-[calc(16%+48px)] h-px"
             style={{ background: 'linear-gradient(90deg, rgba(156,121,65,0.3), rgba(235,211,141,0.5), rgba(156,121,65,0.3))' }} />
@@ -636,21 +908,22 @@ export default function LandingPage() {
             <motion.div key={s.n}
               initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ delay: i * 0.15 }}
-              whileHover={{ y: -6 }}
+              whileHover={{ y: -3 }}
+              transition={{ type: 'tween', duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
               className="relative text-center cursor-default"
             >
               <motion.div className="w-24 h-24 rounded-3xl flex flex-col items-center justify-center mx-auto mb-8"
                 style={{ background: 'linear-gradient(135deg, rgba(156,121,65,0.15), rgba(235,211,141,0.08))', border: '1px solid rgba(156,121,65,0.3)' }}
-                whileHover={{ scale: 1.1, rotate: [0, -5, 5, 0] }}
-                transition={{ duration: 0.4 }}>
+                whileHover={{ scale: 1.045, rotate: [0, -3, 3, 0] }}
+                transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
                 <span className="text-3xl font-extrabold text-gold leading-none">{s.n}</span>
               </motion.div>
-              <h3 className="text-white font-extrabold text-2xl mb-4">{s.title}</h3>
-              <p className="text-[#C0C1C8] text-base leading-relaxed">{s.desc}</p>
+              <h3 className="text-white font-semibold text-xl mb-3 tracking-tight">{s.title}</h3>
+              <p className="text-zinc-400 text-[15px] leading-[1.65]">{s.desc}</p>
 
-              <motion.div className="mt-8" whileHover={{ scale: 1.05 }}>
+              <motion.div className="mt-8" whileHover={{ scale: 1.03 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
                 <Link to={i === 0 ? '/register' : i === 1 ? '/wallet' : '/trade/BZXUSDT'}
-                  className="inline-flex items-center gap-1.5 text-sm font-bold text-gold-light hover:text-gold transition-colors">
+                  className="inline-flex items-center gap-1.5 text-[14px] font-medium text-gold-light hover:text-gold transition-colors">
                   {i === 0 ? 'Sign Up Free' : i === 1 ? 'Go to Wallet' : 'Start Trading'} <ChevronRight size={14} />
                 </Link>
               </motion.div>
@@ -662,13 +935,13 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           COMPARISON TABLE
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="py-16 sm:py-28 border-y border-surface-border"
+      <section className="bitzx-section-y border-y border-surface-border"
         style={{ background: 'rgba(10,11,15,0.97)' }}>
-        <div className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24">
+        <div className="bitzx-landing-container">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-            className="text-center mb-10 sm:mb-16">
-            <p className="text-gold text-sm font-extrabold uppercase tracking-widest mb-4">Why Choose BITZX</p>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-5">We Stack Up Against Anyone</h2>
+            className="text-center mb-12 md:mb-14 max-w-2xl mx-auto">
+            <p className="bitzx-eyebrow mb-4">Why choose BITZX</p>
+            <h2 className="bitzx-title-lg">We stack up against anyone</h2>
           </motion.div>
 
           <div className="max-w-3xl mx-auto rounded-2xl overflow-x-auto"
@@ -677,14 +950,14 @@ export default function LandingPage() {
             {/* Header */}
             <div className="grid grid-cols-3"
               style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-              <div className="px-4 sm:px-6 py-4 text-xs font-extrabold text-[#4A4B50] uppercase tracking-widest">Feature</div>
+              <div className="px-4 sm:px-6 py-4 text-xs font-extrabold text-white uppercase tracking-widest">Feature</div>
               <div className="px-4 sm:px-6 py-4 text-center">
                 <span className="text-sm font-extrabold text-gold-light flex items-center justify-center gap-2">
                   <img src={LOGO} alt="BITZX" className="w-5 h-5 object-contain" /> BITZX
                 </span>
               </div>
               <div className="px-4 sm:px-6 py-4 text-center">
-                <span className="text-sm font-bold text-[#8A8B90]">Others</span>
+                <span className="text-sm font-bold text-white">Others</span>
               </div>
             </div>
             {/* Rows */}
@@ -694,14 +967,14 @@ export default function LandingPage() {
                 viewport={{ once: true }} transition={{ delay: i * 0.08 }}
                 className="grid grid-cols-3 hover:bg-white/[.025] transition-colors"
                 style={{ borderBottom: i < VS_TABLE.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                <div className="px-4 sm:px-6 py-4 text-xs sm:text-sm font-semibold text-[#C0C1C8]">{row.feature}</div>
+                <div className="px-4 sm:px-6 py-4 text-xs sm:text-sm font-semibold text-white">{row.feature}</div>
                 <div className="px-4 sm:px-6 py-4 flex items-center justify-center gap-1 sm:gap-2">
                   <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
                   <span className="text-xs sm:text-sm font-bold text-green-400">{row.bitzx}</span>
                 </div>
                 <div className="px-4 sm:px-6 py-4 flex items-center justify-center gap-1 sm:gap-2">
-                  <X size={14} className="text-[#4A4B50] flex-shrink-0" />
-                  <span className="text-xs sm:text-sm text-[#8A8B90]">{row.other}</span>
+                  <X size={14} className="text-white flex-shrink-0" />
+                  <span className="text-xs sm:text-sm text-white">{row.other}</span>
                 </div>
               </motion.div>
             ))}
@@ -713,24 +986,25 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           TESTIMONIALS
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="w-full px-4 sm:px-10 lg:px-16 2xl:px-24 py-16 sm:py-28" style={{ background: 'rgba(10,11,15,0.97)' }}>
+      <section className="w-full bitzx-landing-container bitzx-section-y" style={{ background: 'rgba(10,11,15,0.97)' }}>
         <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-          className="text-center mb-10 sm:mb-14">
-          <p className="text-gold text-sm font-extrabold uppercase tracking-widest mb-4">Community</p>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-5">Loved by Traders</h2>
-          <p className="text-[#C5C6CC] text-xl max-w-xl mx-auto">Join thousands of traders who trust BITZX for their daily trading.</p>
+          className="text-center mb-12 md:mb-14 max-w-2xl mx-auto">
+          <p className="bitzx-eyebrow mb-4">Community</p>
+          <h2 className="bitzx-title-lg mb-4">Loved by traders</h2>
+          <p className="bitzx-lead-wide mx-auto text-zinc-400">Join thousands of traders who trust BITZX for their daily trading.</p>
         </motion.div>
 
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-5 sm:gap-6">
+        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 lg:gap-8">
           {TESTIMONIALS.map((t, i) => (
             <motion.div key={t.name}
               initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ delay: i * 0.12 }}
-              whileHover={{ y: -8, scale: 1.02 }}
-              className="rounded-2xl p-7 cursor-default"
+              whileHover={{ y: -4, scale: 1.012 }}
+              transition={{ type: 'tween', duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              className="bitzx-hover-glow rounded-2xl p-8 cursor-default"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
               {/* Stars */}
-              <div className="flex gap-1 mb-5">
+              <div className="flex gap-1 mb-6">
                 {[...Array(t.rating)].map((_, si) => (
                   <motion.div key={si} initial={{ scale: 0 }} whileInView={{ scale: 1 }} viewport={{ once: true }}
                     transition={{ delay: i * 0.1 + si * 0.06 }}>
@@ -738,15 +1012,15 @@ export default function LandingPage() {
                   </motion.div>
                 ))}
               </div>
-              <p className="text-[#D5D5D0] text-base leading-relaxed mb-6">"{t.text}"</p>
+              <p className="text-zinc-300 text-[15px] leading-[1.7] mb-7">"{t.text}"</p>
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl flex items-center justify-center font-extrabold text-lg text-surface-dark"
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center font-semibold text-base text-surface-dark"
                   style={{ background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }}>
                   {t.avatar}
                 </div>
                 <div>
-                  <p className="text-white font-bold text-sm">{t.name}</p>
-                  <p className="text-[#8A8B90] text-xs mt-0.5">{t.role}</p>
+                  <p className="text-white font-medium text-[15px]">{t.name}</p>
+                  <p className="text-zinc-500 text-[13px] mt-0.5">{t.role}</p>
                 </div>
               </div>
             </motion.div>
@@ -757,9 +1031,9 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           CTA BANNER
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="px-6 sm:px-10 lg:px-16 2xl:px-24 pb-28" style={{ background: 'rgba(10,11,15,0.97)' }}>
+      <section className="bitzx-landing-container pb-24 md:pb-32 pt-4" style={{ background: 'rgba(10,11,15,0.97)' }}>
         <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-          className="relative rounded-3xl overflow-hidden p-16 text-center"
+          className="relative rounded-3xl overflow-hidden px-8 py-14 sm:px-12 sm:py-16 md:py-20 text-center"
           style={{ background: 'linear-gradient(135deg, rgba(156,121,65,0.18), rgba(235,211,141,0.06), rgba(10,11,15,0.98))', border: '1px solid rgba(235,211,141,0.22)' }}>
 
           {/* Background glow */}
@@ -776,32 +1050,32 @@ export default function LandingPage() {
           <div className="relative">
             <motion.div initial={{ scale: 0.8, opacity: 0 }} whileInView={{ scale: 1, opacity: 1 }}
               viewport={{ once: true }} transition={{ duration: 0.5 }}
-              className="inline-flex items-center gap-2 bg-gold/10 border border-gold/25 text-gold-light text-sm font-bold px-5 py-2.5 rounded-full mb-8">
-              <Sparkles size={14} /> Limited Time — Free Demo Balance
+              className="inline-flex items-center gap-2 bg-gold/10 border border-gold/25 text-gold-light text-[13px] font-medium px-5 py-2.5 rounded-full mb-7 tracking-wide">
+              <Sparkles size={14} /> Limited time — free demo balance
             </motion.div>
 
-            <h2 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold text-white mb-6 leading-tight">
-              Ready to Start<br />
-              <span className="text-gradient">Trading?</span>
+            <h2 className="bitzx-title-lg max-w-[18ch] mx-auto mb-6">
+              Ready to start<br />
+              <span className="text-gradient">trading?</span>
             </h2>
-            <p className="text-[#C5C6CC] text-base sm:text-xl mb-8 sm:mb-12 max-w-2xl mx-auto leading-relaxed px-4 sm:px-0">
+            <p className="bitzx-lead-wide mx-auto mb-10 sm:mb-12 text-zinc-400 px-2 sm:px-0">
               Join over 2.5M traders on BITZX Exchange. Get a free demo account with $5,000 USDT
               instantly — no deposit required.
             </p>
 
-            <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-4 px-4 sm:px-0">
-              <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.97 }}>
+            <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3 sm:gap-4 px-2 sm:px-0">
+              <motion.div whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.985 }} transition={{ type: 'tween', duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
                 <Link to="/register"
                   className="flex items-center justify-center gap-2.5 bg-gradient-to-r from-gold to-gold-light
-                    text-surface-dark font-extrabold px-8 sm:px-12 py-4 sm:py-5 rounded-xl text-base sm:text-lg gold-glow shadow-xl shadow-gold/30">
-                  Create Free Account <ArrowRight size={20} />
+                    text-surface-dark font-semibold px-8 sm:px-10 py-3.5 sm:py-4 rounded-xl text-[15px] sm:text-base gold-glow shadow-xl shadow-gold/25">
+                  Create free account <ArrowRight size={20} />
                 </Link>
               </motion.div>
-              <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.97 }}>
+              <motion.div whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.985 }} transition={{ type: 'tween', duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
                 <Link to="/markets"
-                  className="flex items-center justify-center gap-2.5 border border-white/15 text-[#D5D5D0] font-bold
-                    px-8 sm:px-12 py-4 sm:py-5 rounded-xl text-base sm:text-lg hover:bg-white/[.05] hover:border-white/25 transition-all">
-                  <BarChart2 size={18} /> Explore Markets
+                  className="flex items-center justify-center gap-2.5 border border-white/15 text-white font-medium
+                    px-8 sm:px-10 py-3.5 sm:py-4 rounded-xl text-[15px] sm:text-base hover:bg-white/[.05] hover:border-white/25 transition-all">
+                  <BarChart2 size={18} /> Explore markets
                 </Link>
               </motion.div>
             </div>

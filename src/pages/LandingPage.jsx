@@ -8,7 +8,7 @@ import {
   Cpu, Eye, Sparkles, ArrowUpRight,
   LayoutDashboard, LineChart, Flame, Snowflake,
 } from 'lucide-react';
-import { marketApi, COIN_ICONS, PAIRS } from '@/services/marketApi';
+import { COIN_ICONS, PAIRS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -330,12 +330,40 @@ export default function LandingPage() {
   const [liveMarketFilter, setLiveMarketFilter] = useState('all');
 
   useEffect(() => {
-    const load = () => marketApi.getMarkets()
-      .then(d => setMarkets(d))
-      .catch(() => {});
-    load();
-    const t = setInterval(load, 6000);
-    return () => clearInterval(t);
+    const url = exchangeWsPath('/api/ws/exchange/markets');
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
+            setMarkets(normalizeMarketsList(j.markets));
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
   }, []);
 
   const marketIntel = useMarketIntel(markets);

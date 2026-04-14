@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   Shield, CheckCircle, Clock, AlertCircle,
   ChevronRight, ChevronLeft, FileText, User,
-  Globe, CreditCard,
+  Globe, CreditCard, Upload, ImageIcon,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 
@@ -146,7 +146,22 @@ const DOC_TYPES = [
   { value: 'driving_license', label: 'Driving License', emoji: '🚗', desc: 'Valid driving license with photo' },
 ];
 
-function Step2({ data, onChange }) {
+function isImagePath(url) {
+  if (!url) return false;
+  return /\.(jpe?g|png|webp)$/i.test(url);
+}
+
+function Step2({
+  data,
+  onChange,
+  docFrontUrl,
+  docBackUrl,
+  idFrontFile,
+  idBackFile,
+  onPickFront,
+  onPickBack,
+  uploading,
+}) {
   return (
     <div className="space-y-6">
       <div>
@@ -176,24 +191,62 @@ function Step2({ data, onChange }) {
           onChange={e => onChange('document_expiry', e.target.value)} />
       </div>
 
-      {/* Upload notice */}
-      <div className="rounded-2xl p-5 flex gap-4"
+      <div className="rounded-2xl p-5 space-y-4"
         style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)' }}>
-        <FileText size={22} className="text-blue-400 flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="text-base font-bold text-white mb-1.5">Document Upload — Coming Soon</p>
-          <p className="text-sm text-white leading-relaxed">
-            Physical document scan upload will be available in the next update.
-            After you submit, our team will contact you via email to complete the verification process.
-          </p>
+        <div className="flex items-center gap-2 text-white font-bold">
+          <Upload size={18} className="text-blue-400" />
+          Document photos
         </div>
+        <p className="text-sm text-white/80 leading-relaxed">
+          Upload a <strong className="text-white">clear, color photo</strong> of your ID (JPEG, PNG, WebP, or PDF). Max 15MB per file.
+          Front is required; back is optional unless your ID has two sides.
+        </p>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-white/70 mb-2">ID — front <span className="text-red-400">*</span></label>
+            <label className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 px-4 py-6 cursor-pointer hover:border-gold/40 transition-colors">
+              <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden"
+                onChange={(e) => { onPickFront(e.target.files?.[0] || null); e.target.value = ''; }} />
+              <ImageIcon size={22} className="text-white/50" />
+              <span className="text-xs text-white/70 text-center">{idFrontFile ? idFrontFile.name : 'Choose file'}</span>
+            </label>
+            {(docFrontUrl && !idFrontFile && isImagePath(docFrontUrl)) && (
+              <img src={`${API}${docFrontUrl}`} alt="ID front" className="mt-2 rounded-lg max-h-40 object-contain border border-white/10" />
+            )}
+            {docFrontUrl && !idFrontFile && !isImagePath(docFrontUrl) && (
+              <a href={`${API}${docFrontUrl}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 mt-2 inline-block">View uploaded PDF</a>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-white/70 mb-2">ID — back (optional)</label>
+            <label className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 px-4 py-6 cursor-pointer hover:border-gold/40 transition-colors">
+              <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden"
+                onChange={(e) => { onPickBack(e.target.files?.[0] || null); e.target.value = ''; }} />
+              <ImageIcon size={22} className="text-white/50" />
+              <span className="text-xs text-white/70 text-center">{idBackFile ? idBackFile.name : 'Choose file'}</span>
+            </label>
+            {(docBackUrl && !idBackFile && isImagePath(docBackUrl)) && (
+              <img src={`${API}${docBackUrl}`} alt="ID back" className="mt-2 rounded-lg max-h-40 object-contain border border-white/10" />
+            )}
+            {docBackUrl && !idBackFile && !isImagePath(docBackUrl) && (
+              <a href={`${API}${docBackUrl}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 mt-2 inline-block">View uploaded PDF</a>
+            )}
+          </div>
+        </div>
+        {uploading && (
+          <p className="text-xs text-amber-300 flex items-center gap-2">
+            <span className="w-3 h-3 border border-amber-400 border-t-transparent rounded-full animate-spin inline-block" />
+            Uploading…
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
 // ─── Step 3: Review ───────────────────────────────────────────────────────────
-function Step3({ personal, document: doc }) {
+function Step3({ personal, document: doc, docFrontUrl, docBackUrl }) {
   const Row = ({ label, value }) => (
     <div className="flex items-center justify-between py-3 border-b last:border-0"
       style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
@@ -227,7 +280,16 @@ function Step3({ personal, document: doc }) {
           value={DOC_TYPES.find(d => d.value === doc.document_type)?.label || doc.document_type} />
         <Row label="Document Number" value={doc.document_number} />
         <Row label="Expiry Date"     value={doc.document_expiry} />
+        <Row label="Front upload" value={docFrontUrl ? 'Attached' : '—'} />
+        <Row label="Back upload" value={docBackUrl ? 'Attached' : '—'} />
       </div>
+
+      {(docFrontUrl && isImagePath(docFrontUrl)) && (
+        <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <p className="text-xs font-bold text-white/60 mb-2">ID preview (front)</p>
+          <img src={`${API}${docFrontUrl}`} alt="" className="max-h-48 rounded-lg border border-white/10 object-contain" />
+        </div>
+      )}
 
       <div className="rounded-2xl p-5"
         style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
@@ -258,10 +320,27 @@ export default function KYCPage() {
   const [docInfo, setDocInfo] = useState({
     document_type: '', document_number: '', document_expiry: '',
   });
+  const [docFrontUrl, setDocFrontUrl] = useState('');
+  const [docBackUrl, setDocBackUrl] = useState('');
+  const [idFrontFile, setIdFrontFile] = useState(null);
+  const [idBackFile, setIdBackFile] = useState(null);
+  const [uploadingDocs, setUploadingDocs] = useState(false);
 
   useEffect(() => {
     authFetch(`${API}/api/kyc/status`)
-      .then(r => r.json()).then(setKyc).catch(() => {})
+      .then(r => r.json())
+      .then((data) => {
+        setKyc(data);
+        if (data.personal_info && typeof data.personal_info === 'object') {
+          setPersonal((p) => ({ ...p, ...data.personal_info }));
+        }
+        if (data.document_info && typeof data.document_info === 'object') {
+          setDocInfo((d) => ({ ...d, ...data.document_info }));
+        }
+        if (data.document_front_url) setDocFrontUrl(data.document_front_url);
+        if (data.document_back_url) setDocBackUrl(data.document_back_url);
+      })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
@@ -269,18 +348,73 @@ export default function KYCPage() {
   const updateDoc      = (k, v) => setDocInfo(d => ({ ...d, [k]: v }));
 
   const step1Valid = Object.values(personal).every(v => v.trim());
-  const step2Valid = docInfo.document_type && docInfo.document_number && docInfo.document_expiry;
+  const hasIdFront = !!(idFrontFile || docFrontUrl);
+  const step2Valid = docInfo.document_type && docInfo.document_number && docInfo.document_expiry && hasIdFront;
   const canNext    = step === 0 ? step1Valid : step === 1 ? step2Valid : true;
+
+  const parseError = (data) => {
+    const d = data?.detail;
+    if (Array.isArray(d)) return d.map((x) => x.msg || JSON.stringify(x)).join('; ');
+    return d || 'Request failed';
+  };
+
+  const uploadIdFiles = async () => {
+    if (!idFrontFile && !idBackFile) return;
+    if (!idFrontFile && !docFrontUrl) {
+      throw new Error('Upload the front of your ID first.');
+    }
+    const fd = new FormData();
+    if (idFrontFile) fd.append('document_front', idFrontFile);
+    if (idBackFile) fd.append('document_back', idBackFile);
+    if (!fd.has('document_front') && !fd.has('document_back')) return;
+    setUploadingDocs(true);
+    try {
+      const res = await authFetch(`${API}/api/kyc/upload`, { method: 'POST', body: fd });
+      const j = await res.json();
+      if (!res.ok) throw new Error(parseError(j));
+      if (j.document_front_url) setDocFrontUrl(j.document_front_url);
+      if (j.document_back_url) setDocBackUrl(j.document_back_url);
+      setIdFrontFile(null);
+      setIdBackFile(null);
+    } finally {
+      setUploadingDocs(false);
+    }
+  };
+
+  const handleNext = async () => {
+    setError('');
+    if (step === 1 && (idFrontFile || idBackFile)) {
+      try {
+        await uploadIdFiles();
+      } catch (e) {
+        setError(e.message || 'Upload failed');
+        return;
+      }
+    }
+    if (step === 1 && !docFrontUrl && !idFrontFile) {
+      setError('Upload the front of your ID before continuing.');
+      return;
+    }
+    setStep((s) => s + 1);
+  };
 
   const handleSubmit = async () => {
     setSubmitting(true); setError('');
     try {
+      if (!docFrontUrl) {
+        throw new Error('Missing document upload. Go back to the document step and upload your ID.');
+      }
       const res  = await authFetch(`${API}/api/kyc/submit`, {
         method: 'POST',
-        body: JSON.stringify({ personal_info: personal, document_info: docInfo }),
+        body: JSON.stringify({
+          personal_info: personal,
+          document_info: docInfo,
+          document_front_url: docFrontUrl,
+          document_back_url: docBackUrl || null,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Submission failed');
+      if (!res.ok) throw new Error(parseError(data));
       setSubmitted(true);
       setKyc({ status: 'pending', submitted_at: new Date().toISOString() });
     } catch (e) {
@@ -420,8 +554,22 @@ export default function KYCPage() {
               <motion.div key={step} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.25 }}>
                 {step === 0 && <Step1 data={personal} onChange={updatePersonal} />}
-                {step === 1 && <Step2 data={docInfo}  onChange={updateDoc} />}
-                {step === 2 && <Step3 personal={personal} document={docInfo} />}
+                {step === 1 && (
+                  <Step2
+                    data={docInfo}
+                    onChange={updateDoc}
+                    docFrontUrl={docFrontUrl}
+                    docBackUrl={docBackUrl}
+                    idFrontFile={idFrontFile}
+                    idBackFile={idBackFile}
+                    onPickFront={setIdFrontFile}
+                    onPickBack={setIdBackFile}
+                    uploading={uploadingDocs}
+                  />
+                )}
+                {step === 2 && (
+                  <Step3 personal={personal} document={docInfo} docFrontUrl={docFrontUrl} docBackUrl={docBackUrl} />
+                )}
               </motion.div>
 
               {error && (
@@ -443,7 +591,10 @@ export default function KYCPage() {
                 </button>
 
                 {step < 2 ? (
-                  <button onClick={() => setStep(s => s + 1)} disabled={!canNext}
+                  <button
+                    type="button"
+                    onClick={() => { if (step === 0) setStep(1); else handleNext(); }}
+                    disabled={!canNext || uploadingDocs}
                     className="flex items-center gap-2 px-8 py-3 rounded-xl
                       text-surface-dark font-bold text-base transition-all disabled:opacity-40"
                     style={{ background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }}>

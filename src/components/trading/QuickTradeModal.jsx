@@ -7,7 +7,7 @@
  *   currentPrice : optional — if omitted the modal fetches live price itself
  *   onClose      : () => void
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal }        from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -15,7 +15,7 @@ import {
   AlertCircle, CheckCircle, Loader2, ChevronDown,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
-import { marketApi, COIN_ICONS, PAIRS } from '@/services/marketApi';
+import { COIN_ICONS, PAIRS, exchangeWsPath } from '@/services/marketApi';
 
 const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const FEE  = 0.001; // 0.1%
@@ -37,7 +37,7 @@ function fmt(n, decimals = 4) {
 }
 
 export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', currentPrice: externalPrice, onClose }) {
-  const { user, balance, kyc, fetchOrders, fetchWallet } = useAuth();
+  const { user, balance, kyc, fetchOrders, fetchWallet, fetchLiveSpotPositions } = useAuth();
 
   const [symbol,    setSymbol]    = useState(initialSymbol);
   const [livePrice, setLivePrice] = useState(null);
@@ -55,20 +55,46 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
     ? parseFloat(externalPrice) || 0
     : parseFloat(livePrice)    || 0;
 
-  const fetchPrice = useCallback(() => {
-    if (externalPrice) return; // don't fetch if parent provides it
-    marketApi.getTicker(symbol)
-      .then(t => setLivePrice(t?.price ?? null))
-      .catch(() => {});
-  }, [symbol, externalPrice]);
-
   useEffect(() => {
     setLivePrice(null);
     setAmount('');
-    fetchPrice();
-    const id = setInterval(fetchPrice, 2500);
-    return () => clearInterval(id);
-  }, [fetchPrice]);
+    if (externalPrice) return undefined;
+    const qs = new URLSearchParams({ symbol });
+    const url = exchangeWsPath(`/api/ws/exchange/ticker?${qs.toString()}`);
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_ticker' && j.ticker?.price != null) {
+            setLivePrice(j.ticker.price);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [symbol, externalPrice]);
 
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape') onClose(); };
@@ -110,7 +136,7 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
       if (!res.ok) throw new Error(data.detail || 'Order failed');
       showToast(`${side === 'buy' ? 'Bought' : 'Sold'} ${qty.toFixed(4)} ${base} ✓`, true);
       setAmount('');
-      await Promise.all([fetchOrders(), fetchWallet()]);
+      await Promise.all([fetchOrders(), fetchWallet(), fetchLiveSpotPositions()]);
     } catch (e) {
       showToast(e.message, false);
     } finally { setLoading(false); }

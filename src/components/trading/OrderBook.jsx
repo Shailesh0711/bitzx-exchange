@@ -2,12 +2,11 @@ import {
   useEffect,
   useState,
   useRef,
-  useCallback,
   useMemo,
   memo,
 } from 'react';
 import { Columns2, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
-import { marketApi } from '@/services/marketApi';
+import { exchangeWsPath } from '@/services/marketApi';
 
 const API_LIMIT = 100;
 const DEPTHS = [10, 14, 20];
@@ -144,30 +143,53 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
   const [tickOpen, setTickOpen] = useState(false);
   const [viewMode, setViewMode] = useState('all'); // 'all' | 'bids' | 'asks'
 
-  const timer = useRef(null);
   const tickRef = useRef(null);
-
-  const load = useCallback(() => {
-    marketApi.getOrderBook(symbol, API_LIMIT)
-      .then(raw => {
-        setBook(raw && typeof raw === 'object' ? raw : { asks: [], bids: [] });
-        setLoadError(null);
-        setLoading(false);
-      })
-      .catch(() => {
-        setLoadError('Could not load depth');
-        setBook({ asks: [], bids: [] });
-        setLoading(false);
-      });
-  }, [symbol]);
 
   useEffect(() => {
     setLoading(true);
     setBook({ asks: [], bids: [] });
-    load();
-    timer.current = setInterval(load, 1500);
-    return () => clearInterval(timer.current);
-  }, [load]);
+    const qs = new URLSearchParams({ symbol, limit: String(API_LIMIT) });
+    const url = exchangeWsPath(`/api/ws/exchange/orderbook?${qs.toString()}`);
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_orderbook' && j.book) {
+            setBook(typeof j.book === 'object' ? j.book : { asks: [], bids: [] });
+            setLoadError(null);
+            setLoading(false);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onerror = () => {
+        setLoadError('Could not load depth');
+        setLoading(false);
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [symbol]);
 
   useEffect(() => {
     const p = parseFloat(lastPrice);

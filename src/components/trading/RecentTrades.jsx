@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { marketApi } from '@/services/marketApi';
+import { useEffect, useState, useRef } from 'react';
+import { exchangeWsPath } from '@/services/marketApi';
 import { useAuth } from '@/context/AuthContext';
 
 const fmtP = n => {
@@ -26,32 +26,59 @@ export default function RecentTrades({ symbol }) {
   const [newestId, setNewestId] = useState(null);
 
   const prevTopId = useRef(null);
-  const timer     = useRef(null);
-
-  const load = useCallback(() => {
-    marketApi.getRecentTrades(symbol, 40).then(data => {
-      if (!data?.length) { setLoading(false); return; }
-      setLoading(false);
-      setTrades(data);
-
-      const topId = data[0]?.id ?? data[0]?.tradeId ?? null;
-      if (topId && topId !== prevTopId.current) {
-        prevTopId.current = topId;
-        setNewestId(topId);
-        // Clear flash after 900ms
-        setTimeout(() => setNewestId(null), 900);
-      }
-    }).catch(() => setLoading(false));
-  }, [symbol]);
 
   useEffect(() => {
     setLoading(true);
     setTrades([]);
     prevTopId.current = null;
-    load();
-    timer.current = setInterval(load, 1800);
-    return () => clearInterval(timer.current);
-  }, [load]);
+    const qs = new URLSearchParams({ symbol, limit: '40' });
+    const url = exchangeWsPath(`/api/ws/exchange/trades?${qs.toString()}`);
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_trades' && Array.isArray(j.trades)) {
+            const data = j.trades;
+            if (!data.length) {
+              setLoading(false);
+              return;
+            }
+            setLoading(false);
+            setTrades(data);
+            const topId = data[0]?.id ?? data[0]?.tradeId ?? null;
+            if (topId && topId !== prevTopId.current) {
+              prevTopId.current = topId;
+              setNewestId(topId);
+              setTimeout(() => setNewestId(null), 900);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [symbol]);
 
   // Collect prices from user's filled orders (for "your fill" highlighting)
   const myFilledPrices = new Set(

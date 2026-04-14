@@ -11,7 +11,7 @@
  * │  to switch.                │  Recent trade history below.         │
  * └────────────────────────────┴─────────────────────────────────────┘
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,7 +20,7 @@ import {
   Loader2, RefreshCw, Wallet, Shield, BarChart2,
   ArrowRight, Star, ChevronDown, Search, X,
 } from 'lucide-react';
-import { marketApi, COIN_ICONS, PAIRS } from '@/services/marketApi';
+import { COIN_ICONS, PAIRS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
 
 const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -195,7 +195,7 @@ function RecentFills() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function QuickTradePage() {
   const navigate = useNavigate();
-  const { user, balance, kyc, fetchOrders, fetchWallet } = useAuth();
+  const { user, balance, kyc, fetchOrders, fetchWallet, fetchLiveSpotPositions } = useAuth();
 
   const [symbol,        setSymbol]        = useState('BTCUSDT');
   const [tickers,       setTickers]       = useState({});
@@ -209,7 +209,6 @@ export default function QuickTradePage() {
     try { return JSON.parse(localStorage.getItem('bitzxex_qt_favs') || '[]'); } catch { return []; }
   });
 
-  const timerRef = useRef(null);
   const base    = symbol.replace('USDT', '');
   const icon    = COIN_ICONS[base];
   const ticker  = tickers[symbol];
@@ -230,21 +229,45 @@ export default function QuickTradePage() {
 
   const kycBlocked = user && kyc?.status !== 'approved';
 
-  // Fetch all tickers in bulk
-  const fetchTickers = useCallback(async () => {
-    try {
-      const all = await marketApi.getMarkets();
-      const map = {};
-      all.forEach(t => { map[t.symbol] = t; });
-      setTickers(map);
-    } catch { /* silent */ }
-  }, []);
-
   useEffect(() => {
-    fetchTickers();
-    timerRef.current = setInterval(fetchTickers, 3000);
-    return () => clearInterval(timerRef.current);
-  }, [fetchTickers]);
+    const url = exchangeWsPath('/api/ws/exchange/markets');
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
+            const all = normalizeMarketsList(j.markets);
+            const map = {};
+            all.forEach(t => { map[t.symbol] = t; });
+            setTickers(map);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, []);
 
   const applyPct = pct => {
     const max = maxBase * (pct / 100);
@@ -281,7 +304,7 @@ export default function QuickTradePage() {
       if (!res.ok) throw new Error(data.detail || 'Order failed');
       setResult({ ok: true, order: data });
       setAmount('');
-      await Promise.all([fetchOrders(), fetchWallet()]);
+      await Promise.all([fetchOrders(), fetchWallet(), fetchLiveSpotPositions()]);
       setTimeout(() => setResult(null), 6000);
     } catch (err) {
       setResult({ ok: false, error: err.message });

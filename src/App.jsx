@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import Navbar        from '@/components/layout/Navbar';
+import ImpersonationBanner from '@/components/layout/ImpersonationBanner';
+import FeaturesPausedBanner from '@/components/layout/FeaturesPausedBanner';
 import Footer        from '@/components/layout/Footer';
 import LandingPage   from '@/pages/LandingPage';
 import MarketsPage   from '@/pages/MarketsPage';
@@ -50,6 +52,8 @@ function Layout() {
 
       <div className="relative flex flex-col min-h-screen" style={{ zIndex: 3 }}>
         <Navbar />
+        <ImpersonationBanner />
+        <FeaturesPausedBanner />
         <main className="flex-1 flex flex-col">
           <Outlet />
         </main>

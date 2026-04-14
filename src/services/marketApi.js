@@ -1,6 +1,17 @@
 // ── Constants ────────────────────────────────────────────────────────────────
-const BINANCE   = 'https://api.binance.com/api/v3';
-const BACKEND   = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+
+/**
+ * WebSocket origin for `/api/ws/...` paths.
+ * Set `VITE_WS_URL` (e.g. `wss://api.yourdomain.com`) if sockets are on a different host than `VITE_BACKEND_URL`.
+ */
+const WS_ORIGIN = (import.meta.env.VITE_WS_URL || String(BACKEND).replace(/^http/, 'ws')).replace(/\/$/, '');
+
+/** Build full `ws://` / `wss://` URL for exchange streams (public or `token=` auth). */
+export function exchangeWsPath(pathWithQuery) {
+  const p = pathWithQuery.startsWith('/') ? pathWithQuery : `/${pathWithQuery}`;
+  return `${WS_ORIGIN}${p}`;
+}
 
 const BZX_PRICE  = 0.4523;
 const BZX_CHANGE = 2.33;
@@ -8,7 +19,7 @@ const BZX_HIGH   = 0.4812;
 const BZX_LOW    = 0.4156;
 const BZX_VOL    = 7_284_521;
 
-// ── Supported pairs ──────────────────────────────────────────────────────────
+// ── Supported pairs (must match backend SYMBOL_BASE_MAP / BINANCE_USDT_PAIRS + BZX) ──
 export const PAIRS = [
   { symbol: 'BZXUSDT',  base: 'BZX',  source: 'internal' },
   { symbol: 'BTCUSDT',  base: 'BTC',  source: 'binance'  },
@@ -18,6 +29,7 @@ export const PAIRS = [
   { symbol: 'XRPUSDT',  base: 'XRP',  source: 'binance'  },
   { symbol: 'DOGEUSDT', base: 'DOGE', source: 'binance'  },
   { symbol: 'ADAUSDT',  base: 'ADA',  source: 'binance'  },
+  { symbol: 'POLUSDT', base: 'POL', source: 'binance' },
   { symbol: 'AVAXUSDT', base: 'AVAX', source: 'binance'  },
   { symbol: 'DOTUSDT',  base: 'DOT',  source: 'binance'  },
   { symbol: 'LINKUSDT', base: 'LINK', source: 'binance'  },
@@ -33,14 +45,14 @@ export const COIN_ICONS = {
   XRP:  'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
   DOGE: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
   ADA:  'https://assets.coingecko.com/coins/images/975/small/cardano.png',
+  POL: 'https://assets.coingecko.com/coins/images/32440/small/polygon.png',
   AVAX: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
   DOT:  'https://assets.coingecko.com/coins/images/12171/small/polkadot.png',
   LINK: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
   LTC:  'https://assets.coingecko.com/coins/images/2/small/litecoin.png',
 };
 
-// ── BZX fallback data ────────────────────────────────────────────────────────
-function bzxTicker() {
+function bzxTickerFallback() {
   return {
     symbol:             'BZXUSDT',
     price:              String(BZX_PRICE),
@@ -53,10 +65,9 @@ function bzxTicker() {
   };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
 async function safeFetch(url, fallback = null) {
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
     if (!r.ok) throw new Error(r.status);
     return r.json();
   } catch {
@@ -64,104 +75,85 @@ async function safeFetch(url, fallback = null) {
   }
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+/** Normalize `/api/trading/markets` row → legacy client shape */
+function normalizeMarketRow(m) {
+  if (!m || !m.symbol) return null;
+  const base = m.base ?? m.baseAsset ?? m.symbol.replace('USDT', '');
+  const src = m.source ?? (m.symbol === 'BZXUSDT' ? 'internal' : 'binance');
+  const px = parseFloat(m.price || 0);
+  const spr = px * 0.0004;
+  return {
+    symbol: m.symbol,
+    base,
+    source: src,
+    price: m.price,
+    priceChange: m.priceChange,
+    priceChangePercent: m.priceChangePercent,
+    openPrice: m.openPrice,
+    highPrice: m.highPrice,
+    lowPrice: m.lowPrice,
+    volume: m.volume,
+    quoteVolume: m.quoteVolume,
+    weightedAvgPrice: m.weightedAvgPrice ?? m.price,
+    bidPrice: m.bidPrice ?? String(Math.max(px - spr / 2, 1e-8)),
+    askPrice: m.askPrice ?? String(px + spr / 2),
+    prevClosePrice: m.prevClosePrice,
+    count: m.count != null ? String(m.count) : undefined,
+  };
+}
+
+export function normalizeMarketsList(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeMarketRow).filter(Boolean);
+}
+
 export const marketApi = {
-  /** All markets (BZX from backend, rest from Binance) */
+  /** All markets — single backend call (BZX + Binance batch server-side) */
   async getMarkets() {
-    const syms = PAIRS.filter(p => p.source === 'binance').map(p => `"${p.symbol}"`).join(',');
-    const [bzxRaw, binance] = await Promise.all([
-      safeFetch(`${BACKEND}/api/trading/ticker/BZXUSDT`, bzxTicker()),
-      safeFetch(`${BINANCE}/ticker/24hr?symbols=[${syms}]`, []),
-    ]);
-
-    const px = parseFloat(bzxRaw?.price || BZX_PRICE);
-    const spr = px * 0.0004;
-    const bzx = {
-      symbol: 'BZXUSDT',
-      base: 'BZX',
-      source: 'internal',
-      price: bzxRaw?.price || String(BZX_PRICE),
-      priceChange: bzxRaw?.priceChange ?? String((BZX_PRICE * BZX_CHANGE) / 100),
-      priceChangePercent: bzxRaw?.priceChangePercent || String(BZX_CHANGE),
-      openPrice: bzxRaw?.openPrice ?? String(BZX_PRICE / (1 + BZX_CHANGE / 100)),
-      highPrice: bzxRaw?.highPrice || String(BZX_HIGH),
-      lowPrice: bzxRaw?.lowPrice || String(BZX_LOW),
-      volume: bzxRaw?.volume || String(BZX_VOL),
-      quoteVolume: bzxRaw?.quoteVolume ?? String(BZX_VOL * BZX_PRICE),
-      weightedAvgPrice: bzxRaw?.weightedAvgPrice ?? String(BZX_PRICE),
-      bidPrice: bzxRaw?.bidPrice ?? String(Math.max(px - spr / 2, 1e-8)),
-      askPrice: bzxRaw?.askPrice ?? String(px + spr / 2),
-      prevClosePrice: bzxRaw?.prevClosePrice,
-      count: bzxRaw?.count != null ? String(bzxRaw.count) : '12000',
-    };
-
-    const others = Array.isArray(binance)
-      ? binance.map(t => ({
-          symbol: t.symbol,
-          base: t.symbol.replace('USDT', ''),
-          source: 'binance',
-          price: t.lastPrice,
-          priceChange: t.priceChange,
-          priceChangePercent: t.priceChangePercent,
-          openPrice: t.openPrice,
-          highPrice: t.highPrice,
-          lowPrice: t.lowPrice,
-          volume: t.volume,
-          quoteVolume: t.quoteVolume,
-          weightedAvgPrice: t.weightedAvgPrice,
-          bidPrice: t.bidPrice,
-          askPrice: t.askPrice,
-          prevClosePrice: t.prevClosePrice,
-          count: t.count != null ? String(t.count) : undefined,
-        }))
-      : [];
-
-    return [bzx, ...others];
+    const raw = await safeFetch(`${BACKEND}/api/trading/markets`, null);
+    return normalizeMarketsList(raw);
   },
 
-  /** Single ticker */
   async getTicker(symbol) {
-    if (symbol === 'BZXUSDT') {
-      const d = await safeFetch(`${BACKEND}/api/trading/ticker/BZXUSDT`, bzxTicker());
-      return d;
-    }
-    const d = await safeFetch(`${BINANCE}/ticker/24hr?symbol=${symbol}`);
+    const sym = symbol.toUpperCase();
+    const d = await safeFetch(`${BACKEND}/api/trading/ticker/${sym}`, sym === 'BZXUSDT' ? bzxTickerFallback() : null);
     if (!d) return null;
-    return { symbol: d.symbol, price: d.lastPrice, priceChangePercent: d.priceChangePercent,
-             highPrice: d.highPrice, lowPrice: d.lowPrice, volume: d.volume, quoteVolume: d.quoteVolume };
+    if (sym === 'BZXUSDT') return d;
+    return {
+      symbol:             d.symbol,
+      price:              d.price,
+      priceChangePercent: d.priceChangePercent,
+      priceChange:        d.priceChange,
+      highPrice:          d.highPrice,
+      lowPrice:           d.lowPrice,
+      volume:             d.volume,
+      quoteVolume:        d.quoteVolume,
+      openPrice:          d.openPrice,
+      bidPrice:           d.bidPrice,
+      askPrice:           d.askPrice,
+    };
   },
 
-  /** Kline / candlestick data */
   async getKlines(symbol, interval = '1h', limit = 200) {
-    if (symbol === 'BZXUSDT') {
-      const d = await safeFetch(`${BACKEND}/api/trading/klines/BZXUSDT?interval=${interval}&limit=${limit}`, []);
-      return d;
-    }
-    const raw = await safeFetch(`${BINANCE}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`, []);
-    return raw.map(c => ({
-      time:   Math.floor(c[0] / 1000),
-      open:   parseFloat(c[1]),
-      high:   parseFloat(c[2]),
-      low:    parseFloat(c[3]),
-      close:  parseFloat(c[4]),
-      volume: parseFloat(c[5]),
-    }));
+    const sym = symbol.toUpperCase();
+    const d = await safeFetch(
+      `${BACKEND}/api/trading/klines/${sym}?interval=${encodeURIComponent(interval)}&limit=${limit}`,
+      [],
+    );
+    return Array.isArray(d) ? d : [];
   },
 
-  /** Order book */
   async getOrderBook(symbol, limit = 20) {
-    if (symbol === 'BZXUSDT') {
-      return safeFetch(`${BACKEND}/api/trading/orderbook/BZXUSDT?limit=${limit}`, { asks: [], bids: [] });
-    }
-    return safeFetch(`${BINANCE}/depth?symbol=${symbol}&limit=${limit}`, { asks: [], bids: [] });
+    const sym = symbol.toUpperCase();
+    return safeFetch(
+      `${BACKEND}/api/trading/orderbook/${sym}?limit=${limit}`,
+      { asks: [], bids: [] },
+    );
   },
 
-  /** Recent trades */
   async getRecentTrades(symbol, limit = 50) {
-    if (symbol === 'BZXUSDT') {
-      return safeFetch(`${BACKEND}/api/trading/trades/BZXUSDT?limit=${limit}`, []);
-    }
-    const raw = await safeFetch(`${BINANCE}/trades?symbol=${symbol}&limit=${limit}`, []);
-    return raw.map(t => ({ ...t, price: String(t.price), qty: String(t.qty) }));
+    const sym = symbol.toUpperCase();
+    const d = await safeFetch(`${BACKEND}/api/trading/trades/${sym}?limit=${limit}`, []);
+    return Array.isArray(d) ? d : [];
   },
 };

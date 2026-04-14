@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -6,7 +6,7 @@ import {
   Activity, Flame, Snowflake, LayoutGrid, Table2, ChevronRight,
   Layers, Sparkles, Clock,
 } from 'lucide-react';
-import { marketApi, COIN_ICONS } from '@/services/marketApi';
+import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 
 const fmtP = (v, base) => {
   const n = parseFloat(v);
@@ -108,15 +108,43 @@ export default function MarketsPage() {
   const [sortDir, setSortDir] = useState(-1);
   /** split = heatmap + table; table = list only; heatmap = map only */
   const [viewMode, setViewMode] = useState('split');
-  const timer = useRef(null);
-
-  const load = () =>
-    marketApi.getMarkets().then(d => { setMarkets(d); setLoading(false); }).catch(() => setLoading(false));
-
   useEffect(() => {
-    load();
-    timer.current = setInterval(load, 5000);
-    return () => clearInterval(timer.current);
+    setLoading(true);
+    const url = exchangeWsPath('/api/ws/exchange/markets');
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
+            setMarkets(normalizeMarketsList(j.markets));
+            setLoading(false);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
   }, []);
 
   const toggleFav = sym => {

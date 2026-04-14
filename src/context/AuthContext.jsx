@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { exchangeWsPath } from '@/services/marketApi';
 
 const AuthContext = createContext(null);
 
@@ -18,6 +19,10 @@ const store = {
 };
 
 // ── Authenticated fetch utility (exported for use in pages/components) ────────
+
+export function getStoredExchangeToken() {
+  return store.getToken();
+}
 
 export function authFetch(url, options = {}) {
   const token = store.getToken();
@@ -55,11 +60,45 @@ export function AuthProvider({ children }) {
   const [openOrders,    setOpenOrders]    = useState([]);
   const [orderHistory,  setOrderHistory]  = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [userTrades,    setUserTrades]    = useState([]);
+  const [userTradesLoading, setUserTradesLoading] = useState(false);
+  /** Spot P&L rows from `/api/portfolio/positions`; `null` until first REST or account WS message. */
+  const [liveSpotPositions, setLiveSpotPositions] = useState(null);
 
   const [authLoading, setAuthLoading] = useState(true);
 
   // KYC status
   const [kyc, setKyc] = useState(null);
+
+  const [impersonationActive, setImpersonationActive] = useState(false);
+  const [impersonatorAdminId, setImpersonatorAdminId] = useState(null);
+  const [userFeaturesPaused, setUserFeaturesPaused] = useState(false);
+  const [userTradingPaused, setUserTradingPaused] = useState(false);
+  const [userPauseNote, setUserPauseNote] = useState(null);
+
+  const refreshSession = useCallback(async () => {
+    const token = store.getToken();
+    if (!token) {
+      setImpersonationActive(false);
+      setImpersonatorAdminId(null);
+      setUserFeaturesPaused(false);
+      setUserTradingPaused(false);
+      setUserPauseNote(null);
+      return;
+    }
+    try {
+      const res = await authFetch(`${API}/api/auth/session`);
+      if (!res.ok) return;
+      const s = await res.json();
+      setImpersonationActive(!!s.impersonation_active);
+      setImpersonatorAdminId(s.impersonator_admin_id ?? null);
+      setUserFeaturesPaused(!!s.user_features_paused);
+      setUserTradingPaused(!!s.user_trading_paused);
+      setUserPauseNote(s.user_pause_note ?? null);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // ── Fetch KYC status ──────────────────────────────────────────────────────
   const fetchKyc = useCallback(async () => {
@@ -98,6 +137,79 @@ export function AuthProvider({ children }) {
     finally { setOrdersLoading(false); }
   }, []);
 
+  const fetchUserTrades = useCallback(async () => {
+    setUserTradesLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/orders/trades`);
+      if (res.ok) setUserTrades(await res.json());
+    } catch { /* silent */ }
+    finally { setUserTradesLoading(false); }
+  }, []);
+
+  const fetchLiveSpotPositions = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API}/api/portfolio/positions`);
+      if (res.ok) setLiveSpotPositions(await res.json());
+    } catch { /* silent */ }
+  }, []);
+
+  // ── Live account stream (wallet + orders + fills + spot positions); auto-reconnect like market WS ─
+  useEffect(() => {
+    if (!user) return undefined;
+    const token = store.getToken();
+    if (!token) return undefined;
+
+    const url = exchangeWsPath(`/api/ws/exchange/account?token=${encodeURIComponent(token)}`);
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+
+    const applyAccountMessage = (msg) => {
+      if (msg.type !== 'exchange_account') return;
+      if (Array.isArray(msg.wallet)) {
+        setWalletAssets(msg.wallet);
+        const { balance: b, lockedBalance: lb } = transformWallet(msg.wallet);
+        setBalance(b);
+        setLockedBalance(lb);
+      }
+      if (Array.isArray(msg.open_orders)) setOpenOrders(msg.open_orders);
+      if (Array.isArray(msg.order_history)) setOrderHistory(msg.order_history);
+      if (Array.isArray(msg.user_trades)) setUserTrades(msg.user_trades);
+      if (Array.isArray(msg.positions)) setLiveSpotPositions(msg.positions);
+    };
+
+    const connect = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(url);
+      } catch {
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+        return;
+      }
+      ws.onmessage = (ev) => {
+        if (closed) return;
+        try {
+          applyAccountMessage(JSON.parse(ev.data));
+        } catch { /* ignore */ }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch { /* ignore */ }
+      }
+    };
+  }, [user?.uid]);
+
   // ── On mount: validate stored token, then load wallet + orders ────────────
   useEffect(() => {
     const token = store.getToken();
@@ -108,7 +220,14 @@ export function AuthProvider({ children }) {
       .then(userData => {
         setUser(userData);
         store.setUser(userData);
-        return Promise.all([fetchWallet(), fetchOrders(), fetchKyc()]);
+        return Promise.all([
+          fetchWallet(),
+          fetchOrders(),
+          fetchUserTrades(),
+          fetchLiveSpotPositions(),
+          fetchKyc(),
+          refreshSession(),
+        ]);
       })
       .catch(() => { store.clear(); setUser(null); })
       .finally(() => setAuthLoading(false));
@@ -124,9 +243,16 @@ export function AuthProvider({ children }) {
     store.setToken(data.access_token);
     store.setUser(data.user);
     setUser(data.user);
-    await Promise.all([fetchWallet(), fetchOrders(), fetchKyc()]);
+    await Promise.all([
+      fetchWallet(),
+      fetchOrders(),
+      fetchUserTrades(),
+      fetchLiveSpotPositions(),
+      fetchKyc(),
+      refreshSession(),
+    ]);
     return data.user;
-  }, [fetchWallet, fetchOrders, fetchKyc]);
+  }, [fetchWallet, fetchOrders, fetchUserTrades, fetchLiveSpotPositions, fetchKyc, refreshSession]);
 
   // ── Register ──────────────────────────────────────────────────────────────
   const register = useCallback(async (name, email, password) => {
@@ -138,9 +264,16 @@ export function AuthProvider({ children }) {
     store.setToken(data.access_token);
     store.setUser(data.user);
     setUser(data.user);
-    await fetchWallet();
+    await Promise.all([
+      fetchWallet(),
+      fetchOrders(),
+      fetchUserTrades(),
+      fetchLiveSpotPositions(),
+      fetchKyc(),
+      refreshSession(),
+    ]);
     return data.user;
-  }, [fetchWallet]);
+  }, [fetchWallet, fetchOrders, fetchUserTrades, fetchLiveSpotPositions, fetchKyc, refreshSession]);
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(() => {
@@ -148,7 +281,14 @@ export function AuthProvider({ children }) {
     setUser(null);
     setWalletAssets([]); setBalance({}); setLockedBalance({});
     setOpenOrders([]); setOrderHistory([]);
+    setUserTrades([]);
+    setLiveSpotPositions(null);
     setKyc(null);
+    setImpersonationActive(false);
+    setImpersonatorAdminId(null);
+    setUserFeaturesPaused(false);
+    setUserTradingPaused(false);
+    setUserPauseNote(null);
   }, []);
 
   const updateUser = useCallback((next) => {
@@ -164,12 +304,16 @@ export function AuthProvider({ children }) {
       user, authLoading, updateUser,
       // Wallet
       walletAssets, balance, lockedBalance, walletLoading, fetchWallet,
-      // Orders (read-only state — mutations go through API in TradeForm / OpenOrders)
+      // Orders & fills (read-only — mutations via API; live updates via /ws/exchange/account)
       openOrders, orderHistory, ordersLoading, fetchOrders,
+      userTrades, userTradesLoading, fetchUserTrades,
+      liveSpotPositions, fetchLiveSpotPositions,
       // KYC
       kyc, fetchKyc,
       // Auth
       login, register, logout,
+      impersonationActive, impersonatorAdminId, refreshSession,
+      userFeaturesPaused, userTradingPaused, userPauseNote,
     }}>
       {children}
     </AuthContext.Provider>

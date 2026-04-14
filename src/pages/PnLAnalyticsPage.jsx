@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, TrendingUp, TrendingDown, Filter, ArrowLeft } from 'lucide-react';
-import { authFetch } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthContext';
 import { PAIRS, COIN_ICONS } from '@/services/marketApi';
-
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+import ClosePositionModal from '@/components/trading/ClosePositionModal';
+import TradeFillDetailModal from '@/components/trading/TradeFillDetailModal';
 
 const PAIR_OPTIONS = PAIRS.map(p => p.symbol);
 
@@ -41,10 +41,22 @@ const TRADE_FMT = iso =>
     hour12: false,
   });
 
+const MIN_CLOSE_BASE = 0.0001;
+
 export default function PnLAnalyticsPage() {
+  const {
+    authLoading,
+    fetchWallet,
+    fetchOrders,
+    userTrades,
+    fetchUserTrades,
+    liveSpotPositions,
+    fetchLiveSpotPositions,
+  } = useAuth();
   const [positions, setPositions] = useState([]);
-  const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [closePosition, setClosePosition] = useState(null);
+  const [fillDetail, setFillDetail] = useState(null);
   const [pairFilter, setPairFilter] = useState(''); // applies to positions + fills
   const [posPnlFilter, setPosPnlFilter] = useState('all'); // all | profit | loss
   const [tradeSide, setTradeSide] = useState('all');
@@ -57,46 +69,34 @@ export default function PnLAnalyticsPage() {
     positions.forEach(p => {
       if (p.symbol) set.add(normSymbol(p.symbol));
     });
-    trades.forEach(t => {
+    userTrades.forEach(t => {
       if (t.symbol) set.add(normSymbol(t.symbol));
     });
     return Array.from(set).filter(Boolean).sort();
-  }, [positions, trades]);
+  }, [positions, userTrades]);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    if (liveSpotPositions != null) {
+      setPositions(liveSpotPositions);
+      setLoadError(null);
+    }
+  }, [liveSpotPositions]);
+
+  useEffect(() => {
+    setLoading(authLoading || liveSpotPositions == null);
+  }, [authLoading, liveSpotPositions]);
+
+  const refreshAll = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [pr, tr] = await Promise.all([
-        authFetch(`${API}/api/portfolio/positions`),
-        authFetch(`${API}/api/orders/trades`),
-      ]);
-      const errs = [];
-      if (pr.ok) {
-        setPositions(await pr.json());
-      } else {
-        setPositions([]);
-        if (pr.status === 401) errs.push('Session expired — sign in again.');
-        else errs.push(`Positions could not be loaded (${pr.status}).`);
-      }
-      if (tr.ok) {
-        setTrades(await tr.json());
-      } else {
-        setTrades([]);
-        if (tr.status === 401) errs.push('Session expired — sign in again.');
-        else errs.push(`Trades could not be loaded (${tr.status}).`);
-      }
-      setLoadError(errs.length ? [...new Set(errs)].join(' ') : null);
+      await Promise.all([fetchLiveSpotPositions(), fetchUserTrades()]);
     } catch (e) {
       setLoadError(e.message || 'Network error while loading.');
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  }, [fetchLiveSpotPositions, fetchUserTrades]);
 
   const fromBounds = dateFrom ? localDayBounds(dateFrom) : null;
   const toBounds = dateTo ? localDayBounds(dateTo) : null;
@@ -114,7 +114,7 @@ export default function PnLAnalyticsPage() {
 
   const filteredTrades = useMemo(() => {
     const want = normSymbol(pairFilter);
-    return trades.filter(t => {
+    return userTrades.filter(t => {
       if (want && normSymbol(t.symbol) !== want) return false;
       if (tradeSide !== 'all' && String(t.side).toLowerCase() !== tradeSide) return false;
       const ms = parseTradeTimeMs(t.created_at);
@@ -122,7 +122,7 @@ export default function PnLAnalyticsPage() {
       if (toBounds && (ms == null || ms > toBounds.end)) return false;
       return true;
     });
-  }, [trades, pairFilter, tradeSide, fromBounds, toBounds]);
+  }, [userTrades, pairFilter, tradeSide, fromBounds, toBounds]);
 
   const posSummary = useMemo(() => {
     const unrealized = filteredPositions.reduce((s, p) => s + Number(p.unrealized_pnl ?? 0), 0);
@@ -170,7 +170,7 @@ export default function PnLAnalyticsPage() {
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">P&amp;L &amp; fills</h1>
           <button
             type="button"
-            onClick={load}
+            onClick={refreshAll}
             disabled={loading}
             className="ml-auto inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-surface-border text-sm font-bold text-white hover:text-white hover:border-gold/30 transition-colors disabled:opacity-40"
           >
@@ -315,6 +315,10 @@ export default function PnLAnalyticsPage() {
         {/* Positions table */}
         <section className="mb-12">
           <h2 className="text-lg font-extrabold mb-4">Open positions</h2>
+          <p className="text-white/60 text-sm mb-3 max-w-3xl">
+            Spot holdings with average cost and mark P&amp;L. Use <span className="text-gold-light font-semibold">Close</span> to
+            market or limit sell your <strong className="text-white">available</strong> balance (same API as Trade → Assets). Requires approved KYC.
+          </p>
           <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
             {loading && positions.length === 0 ? (
               <div className="flex items-center justify-center py-16 gap-2 text-white">
@@ -332,8 +336,10 @@ export default function PnLAnalyticsPage() {
                       <th className="px-4 py-3 text-right">Avg cost</th>
                       <th className="px-4 py-3 text-right">Price</th>
                       <th className="px-4 py-3 text-right">Value</th>
+                      <th className="px-4 py-3">Last fill</th>
                       <th className="px-4 py-3 text-right">Unrealized P&amp;L</th>
                       <th className="px-4 py-3 text-right">P&amp;L %</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -353,11 +359,48 @@ export default function PnLAnalyticsPage() {
                           <td className="px-4 py-3 text-right font-mono text-white">${Number(p.avg_cost).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                           <td className="px-4 py-3 text-right font-mono">${Number(p.current_price).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                           <td className="px-4 py-3 text-right font-mono font-bold">${Number(p.market_value_usdt).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-3 text-xs">
+                            {p.last_fill_side ? (
+                              <div>
+                                <span
+                                  className={`font-extrabold uppercase ${
+                                    String(p.last_fill_side).toLowerCase() === 'buy' ? 'text-green-400' : 'text-red-400'
+                                  }`}
+                                >
+                                  {String(p.last_fill_side).toLowerCase() === 'buy' ? 'Buy' : 'Sell'}
+                                </span>
+                                <div className="text-white font-mono mt-1">
+                                  {Number(p.last_fill_amount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} @ $
+                                  {Number(p.last_fill_price ?? 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                                </div>
+                                <div className="text-white/45 font-mono text-[11px] mt-0.5">
+                                  {p.last_fill_at ? new Date(p.last_fill_at).toLocaleString() : '—'}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-white/40">—</span>
+                            )}
+                          </td>
                           <td className={`px-4 py-3 text-right font-mono font-bold ${upnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {upnl >= 0 ? '+' : ''}${upnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </td>
                           <td className={`px-4 py-3 text-right font-mono font-bold ${pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {Number(p.available) >= MIN_CLOSE_BASE ? (
+                              <button
+                                type="button"
+                                onClick={() => setClosePosition(p)}
+                                className="text-xs font-extrabold px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors"
+                              >
+                                Close
+                              </button>
+                            ) : (
+                              <span className="text-white/35 text-xs" title="Nothing available to sell (check locked in open orders)">
+                                —
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -367,16 +410,19 @@ export default function PnLAnalyticsPage() {
               </div>
             )}
           </div>
-          <p className="text-white text-xs mt-3">
-            Close or reduce holdings from the <Link to="/trade/BZXUSDT" className="text-gold-light font-semibold hover:underline">Trade</Link> page → Positions tab → Close.
+          <p className="text-white/70 text-xs mt-3">
+            You can also sell from <Link to="/wallet" className="text-gold-light font-semibold hover:underline">Wallet</Link> (Sell opens the terminal on the sell tab) or from <Link to="/trade/BZXUSDT" className="text-gold-light font-semibold hover:underline">Trade</Link> → Assets.
           </p>
         </section>
 
         {/* Trades */}
         <section>
           <h2 className="text-lg font-extrabold mb-4">Trade fills</h2>
+          <p className="text-white/60 text-sm mb-3">
+            Each row is one execution (fill). <span className="text-gold-light font-semibold">Click a row</span> for IDs, fees, notional, and realized P&amp;L.
+          </p>
           <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
-            {loading && trades.length === 0 ? (
+            {loading && userTrades.length === 0 ? (
               <div className="flex items-center justify-center py-16 gap-2 text-white">
                 <RefreshCw className="animate-spin" size={20} /> Loading…
               </div>
@@ -403,7 +449,14 @@ export default function PnLAnalyticsPage() {
                       const rp = t.realized_pnl != null ? Number(t.realized_pnl) : null;
                       const showPnl = t.side === 'sell' && rp != null && !Number.isNaN(rp);
                       return (
-                        <tr key={t.id} className="border-b border-white/[.04] hover:bg-white/[.02]">
+                        <tr
+                          key={t.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setFillDetail(t)}
+                          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFillDetail(t); } }}
+                          className="border-b border-white/[.04] hover:bg-white/[.05] cursor-pointer transition-colors"
+                        >
                           <td className="px-4 py-3 font-mono text-white">{TRADE_FMT(t.created_at)}</td>
                           <td className="px-4 py-3 font-bold">{t.symbol.replace('USDT', '/USDT')}</td>
                           <td className="px-4 py-3">
@@ -446,6 +499,20 @@ export default function PnLAnalyticsPage() {
           </p>
         </section>
       </div>
+
+      {closePosition && (
+        <ClosePositionModal
+          position={closePosition}
+          onDismiss={() => setClosePosition(null)}
+          onSuccess={async () => {
+            setClosePosition(null);
+            await Promise.all([fetchLiveSpotPositions(), fetchWallet(), fetchOrders()]);
+          }}
+        />
+      )}
+      {fillDetail && (
+        <TradeFillDetailModal trade={fillDetail} onClose={() => setFillDetail(null)} />
+      )}
     </div>
   );
 }

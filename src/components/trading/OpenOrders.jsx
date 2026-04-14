@@ -15,7 +15,7 @@ const fmtP = v => {
 };
 
 export default function OpenOrders() {
-  const { openOrders, orderHistory, ordersLoading, fetchOrders, fetchWallet } = useAuth();
+  const { openOrders, orderHistory, ordersLoading, fetchOrders, fetchWallet, fetchLiveSpotPositions } = useAuth();
   const [tab,        setTab]        = useState('open');
   const [cancelling, setCancelling] = useState(null);
 
@@ -25,7 +25,7 @@ export default function OpenOrders() {
     setCancelling(orderId);
     try {
       const res = await authFetch(`${API}/api/orders/${orderId}`, { method: 'DELETE' });
-      if (res.ok) await Promise.all([fetchOrders(), fetchWallet()]);
+      if (res.ok) await Promise.all([fetchOrders(), fetchWallet(), fetchLiveSpotPositions()]);
     } catch { /* ignore */ }
     finally { setCancelling(null); }
   };

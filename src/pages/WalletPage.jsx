@@ -3,17 +3,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
   CheckCircle, XCircle, AlertCircle, ChevronDown, Copy, Check,
-  ExternalLink, Info,
+  ExternalLink, Info, Shield,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { COIN_ICONS } from '@/services/marketApi';
+import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 
 const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
-const PRICES = { USDT: 1, BZX: 0.4523, BTC: 84500, ETH: 3200, BNB: 580, SOL: 145 };
-
-const SUPPORTED_ASSETS = ['USDT', 'BZX', 'BTC', 'ETH', 'BNB', 'SOL'];
+const SUPPORTED_ASSETS = [
+  'USDT', 'BZX', 'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'POL',
+  'AVAX', 'DOT', 'LINK', 'LTC',
+];
 
 const ASSET_NETWORKS = {
   USDT: ['BEP-20 (BNB Chain)', 'ERC-20 (Ethereum)', 'TRC-20 (Tron)'],
@@ -22,6 +23,14 @@ const ASSET_NETWORKS = {
   ETH:  ['ERC-20 (Ethereum)', 'BEP-20 (BNB Chain)'],
   BNB:  ['BEP-20 (BNB Chain)'],
   SOL:  ['Solana'],
+  XRP:  ['XRP Ledger', 'BEP-20 (BNB Chain)'],
+  DOGE: ['Dogecoin Network', 'BEP-20 (BNB Chain)'],
+  ADA:  ['Cardano', 'BEP-20 (BNB Chain)'],
+  POL: ['Polygon PoS', 'BEP-20 (BNB Chain)'],
+  AVAX: ['Avalanche C-Chain', 'BEP-20 (BNB Chain)'],
+  DOT:  ['Polkadot', 'BEP-20 (BNB Chain)'],
+  LINK: ['ERC-20 (Ethereum)', 'BEP-20 (BNB Chain)'],
+  LTC:  ['Litecoin Network', 'BEP-20 (BNB Chain)'],
 };
 
 const STATUS_STYLES = {
@@ -88,9 +97,10 @@ function AssetSelect({ value, onChange, label }) {
 
 // ── Balances Tab ─────────────────────────────────────────────────────────────
 
-function BalancesTab({ walletAssets, walletLoading, fetchWallet }) {
-  const totalUSD = walletAssets.reduce((s, w) => s + (w.available + w.locked) * (PRICES[w.asset] || 0), 0);
-  const availUSD = walletAssets.reduce((s, w) => s + w.available * (PRICES[w.asset] || 0), 0);
+function BalancesTab({ walletAssets, walletLoading, fetchWallet, priceByAsset }) {
+  const px = a => (a === 'USDT' ? 1 : (priceByAsset[a] ?? 0));
+  const totalUSD = walletAssets.reduce((s, w) => s + (w.available + w.locked) * px(w.asset), 0);
+  const availUSD = walletAssets.reduce((s, w) => s + w.available * px(w.asset), 0);
 
   return (
     <div className="space-y-6">
@@ -121,7 +131,7 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet }) {
           <table className="w-full">
             <thead>
               <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
-                {['Asset', 'Available', 'Locked', 'Total', 'Value (USD)'].map(h => (
+                {['Asset', 'Available', 'Locked', 'Total', 'Value (USD)', 'Actions'].map(h => (
                   <th key={h} className={`px-6 py-3 ${h === 'Asset' ? 'text-left' : 'text-right'}`}>{h}</th>
                 ))}
               </tr>
@@ -129,7 +139,7 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet }) {
             <tbody>
               {walletAssets.map(w => {
                 const total = w.available + w.locked;
-                const usd   = total * (PRICES[w.asset] || 0);
+                const usd   = total * px(w.asset);
                 const icon  = COIN_ICONS[w.asset];
                 return (
                   <tr key={w.asset} className="border-b border-surface-border/40 hover:bg-white/[.02] transition-colors">
@@ -152,6 +162,31 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet }) {
                     <td className="px-6 py-4 text-right text-white font-semibold">
                       ${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Link
+                          to={`/trade/${w.asset}USDT?side=buy`}
+                          className="text-xs font-bold px-3 py-1.5 rounded-lg bg-green-500/15 text-green-400 border border-green-500/25 hover:bg-green-500/25 transition-colors"
+                        >
+                          Buy
+                        </Link>
+                        {w.asset !== 'USDT' && (
+                          <Link
+                            to={`/trade/${w.asset}USDT?side=sell`}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+                              w.available > 1e-12
+                                ? 'bg-red-500/15 text-red-400 border-red-500/25 hover:bg-red-500/25'
+                                : 'bg-white/[.04] text-white/35 border-white/10 pointer-events-none cursor-not-allowed'
+                            }`}
+                            title={w.available <= 1e-12 ? 'No available balance to sell' : 'Sell spot balance'}
+                            aria-disabled={w.available <= 1e-12}
+                            onClick={e => { if (w.available <= 1e-12) e.preventDefault(); }}
+                          >
+                            Sell
+                          </Link>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -165,7 +200,7 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet }) {
 
 // ── Deposit Tab ───────────────────────────────────────────────────────────────
 
-function DepositTab({ fetchWallet }) {
+function DepositTab({ fetchWallet, kycBlocked, kyc }) {
   const [asset,   setAsset]   = useState('USDT');
   const [amount,  setAmount]  = useState('');
   const [txHash,  setTxHash]  = useState('');
@@ -183,6 +218,15 @@ function DepositTab({ fetchWallet }) {
 
   const handleSubmit = async e => {
     e.preventDefault();
+    if (kycBlocked) {
+      setResult({
+        ok: false,
+        message: kyc?.status === 'pending'
+          ? 'KYC is under review. Deposits unlock after an administrator approves your application.'
+          : 'Complete identity verification (KYC) before submitting a deposit request.',
+      });
+      return;
+    }
     setLoading(true);
     setResult(null);
     try {
@@ -207,6 +251,24 @@ function DepositTab({ fetchWallet }) {
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-1">Submit Deposit Request</h3>
         <p className="text-white text-sm mb-6">Send funds to our wallet address, then submit your transaction hash for verification.</p>
+
+        {kycBlocked && (
+          <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center gap-2 ${
+            kyc?.status === 'pending'
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+              : 'bg-red-500/10 border-red-500/30 text-red-200'
+          }`}>
+            <Shield size={16} className="flex-shrink-0" />
+            <span>
+              {kyc?.status === 'pending'
+                ? 'Your KYC is pending admin review. You can submit deposits after approval.'
+                : kyc?.status === 'rejected'
+                  ? 'Your KYC was rejected. Resubmit documents to enable deposits.'
+                  : 'Verify your identity (KYC) before depositing.'}{' '}
+              <Link to="/kyc" className="font-bold underline text-gold-light">Go to KYC →</Link>
+            </span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
@@ -257,7 +319,7 @@ function DepositTab({ fetchWallet }) {
             )}
           </AnimatePresence>
 
-          <button type="submit" disabled={loading}
+          <button type="submit" disabled={loading || kycBlocked}
             className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-gold to-gold-light text-surface-dark font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50">
             {loading ? <div className="w-5 h-5 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" /> : <><ArrowDownCircle size={16} /> Submit Deposit Request</>}
           </button>
@@ -299,7 +361,7 @@ function DepositTab({ fetchWallet }) {
 
 // ── Withdraw Tab ──────────────────────────────────────────────────────────────
 
-function WithdrawTab({ walletAssets, fetchWallet }) {
+function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
   const [asset,   setAsset]   = useState('USDT');
   const [amount,  setAmount]  = useState('');
   const [address, setAddress] = useState('');
@@ -320,6 +382,15 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
 
   const handleSubmit = async e => {
     e.preventDefault();
+    if (kycBlocked) {
+      setResult({
+        ok: false,
+        message: kyc?.status === 'pending'
+          ? 'KYC is under review. Withdrawals unlock after an administrator approves your application.'
+          : 'Complete identity verification (KYC) before requesting a withdrawal.',
+      });
+      return;
+    }
     if (parseFloat(amount) > available) {
       setResult({ ok: false, message: `Insufficient balance. You have ${available} ${asset} available.` });
       return;
@@ -349,6 +420,24 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-1">Withdraw Funds</h3>
         <p className="text-white text-sm mb-6">Submit a withdrawal request. Funds will be locked immediately and released after admin approval.</p>
+
+        {kycBlocked && (
+          <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center gap-2 ${
+            kyc?.status === 'pending'
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+              : 'bg-red-500/10 border-red-500/30 text-red-200'
+          }`}>
+            <Shield size={16} className="flex-shrink-0" />
+            <span>
+              {kyc?.status === 'pending'
+                ? 'Your KYC is pending admin review. Withdrawals are available after approval.'
+                : kyc?.status === 'rejected'
+                  ? 'Your KYC was rejected. Resubmit documents to enable withdrawals.'
+                  : 'Verify your identity (KYC) before withdrawing.'}{' '}
+              <Link to="/kyc" className="font-bold underline text-gold-light">Go to KYC →</Link>
+            </span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
@@ -407,7 +496,7 @@ function WithdrawTab({ walletAssets, fetchWallet }) {
             )}
           </AnimatePresence>
 
-          <button type="submit" disabled={loading || !amount || parseFloat(amount) <= 0}
+          <button type="submit" disabled={loading || kycBlocked || !amount || parseFloat(amount) <= 0}
             className="w-full flex items-center justify-center gap-2 bg-red-500/80 hover:bg-red-500 text-white font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50">
             {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><ArrowUpCircle size={16} /> Submit Withdrawal Request</>}
           </button>
@@ -567,14 +656,66 @@ function tabFromSearchParams(params) {
 }
 
 export default function WalletPage() {
-  const { user, walletAssets, walletLoading, fetchWallet } = useAuth();
+  const { user, walletAssets, walletLoading, fetchWallet, kyc, fetchKyc } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(() => tabFromSearchParams(searchParams));
+  const [priceByAsset, setPriceByAsset] = useState({ USDT: 1 });
+  const kycBlocked = user && kyc?.status !== 'approved';
+
+  useEffect(() => {
+    const url = exchangeWsPath('/api/ws/exchange/markets');
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const applyRows = (rows) => {
+      if (!Array.isArray(rows)) return;
+      const m = { USDT: 1 };
+      for (const row of rows) {
+        const b = row.base || row.symbol?.replace('USDT', '');
+        if (b) m[b] = parseFloat(row.price) || 0;
+      }
+      setPriceByAsset(m);
+    };
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
+            applyRows(normalizeMarketsList(j.markets));
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setTab(tabFromSearchParams(searchParams));
   }, [searchParams]);
+
+  useEffect(() => {
+    if (user && (tab === 'deposit' || tab === 'withdraw')) fetchKyc();
+  }, [user, tab, fetchKyc]);
 
   const selectTab = id => {
     setTab(id);
@@ -634,9 +775,9 @@ export default function WalletPage() {
         {/* Tab content */}
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-            {tab === 'balances'  && <BalancesTab walletAssets={walletAssets} walletLoading={walletLoading} fetchWallet={fetchWallet} />}
-            {tab === 'deposit'   && <DepositTab fetchWallet={fetchWallet} />}
-            {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} fetchWallet={fetchWallet} />}
+            {tab === 'balances'  && <BalancesTab walletAssets={walletAssets} walletLoading={walletLoading} fetchWallet={fetchWallet} priceByAsset={priceByAsset} />}
+            {tab === 'deposit'   && <DepositTab fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} />}
+            {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} />}
             {tab === 'history'   && <HistoryTab />}
           </motion.div>
         </AnimatePresence>

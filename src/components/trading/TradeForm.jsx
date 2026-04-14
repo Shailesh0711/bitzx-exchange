@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Wallet, Plus, TrendingUp, AlertCircle, CheckCircle, Shield, Clock } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -6,12 +6,18 @@ import { useNavigate, Link } from 'react-router-dom';
 const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const PCTS = [25, 50, 75, 100];
 
-export default function TradeForm({ symbol, currentPrice }) {
-  const { user, balance, fetchWallet, fetchOrders, kyc } = useAuth();
+export default function TradeForm({ symbol, currentPrice, initialSide }) {
+  const { user, balance, fetchWallet, fetchOrders, fetchLiveSpotPositions, kyc } = useAuth();
   const navigate = useNavigate();
   const base = symbol.replace('USDT', '');
 
-  const [side,    setSide]    = useState('buy');
+  const [side,    setSide]    = useState(
+    initialSide === 'sell' ? 'sell' : initialSide === 'buy' ? 'buy' : 'buy',
+  );
+
+  useEffect(() => {
+    if (initialSide === 'buy' || initialSide === 'sell') setSide(initialSide);
+  }, [initialSide, symbol]);
   const [type,    setType]    = useState('limit');
   const [price,   setPrice]   = useState('');
   const [amount,  setAmount]  = useState('');
@@ -49,7 +55,7 @@ export default function TradeForm({ symbol, currentPrice }) {
       setResult({ ok: true, order: data });
       setAmount('');
       if (!isMarket) setPrice('');
-      await Promise.all([fetchWallet(), fetchOrders()]);
+      await Promise.all([fetchWallet(), fetchOrders(), fetchLiveSpotPositions()]);
       setTimeout(() => setResult(null), 5500);
     } catch (err) {
       setResult({ ok: false, error: err.message });

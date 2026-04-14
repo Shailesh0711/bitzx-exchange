@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { marketApi } from '@/services/marketApi';
+import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -29,15 +29,41 @@ function LiveTicker() {
   const [tickers, setTickers] = useState([]);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await marketApi.getMarkets();
-        setTickers(data.filter(m => TICKER_PAIRS.includes(m.symbol)).slice(0, 6));
-      } catch { /* silently fail */ }
+    const url = exchangeWsPath('/api/ws/exchange/markets');
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
+            const data = normalizeMarketsList(j.markets);
+            setTickers(data.filter(m => TICKER_PAIRS.includes(m.symbol)).slice(0, 6));
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
     };
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
   }, []);
 
   if (!tickers.length) return null;

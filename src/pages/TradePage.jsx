@@ -19,13 +19,13 @@
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal }  from 'react-dom';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   ChevronDown, TrendingUp, TrendingDown, Globe,
   RefreshCw, X, Clock, CheckCircle, AlertCircle,
   BarChart2, DollarSign,
 } from 'lucide-react';
-import { marketApi, COIN_ICONS, PAIRS } from '@/services/marketApi';
+import { COIN_ICONS, PAIRS, exchangeWsPath } from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import TradingChart    from '@/components/trading/TradingChart';
 import OrderBook       from '@/components/trading/OrderBook';
@@ -145,41 +145,31 @@ function shortOrderId(id) {
   return id.length > 14 ? `${id.slice(0, 10)}…` : id;
 }
 
-// ─── Positions tab — live P&L ─────────────────────────────────────────────────
+// ─── Positions tab — live P&L (via AuthContext /ws/exchange/account) ─────────
 function PositionsTab({ activePair }) {
-  const { user, fetchWallet, fetchOrders } = useAuth();
-  const [positions, setPositions] = useState([]);
-  const [prices,    setPrices]    = useState({});   // { "BTC": 71000, ... }
-  const [loading,   setLoading]   = useState(false);
+  const { user, fetchWallet, fetchOrders, liveSpotPositions, fetchLiveSpotPositions } = useAuth();
+  const [posRefreshing, setPosRefreshing] = useState(false);
   const [closeTarget, setCloseTarget] = useState(null);
 
-  const fetchPositions = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const res = await authFetch(`${API}/api/portfolio/positions`);
-      if (res.ok) {
-        const data = await res.json();
-        setPositions(data);
-        // Fetch current price for each asset
-        const priceMap = {};
-        await Promise.all(data.map(async pos => {
-          try {
-            const t = await marketApi.getTicker(pos.symbol);
-            priceMap[pos.asset] = parseFloat(t?.price ?? 0);
-          } catch { /* silent */ }
-        }));
-        setPrices(priceMap);
-      }
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  }, [user]);
+  const positions = liveSpotPositions ?? [];
+  const prices = useMemo(() => {
+    const priceMap = {};
+    for (const pos of positions) {
+      priceMap[pos.asset] = Number(pos.current_price ?? 0);
+    }
+    return priceMap;
+  }, [positions]);
 
-  useEffect(() => {
-    fetchPositions();
-    const id = setInterval(fetchPositions, 5000);
-    return () => clearInterval(id);
-  }, [fetchPositions]);
+  const loading = Boolean(user && liveSpotPositions == null);
+
+  const handleRefreshPositions = useCallback(async () => {
+    setPosRefreshing(true);
+    try {
+      await fetchLiveSpotPositions();
+    } finally {
+      setPosRefreshing(false);
+    }
+  }, [fetchLiveSpotPositions]);
 
   if (!user) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#ffffff' }}>
@@ -261,30 +251,31 @@ function PositionsTab({ activePair }) {
           >
             P&amp;L analysis →
           </Link>
-          <button onClick={fetchPositions} disabled={loading}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: loading ? 0.4 : 1 }}
+          <button onClick={handleRefreshPositions} disabled={loading || posRefreshing}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: loading || posRefreshing ? 0.4 : 1 }}
             className="hover:text-white transition-colors">
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={16} className={loading || posRefreshing ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
       {/* Spot assets table — similar to exchange “assets / wallet” breakdown */}
       <div style={{ overflowX: 'auto' }}>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(120px,1.1fr) 0.9fr 0.95fr 0.95fr 0.95fr 1fr 1.35fr minmax(88px,0.75fr)',
-        gap: 10, padding: '12px 20px', minWidth: 920,
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
-        background: 'rgba(255,255,255,0.015)',
-        alignItems: 'end',
-      }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(120px,1.05fr) 0.85fr 0.9fr 0.9fr 0.9fr 0.9fr minmax(132px,1fr) 1.12fr minmax(88px,0.75fr)',
+          gap: 10, padding: '12px 20px', minWidth: 1080,
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          background: 'rgba(255,255,255,0.015)',
+          alignItems: 'end',
+        }}>
         <Th main="Coin" sub="Spot pair" title="Asset you hold" />
         <Th main="Size" sub="Total balance" align="right" title="Total coins in wallet (incl. locked in orders)" />
         <Th main="Available" sub="Free to sell" align="right" title="Balance not locked in open sell orders" />
         <Th main="Avg. entry" sub="USDT per coin" align="right" title="Average buy price from your trade history" />
         <Th main="Mark" sub="Last / index" align="right" title="Current market price in USDT" />
         <Th main="Value" sub="USDT" align="right" title="Size × mark price" />
+        <Th main="Last fill" sub="Buy or sell" align="right" title="Most recent execution on this pair (spot)" />
         <Th main="Unrealized P&amp;L" sub="USDT &amp; ROI %" align="right" title="Value minus cost basis; profit if you sold at mark" />
         <Th main="Action" sub="Reduce / close" align="right" />
       </div>
@@ -304,8 +295,8 @@ function PositionsTab({ activePair }) {
           <div key={pos.asset}
             style={{
               display: 'grid',
-              gridTemplateColumns: 'minmax(120px,1.1fr) 0.9fr 0.95fr 0.95fr 0.95fr 1fr 1.35fr minmax(88px,0.75fr)',
-              gap: 10, padding: '14px 20px', alignItems: 'center', minWidth: 920,
+              gridTemplateColumns: 'minmax(120px,1.05fr) 0.85fr 0.9fr 0.9fr 0.9fr 0.9fr minmax(132px,1fr) 1.12fr minmax(88px,0.75fr)',
+              gap: 10, padding: '14px 20px', alignItems: 'center', minWidth: 1080,
               borderBottom: '1px solid rgba(255,255,255,0.04)',
               borderLeft: isActivePair ? '3px solid rgba(235,211,141,0.65)' : '3px solid transparent',
               transition: 'background 0.15s',
@@ -345,6 +336,32 @@ function PositionsTab({ activePair }) {
             <span style={{ textAlign: 'right', color: '#fff', fontFamily: 'monospace', fontWeight: 800, fontSize: 14 }}>
               ${currentValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </span>
+
+            <div style={{ textAlign: 'right', fontSize: 11 }}>
+              {pos.last_fill_side ? (
+                <>
+                  <span style={{
+                    fontWeight: 900,
+                    color: String(pos.last_fill_side).toLowerCase() === 'buy' ? '#22c55e' : '#ef4444',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                  }}>
+                    {String(pos.last_fill_side).toLowerCase() === 'buy' ? 'Buy' : 'Sell'}
+                  </span>
+                  <div style={{ color: '#ffffff', fontFamily: 'monospace', marginTop: 4, fontWeight: 600 }}>
+                    {Number(pos.last_fill_amount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} @ ${fmtOrdP(pos.last_fill_price)}
+                  </div>
+                  <div style={{ color: '#ffffff', fontSize: 10, marginTop: 2 }}>
+                    {pos.last_fill_at ? new Date(pos.last_fill_at).toLocaleString() : ''}
+                  </div>
+                  <div style={{ color: '#ffffff', fontSize: 10, marginTop: 4 }} title="Lifetime base volume from your fills">
+                    Σ buy {Number(pos.lifetime_buy_qty ?? 0).toFixed(4)} · Σ sell {Number(pos.lifetime_sell_qty ?? 0).toFixed(4)}
+                  </div>
+                </>
+              ) : (
+                <span style={{ color: '#ffffff' }}>—</span>
+              )}
+            </div>
 
             <div style={{ textAlign: 'right', fontFamily: 'monospace' }}>
               <span style={{ fontWeight: 900, fontSize: 14, color: isUp ? '#22c55e' : '#ef4444' }}>
@@ -394,8 +411,7 @@ function PositionsTab({ activePair }) {
           position={closeTarget}
           onDismiss={() => setCloseTarget(null)}
           onSuccess={async () => {
-            await fetchPositions();
-            await Promise.all([fetchWallet(), fetchOrders()]);
+            await Promise.all([fetchLiveSpotPositions(), fetchWallet(), fetchOrders()]);
           }}
         />
       )}
@@ -421,32 +437,27 @@ function buildOrderRealizedPnlMap(trades) {
 
 // ─── ZONE 2: Unified bottom panel ─────────────────────────────────────────────
 function BottomPanel({ symbol }) {
-  const { user, openOrders, orderHistory, ordersLoading, fetchOrders, fetchWallet } = useAuth();
+  const {
+    user,
+    openOrders,
+    orderHistory,
+    ordersLoading,
+    fetchOrders,
+    fetchWallet,
+    fetchLiveSpotPositions,
+    userTrades,
+    userTradesLoading,
+    fetchUserTrades,
+  } = useAuth();
   const [tab,        setTab]        = useState('positions');
   const [cancelling, setCancelling] = useState(null);
   const [cancelError, setCancelError] = useState(null);
-  const [trades, setTrades] = useState([]);
-  const [tradesLoading, setTradesLoading] = useState(false);
-
-  const fetchTrades = useCallback(async () => {
-    if (!user) return;
-    setTradesLoading(true);
-    try {
-      const res = await authFetch(`${API}/api/orders/trades`);
-      if (res.ok) setTrades(await res.json());
-    } catch { /* keep previous */ }
-    finally { setTradesLoading(false); }
-  }, [user]);
 
   useEffect(() => {
     if (tab !== 'orders') setCancelError(null);
   }, [tab]);
 
-  useEffect(() => {
-    if (user && tab === 'history') fetchTrades();
-  }, [user, tab, fetchTrades]);
-
-  const orderPnlById = useMemo(() => buildOrderRealizedPnlMap(trades), [trades]);
+  const orderPnlById = useMemo(() => buildOrderRealizedPnlMap(userTrades), [userTrades]);
 
   const historyTotalRealizedPnl = useMemo(() => {
     let s = 0;
@@ -466,7 +477,7 @@ function BottomPanel({ symbol }) {
     try {
       const res = await authFetch(`${API}/api/orders/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        await Promise.all([fetchOrders(), fetchWallet()]);
+        await Promise.all([fetchOrders(), fetchWallet(), fetchLiveSpotPositions()]);
       } else {
         setCancelError(await parseApiError(res));
       }
@@ -527,14 +538,14 @@ function BottomPanel({ symbol }) {
           <button
             onClick={async () => {
               await fetchOrders();
-              if (tab === 'history') await fetchTrades();
+              if (tab === 'history') await fetchUserTrades();
             }}
-            disabled={ordersLoading || (tab === 'history' && tradesLoading)}
-            style={{ marginLeft: 'auto', padding: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: ordersLoading || (tab === 'history' && tradesLoading) ? 0.4 : 1 }}
+            disabled={ordersLoading || (tab === 'history' && userTradesLoading)}
+            style={{ marginLeft: 'auto', padding: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: ordersLoading || (tab === 'history' && userTradesLoading) ? 0.4 : 1 }}
             className="hover:text-white transition-colors"
             title="Refresh"
           >
-            <RefreshCw size={16} className={ordersLoading || (tab === 'history' && tradesLoading) ? 'animate-spin' : ''} />
+            <RefreshCw size={16} className={ordersLoading || (tab === 'history' && userTradesLoading) ? 'animate-spin' : ''} />
           </button>
         )}
       </div>
@@ -794,6 +805,9 @@ function BottomPanel({ symbol }) {
 export default function TradePage() {
   const { symbol: p } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sideQ = searchParams.get('side');
+  const formInitialSide = sideQ === 'sell' ? 'sell' : sideQ === 'buy' ? 'buy' : undefined;
 
   const [symbol,        setSymbol]        = useState((p || 'BZXUSDT').toUpperCase());
   const [ticker,        setTicker]        = useState(null);
@@ -802,24 +816,55 @@ export default function TradePage() {
   const [mobilePanelTab, setMobilePanelTab] = useState('trade'); // 'trade' | 'book'
 
   const dropRef = useRef(null);
-  const timer   = useRef(null);
   const [dropPos, setDropPos] = useState(null);
 
   const base = symbol.replace('USDT', '');
   const icon = COIN_ICONS[base];
 
-  const loadTicker = useCallback(() => {
-    marketApi.getTicker(symbol).then(setTicker).catch(() => {});
+  useEffect(() => {
+    setTicker(null);
+    const qs = new URLSearchParams({ symbol });
+    const url = exchangeWsPath(`/api/ws/exchange/ticker?${qs.toString()}`);
+    let closed = false;
+    let reconnectTimer = null;
+    let ws = null;
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          if (j.type === 'exchange_ticker' && j.ticker) setTicker(j.ticker);
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
   }, [symbol]);
 
   useEffect(() => {
-    setTicker(null); loadTicker();
-    timer.current = setInterval(loadTicker, 2000);
-    return () => clearInterval(timer.current);
-  }, [symbol, loadTicker]);
+    if (p) setSymbol(String(p).toUpperCase());
+  }, [p]);
 
   const switchPair = sym => {
-    setSymbol(sym); navigate(`/trade/${sym}`, { replace: true });
+    setSymbol(sym);
+    navigate(`/trade/${sym}`, { replace: true });
     setPairOpen(false); setFormPrice('');
   };
 
@@ -972,7 +1017,7 @@ export default function TradePage() {
 
         <div style={{ background: '#0a0b0f', minHeight: 520 }}>
           {mobilePanelTab === 'trade'
-            ? <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} />
+            ? <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} initialSide={formInitialSide} />
             : <div style={{ height: 520, position: 'relative', overflow: 'hidden' }}>
                 <OrderBook
                   symbol={symbol}
@@ -1050,7 +1095,7 @@ export default function TradePage() {
           </div>
           <div style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ flex: '1 1 0', overflowY: 'auto' }} className="scrollbar-hide">
-              <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} />
+              <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} initialSide={formInitialSide} />
             </div>
           </div>
         </div>

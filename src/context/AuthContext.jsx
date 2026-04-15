@@ -1,9 +1,16 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { exchangeWsPath } from '@/services/marketApi';
+import {
+  formatApiDetail,
+  parseFastApi422FieldErrors,
+  AuthRequestError,
+  authFormBannerMessage,
+} from '@/lib/authValidation';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 
 const AuthContext = createContext(null);
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
@@ -24,15 +31,49 @@ export function getStoredExchangeToken() {
   return store.getToken();
 }
 
+async function readJsonSafe(res) {
+  try {
+    return await res.json();
+  } catch {
+    return {};
+  }
+}
+
+function throwAuthFailure(res, data, fallbackMessage) {
+  const fe422 = res.status === 422 ? parseFastApi422FieldErrors(data?.detail) : {};
+  const hasFields = Object.keys(fe422).length > 0;
+  const hint = data?.hint && typeof data.hint === 'string' ? ` ${data.hint.trim()}` : '';
+  const detailMsg = (formatApiDetail(data?.detail) || fallbackMessage) + hint;
+  const banner = authFormBannerMessage(hasFields ? fe422 : {}, detailMsg);
+  throw new AuthRequestError(banner, {
+    fieldErrors: hasFields ? fe422 : null,
+    status: res.status,
+  });
+}
+
+function bodyShouldBeJsonStringified(body) {
+  if (body == null || typeof body !== 'object') return false;
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return false;
+  if (typeof Blob !== 'undefined' && body instanceof Blob) return false;
+  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) return false;
+  if (typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer) return false;
+  const proto = Object.getPrototypeOf(body);
+  return proto === Object.prototype || proto === null;
+}
+
 export function authFetch(url, options = {}) {
   const token = store.getToken();
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = { ...(options.headers || {}) };
+  let body = options.body;
+  if (!isFormData && bodyShouldBeJsonStringified(body)) {
+    body = JSON.stringify(body);
+  }
   if (!isFormData && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
   if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(url, { ...options, headers });
+  return fetch(url, { ...options, headers, body });
 }
 
 // ── Wallet transform helper ───────────────────────────────────────────────────
@@ -238,8 +279,8 @@ export function AuthProvider({ children }) {
     const res  = await authFetch(`${API}/api/auth/login`, {
       method: 'POST', body: JSON.stringify({ email, password }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Login failed');
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Login failed');
     store.setToken(data.access_token);
     store.setUser(data.user);
     setUser(data.user);
@@ -254,13 +295,8 @@ export function AuthProvider({ children }) {
     return data.user;
   }, [fetchWallet, fetchOrders, fetchUserTrades, fetchLiveSpotPositions, fetchKyc, refreshSession]);
 
-  // ── Register ──────────────────────────────────────────────────────────────
-  const register = useCallback(async (name, email, password) => {
-    const res  = await authFetch(`${API}/api/auth/register`, {
-      method: 'POST', body: JSON.stringify({ name, email, password }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Registration failed');
+  // ── Register (one-step) ─────────────────────────────────────────────────────
+  const applyTokenResponse = useCallback(async (data) => {
     store.setToken(data.access_token);
     store.setUser(data.user);
     setUser(data.user);
@@ -274,6 +310,26 @@ export function AuthProvider({ children }) {
     ]);
     return data.user;
   }, [fetchWallet, fetchOrders, fetchUserTrades, fetchLiveSpotPositions, fetchKyc, refreshSession]);
+
+  const register = useCallback(async (name, email, password) => {
+    const payload = {
+      name: String(name ?? '').trim(),
+      email: String(email ?? '').trim(),
+      password: String(password ?? ''),
+    };
+    const body = JSON.stringify(payload);
+    const res = await authFetch(`${API}/api/auth/register`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body,
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Registration failed');
+    return applyTokenResponse(data);
+  }, [applyTokenResponse]);
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(() => {

@@ -6,6 +6,12 @@ import {
   TrendingUp, Shield, Zap, BarChart2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import {
+  validateAuthEmail,
+  validateAuthPasswordLogin,
+  authFormBannerMessage,
+  isAuthRequestError,
+} from '@/lib/authValidation';
 
 const LOGO      = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 const TOKEN_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
@@ -53,16 +59,42 @@ export default function LoginPage() {
   const [showPw,   setShowPw]   = useState(false);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
+  const [fieldErrors, setFieldErrors] = useState({ email: '', password: '' });
+
+  const clearApiState = () => {
+    setError('');
+    setFieldErrors({ email: '', password: '' });
+  };
 
   const handleSubmit = async e => {
     e.preventDefault();
-    setError('');
+    clearApiState();
+    const emErr = validateAuthEmail(email);
+    const pwErr = validateAuthPasswordLogin(password);
+    const fe = {};
+    if (emErr) fe.email = emErr;
+    if (pwErr) fe.password = pwErr;
+    if (Object.keys(fe).length) {
+      setFieldErrors({ email: fe.email || '', password: fe.password || '' });
+      setError(authFormBannerMessage(fe, emErr || pwErr));
+      return;
+    }
+    const em = email.trim();
     setLoading(true);
     try {
-      await login(email, password);
+      await login(em, password);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Invalid email or password. Please try again.');
+      if (isAuthRequestError(err) && err.fieldErrors) {
+        setFieldErrors({
+          email: err.fieldErrors.email || '',
+          password: err.fieldErrors.password || '',
+        });
+        setError(err.message);
+      } else {
+        setFieldErrors({ email: '', password: '' });
+        setError(err.message || 'Invalid email or password. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -170,13 +202,32 @@ export default function LoginPage() {
               <label className="block text-sm font-semibold text-white mb-2">
                 Email Address
               </label>
-              <div className="flex items-center bg-surface-card border border-surface-border
-                rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+              <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                fieldErrors.email ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
                 <Mail size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => {
+                    setEmail(e.target.value);
+                    setFieldErrors(f => ({ ...f, email: '' }));
+                    setError('');
+                  }}
+                  onBlur={() => {
+                    const msg = validateAuthEmail(email);
+                    setFieldErrors(f => ({ ...f, email: msg || '' }));
+                  }}
+                  required
                   placeholder="you@email.com"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
+                  autoComplete="email"
+                  aria-invalid={Boolean(fieldErrors.email)}
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                />
               </div>
+              {fieldErrors.email && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.email}</p>
+              )}
             </div>
 
             {/* Password */}
@@ -185,18 +236,36 @@ export default function LoginPage() {
                 <label className="text-sm font-semibold text-white">Password</label>
                 <a href="#" className="text-xs text-gold-light hover:underline">Forgot password?</a>
               </div>
-              <div className="flex items-center bg-surface-card border border-surface-border
-                rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+              <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                fieldErrors.password ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
                 <Lock size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
-                <input type={showPw ? 'text' : 'password'} value={password}
-                  onChange={e => setPassword(e.target.value)} required
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => {
+                    setPassword(e.target.value);
+                    setFieldErrors(f => ({ ...f, password: '' }));
+                    setError('');
+                  }}
+                  onBlur={() => {
+                    const msg = validateAuthPasswordLogin(password);
+                    setFieldErrors(f => ({ ...f, password: msg || '' }));
+                  }}
+                  required
                   placeholder="Your password"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
+                  autoComplete="current-password"
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                />
                 <button type="button" onClick={() => setShowPw(v => !v)}
                   className="text-white hover:text-white transition-colors ml-2">
                   {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
+              {fieldErrors.password && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.password}</p>
+              )}
             </div>
 
             {/* Remember me */}

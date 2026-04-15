@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { authFetch } from '@/context/AuthContext';
+import { MIN_BASE_AMOUNT, MIN_CLOSE_ORDER_VALUE_USDT } from '@/lib/tradeRules';
 
 const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
@@ -41,6 +42,8 @@ export default function ClosePositionModal({ position, onDismiss, onSuccess }) {
 
   if (!position) return null;
 
+  const markPx = Number(position?.current_price ?? 0);
+
   const buildBody = () => {
     const sym = String(position.symbol || '').replace(/\//g, '').toUpperCase();
     if (!sym) throw new Error('Missing trading pair');
@@ -48,21 +51,48 @@ export default function ClosePositionModal({ position, onDismiss, onSuccess }) {
     const body = { symbol: sym, order_type: ot };
     if (ot === 'limit') {
       const p = parseFloat(limitPrice);
-      if (!p || p <= 0) throw new Error('Enter a valid limit price');
+      if (!Number.isFinite(p) || p <= 0) throw new Error('Enter a valid limit price');
       body.price = p;
     }
     if (sizeMode === 'full') {
+      if (available < MIN_BASE_AMOUNT) {
+        throw new Error(`Nothing to close: need at least ${MIN_BASE_AMOUNT} available (excluding locked).`);
+      }
+      const refPx = ot === 'limit' ? parseFloat(limitPrice) : markPx;
+      if (Number.isFinite(refPx) && refPx > 0 && available * refPx < MIN_CLOSE_ORDER_VALUE_USDT) {
+        throw new Error(
+          `Close size is below minimum order value ($${MIN_CLOSE_ORDER_VALUE_USDT.toFixed(2)} USDT).`,
+        );
+      }
       return body;
     }
     if (sizeMode === 'fraction') {
       const f = Number(fraction);
-      if (f <= 0 || f > 1) throw new Error('Fraction must be between 0 and 1');
+      if (!Number.isFinite(f) || f <= 0 || f > 1) throw new Error('Fraction must be between 0 and 1');
       body.fraction = f;
+      const estBase = available * f;
+      if (estBase < MIN_BASE_AMOUNT) {
+        throw new Error(`Resulting size must be at least ${MIN_BASE_AMOUNT} (try a larger fraction).`);
+      }
+      const refPx = ot === 'limit' ? parseFloat(limitPrice) : markPx;
+      if (Number.isFinite(refPx) && refPx > 0 && estBase * refPx < MIN_CLOSE_ORDER_VALUE_USDT) {
+        throw new Error(
+          `Order value would be below $${MIN_CLOSE_ORDER_VALUE_USDT.toFixed(2)} USDT. Increase the fraction or wait for a better price.`,
+        );
+      }
       return body;
     }
     const amt = parseFloat(amountStr);
-    if (!amt || amt <= 0) throw new Error('Enter a valid amount');
-    body.amount = Math.min(amt, available);
+    if (!Number.isFinite(amt) || amt <= 0) throw new Error('Enter a valid amount');
+    if (amt < MIN_BASE_AMOUNT) throw new Error(`Minimum amount is ${MIN_BASE_AMOUNT}.`);
+    const useAmt = Math.min(amt, available);
+    const refPx = ot === 'limit' ? parseFloat(limitPrice) : markPx;
+    if (Number.isFinite(refPx) && refPx > 0 && useAmt * refPx < MIN_CLOSE_ORDER_VALUE_USDT) {
+      throw new Error(
+        `Order value is below $${MIN_CLOSE_ORDER_VALUE_USDT.toFixed(2)} USDT. Enter a larger amount.`,
+      );
+    }
+    body.amount = useAmt;
     return body;
   };
 

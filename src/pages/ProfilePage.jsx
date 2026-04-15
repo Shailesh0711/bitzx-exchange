@@ -7,6 +7,18 @@ import {
   Camera, Trash2, Globe, FileText,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
+import {
+  validateProfileForm,
+  firstProfileError,
+  validatePasswordChangeFields,
+  firstPasswordChangeFieldError,
+} from '@/lib/profileValidation';
+import {
+  formatApiDetail,
+  parseFastApi422FieldErrors,
+  authFormBannerMessage,
+  validateStrongPassword,
+} from '@/lib/authValidation';
 
 const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
@@ -38,7 +50,8 @@ function Toast({ msg, ok }) {
   );
 }
 
-function FieldGroup({ label, children, hint, required }) {
+function FieldGroup({ label, children, hint, required, error }) {
+  const err = error?.trim();
   return (
     <div>
       <label className="block text-sm font-semibold text-white mb-2 uppercase tracking-wide">
@@ -46,7 +59,8 @@ function FieldGroup({ label, children, hint, required }) {
         {required && <span className="text-red-400 ml-1">*</span>}
       </label>
       {children}
-      {hint && <p className="text-xs text-white/60 mt-1.5">{hint}</p>}
+      {err && <p className="text-xs text-red-400 mt-1.5 font-semibold">{err}</p>}
+      {hint && !err && <p className="text-xs text-white/60 mt-1.5">{hint}</p>}
     </div>
   );
 }
@@ -63,6 +77,7 @@ function ProfileTab({ user, updateUser }) {
   const [uploading, setUploading] = useState(false);
   const [toast, setToast] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     if (!user) return;
@@ -73,6 +88,10 @@ function ProfileTab({ user, updateUser }) {
       bio: user.bio || '',
     });
   }, [user]);
+
+  useEffect(() => {
+    setFieldErrors({});
+  }, [form.name, form.phone, form.country, form.bio]);
 
   useEffect(() => () => {
     if (preview) URL.revokeObjectURL(preview);
@@ -87,18 +106,18 @@ function ProfileTab({ user, updateUser }) {
     const name = form.name.trim();
     const phone = form.phone.trim();
     const country = form.country.trim();
-    if (name.length < 2) {
-      showToast('Display name must be at least 2 characters', false);
+    const errs = validateProfileForm({
+      name: form.name,
+      phone: form.phone,
+      country: form.country,
+      bio: form.bio,
+    });
+    if (Object.keys(errs).length) {
+      setFieldErrors(errs);
+      showToast(firstProfileError(errs) || 'Please fix the highlighted fields.', false);
       return;
     }
-    if (!phone) {
-      showToast('Phone number is required', false);
-      return;
-    }
-    if (!country) {
-      showToast('Country is required', false);
-      return;
-    }
+    setFieldErrors({});
     setSaving(true);
     try {
       const res = await authFetch(`${API}/api/auth/profile`, {
@@ -249,9 +268,11 @@ function ProfileTab({ user, updateUser }) {
 
         <div className="lg:col-span-8 space-y-6 min-w-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <FieldGroup label="Display Name" required hint="Your name as shown on the exchange">
-          <div className="flex items-center bg-surface-card border border-surface-border
-            rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+        <FieldGroup label="Display Name" required error={fieldErrors.name} hint="Your name as shown on the exchange">
+          <div className={`flex items-center bg-surface-card border
+            rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+              fieldErrors.name ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
             <User size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
             <input
               value={form.name}
@@ -263,9 +284,11 @@ function ProfileTab({ user, updateUser }) {
           </div>
         </FieldGroup>
 
-        <FieldGroup label="Phone" required hint="Include country code (e.g. +1 …)">
-          <div className="flex items-center bg-surface-card border border-surface-border
-            rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+        <FieldGroup label="Phone" required error={fieldErrors.phone} hint="Include country code (e.g. +1 …)">
+          <div className={`flex items-center bg-surface-card border
+            rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+              fieldErrors.phone ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
             <Phone size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
             <input
               value={form.phone}
@@ -279,9 +302,11 @@ function ProfileTab({ user, updateUser }) {
           </div>
         </FieldGroup>
 
-        <FieldGroup label="Country / Region" required>
-          <div className="flex items-center bg-surface-card border border-surface-border
-            rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+        <FieldGroup label="Country / Region" required error={fieldErrors.country}>
+          <div className={`flex items-center bg-surface-card border
+            rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+              fieldErrors.country ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
             <Globe size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
             <input
               value={form.country}
@@ -306,9 +331,11 @@ function ProfileTab({ user, updateUser }) {
         </FieldGroup>
           </div>
 
-          <FieldGroup label="Bio" hint="Optional — a short line about you (max 500 characters)">
-            <div className="flex items-start bg-surface-card border border-surface-border
-              rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+          <FieldGroup label="Bio" error={fieldErrors.bio} hint="Optional — a short line about you (max 500 characters)">
+            <div className={`flex items-start bg-surface-card border
+              rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                fieldErrors.bio ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
               <FileText size={17} className="text-white mr-3 mt-0.5 group-focus-within:text-gold transition-colors flex-shrink-0" />
               <textarea
                 value={form.bio}
@@ -371,52 +398,121 @@ function ProfileTab({ user, updateUser }) {
   );
 }
 
+const emptyPwFieldErrors = () => ({
+  current_password: '', new_password: '', confirm: '',
+});
+
 function SecurityTab() {
   const [form,   setForm]   = useState({ current_password: '', new_password: '', confirm: '' });
   const [showPw, setShowPw] = useState({ cur: false, nw: false, cnf: false });
   const [saving, setSaving] = useState(false);
   const [toast,  setToast]  = useState(null);
+  const [fieldErrors, setFieldErrors] = useState(emptyPwFieldErrors);
 
   const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 5000); };
-  const onChange  = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  const onPwdChange = k => e => {
+    setForm(f => ({ ...f, [k]: e.target.value }));
+    setFieldErrors(f => ({ ...f, [k]: '' }));
+  };
   const togglePw  = k => setShowPw(p => ({ ...p, [k]: !p[k] }));
 
   const handleChange = async () => {
-    if (form.new_password !== form.confirm)   { showToast('New passwords do not match', false); return; }
-    if (form.new_password.length < 8)         { showToast('Password must be at least 8 characters', false); return; }
+    const fe = validatePasswordChangeFields(form);
+    if (Object.keys(fe).length) {
+      setFieldErrors({
+        current_password: fe.current_password || '',
+        new_password: fe.new_password || '',
+        confirm: fe.confirm || '',
+      });
+      showToast(firstPasswordChangeFieldError(fe) || 'Please fix the highlighted fields.', false);
+      return;
+    }
     setSaving(true);
     try {
       const res  = await authFetch(`${API}/api/auth/password`, {
         method: 'PUT',
         body: JSON.stringify({ current_password: form.current_password, new_password: form.new_password }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to change password');
+      let data = {};
+      try {
+        data = await res.json();
+      } catch { /* non-JSON */ }
+      if (!res.ok) {
+        const apiFe = res.status === 422 ? parseFastApi422FieldErrors(data.detail) : {};
+        if (Object.keys(apiFe).length) {
+          setFieldErrors({
+            current_password: apiFe.current_password || '',
+            new_password: apiFe.new_password || '',
+            confirm: apiFe.confirm || '',
+          });
+          showToast(authFormBannerMessage(apiFe, formatApiDetail(data.detail)), false);
+        } else {
+          setFieldErrors(emptyPwFieldErrors());
+          showToast(formatApiDetail(data.detail) || 'Failed to change password', false);
+        }
+        return;
+      }
       showToast('Password changed successfully!', true);
       setForm({ current_password: '', new_password: '', confirm: '' });
+      setFieldErrors(emptyPwFieldErrors());
     } catch (e) {
-      showToast(e.message, false);
+      setFieldErrors(emptyPwFieldErrors());
+      showToast(e.message || 'Something went wrong', false);
     } finally { setSaving(false); }
   };
 
   const pwFields = [
-    { key: 'current_password', label: 'Current Password',    placeholder: 'Enter your current password', showKey: 'cur' },
-    { key: 'new_password',     label: 'New Password',        placeholder: 'Minimum 8 characters',        showKey: 'nw'  },
-    { key: 'confirm',          label: 'Confirm New Password', placeholder: 'Re-enter new password',      showKey: 'cnf' },
+    {
+      key: 'current_password', label: 'Current Password', placeholder: 'Enter your current password', showKey: 'cur',
+      onBlur: () => {
+        const cur = (form.current_password || '').trim();
+        setFieldErrors(f => ({ ...f, current_password: cur ? '' : 'Enter your current password.' }));
+      },
+    },
+    {
+      key: 'new_password', label: 'New Password', placeholder: '8+ chars, upper, lower, #, symbol', showKey: 'nw',
+      onBlur: () => {
+        const nw = form.new_password || '';
+        const cur = (form.current_password || '').trim();
+        let msg = validateStrongPassword(nw) || '';
+        if (!msg && nw && cur && nw === cur) {
+          msg = 'New password must be different from your current password.';
+        }
+        setFieldErrors(f => ({ ...f, new_password: msg }));
+      },
+    },
+    {
+      key: 'confirm', label: 'Confirm New Password', placeholder: 'Re-enter new password', showKey: 'cnf',
+      onBlur: () => {
+        const nw = form.new_password || '';
+        const cf = form.confirm || '';
+        let msg = '';
+        if (nw && !String(cf).trim()) msg = 'Confirm your new password.';
+        else if (String(cf).trim() && nw !== cf) msg = 'New passwords do not match.';
+        setFieldErrors(f => ({ ...f, confirm: msg }));
+      },
+    },
   ];
 
   return (
     <div className="space-y-8">
       <div className="space-y-5">
-        {pwFields.map(({ key, label, placeholder, showKey }) => (
-          <FieldGroup key={key} label={label}>
-            <div className="flex items-center bg-surface-card border border-surface-border
-              rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+        {pwFields.map(({ key, label, placeholder, showKey, onBlur }) => (
+          <FieldGroup key={key} label={label} error={fieldErrors[key]}>
+            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+              fieldErrors[key] ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
               <Lock size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
               <input
                 type={showPw[showKey] ? 'text' : 'password'}
-                value={form[key]} onChange={onChange(key)} placeholder={placeholder}
-                className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
+                value={form[key]}
+                onChange={onPwdChange(key)}
+                onBlur={onBlur}
+                placeholder={placeholder}
+                autoComplete={key === 'current_password' ? 'current-password' : 'new-password'}
+                aria-invalid={Boolean(fieldErrors[key])}
+                className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+              />
               <button type="button" onClick={() => togglePw(showKey)}
                 className="text-white hover:text-white transition-colors ml-2">
                 {showPw[showKey] ? <EyeOff size={17} /> : <Eye size={17} />}

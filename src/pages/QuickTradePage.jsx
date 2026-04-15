@@ -11,7 +11,7 @@
  * │  to switch.                │  Recent trade history below.         │
  * └────────────────────────────┴─────────────────────────────────────┘
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +22,12 @@ import {
 } from 'lucide-react';
 import { COIN_ICONS, PAIRS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
+import {
+  validateMarketQuickOrder,
+  MIN_BASE_AMOUNT,
+  MIN_ORDER_VALUE_USDT,
+  MARKET_BUY_LOCK_BUFFER,
+} from '@/lib/tradeRules';
 
 const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const FEE  = 0.001;
@@ -229,6 +235,21 @@ export default function QuickTradePage() {
 
   const kycBlocked = user && kyc?.status !== 'approved';
 
+  const orderCheck = useMemo(
+    () =>
+      validateMarketQuickOrder({
+        symbol,
+        side,
+        amountStr: amount,
+        price,
+        balanceUSDT: availUSDT,
+        balanceBase: availBase,
+        baseAsset: base,
+        userLoggedIn: !!user,
+      }),
+    [symbol, side, amount, price, availUSDT, availBase, base, user],
+  );
+
   useEffect(() => {
     const url = exchangeWsPath('/api/ws/exchange/markets');
     let closed = false;
@@ -289,9 +310,22 @@ export default function QuickTradePage() {
   };
 
   const handleSubmit = async () => {
-    if (!user)          { navigate('/login'); return; }
-    if (!qty || qty <= 0) { setResult({ ok: false, error: 'Enter a valid amount' }); return; }
-    if (kycBlocked)     { setResult({ ok: false, error: 'KYC verification required before trading' }); return; }
+    if (!user) {
+      if (!orderCheck.ok && orderCheck.message) {
+        setResult({ ok: false, error: orderCheck.message });
+        return;
+      }
+      navigate('/login');
+      return;
+    }
+    if (kycBlocked) {
+      setResult({ ok: false, error: 'KYC verification required before trading' });
+      return;
+    }
+    if (!orderCheck.ok) {
+      setResult({ ok: false, error: orderCheck.message || 'Check your order details.' });
+      return;
+    }
 
     setPlacing(true);
     setResult(null);
@@ -668,10 +702,20 @@ export default function QuickTradePage() {
                   <label className="block text-xs sm:text-sm font-extrabold text-white mb-2 uppercase tracking-widest">
                     Amount ({base})
                   </label>
+                  <p className="text-[10px] text-white/70 mb-2 px-0.5">
+                    Min {MIN_BASE_AMOUNT} {base} · Min order ${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT · Buys lock ≈{' '}
+                    {((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% above mark
+                  </p>
                   <div className="flex items-center rounded-xl px-4 sm:px-5 py-3 sm:py-4 transition-colors"
                     style={{
                       background: 'rgba(255,255,255,0.05)',
-                      border: `2px solid ${amount ? 'rgba(235,211,141,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      border: `2px solid ${
+                        orderCheck.errors.amount || orderCheck.errors.balance || orderCheck.errors.total
+                          ? 'rgba(239,68,68,0.45)'
+                          : amount
+                            ? 'rgba(235,211,141,0.4)'
+                            : 'rgba(255,255,255,0.1)'
+                      }`,
                     }}>
                     <input
                       type="number" min="0" step="any"
@@ -683,6 +727,15 @@ export default function QuickTradePage() {
                     />
                     <span className="text-sm sm:text-base font-extrabold ml-3" style={{ color: '#ffffff' }}>{base}</span>
                   </div>
+                  {(orderCheck.errors.amount || orderCheck.errors.balance || orderCheck.errors.total || orderCheck.errors.price || orderCheck.errors.symbol) && (
+                    <p className="text-xs text-red-400 mt-2 font-bold">
+                      {orderCheck.errors.amount
+                        || orderCheck.errors.price
+                        || orderCheck.errors.total
+                        || orderCheck.errors.balance
+                        || orderCheck.errors.symbol}
+                    </p>
+                  )}
                 </div>
 
                 {/* % presets */}
@@ -805,17 +858,17 @@ export default function QuickTradePage() {
                 ) : (
                   <button
                     onClick={handleSubmit}
-                    disabled={placing || kycBlocked || !qty || qty <= 0}
+                    disabled={placing || kycBlocked || !orderCheck.ok}
                     className="w-full py-4 sm:py-5 rounded-xl font-extrabold text-base sm:text-lg tracking-wide
                       transition-all active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{
-                      background: placing || kycBlocked || !qty
+                      background: placing || kycBlocked || !orderCheck.ok
                         ? 'rgba(255,255,255,0.06)'
                         : side === 'buy'
                           ? 'linear-gradient(135deg, #16a34a, #22c55e)'
                           : 'linear-gradient(135deg, #dc2626, #ef4444)',
-                      color: placing || kycBlocked || !qty ? '#ffffff' : '#fff',
-                      boxShadow: placing || kycBlocked || !qty ? 'none'
+                      color: placing || kycBlocked || !orderCheck.ok ? '#ffffff' : '#fff',
+                      boxShadow: placing || kycBlocked || !orderCheck.ok ? 'none'
                         : side === 'buy' ? '0 8px 32px rgba(34,197,94,0.3)'
                                          : '0 8px 32px rgba(239,68,68,0.3)',
                     }}>

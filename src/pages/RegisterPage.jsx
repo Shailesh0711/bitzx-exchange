@@ -6,6 +6,19 @@ import {
   TrendingUp, Shield, Zap, BarChart2, Star,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import {
+  validateRegisterFields,
+  validateRegisterName,
+  validateRegisterConfirm,
+  firstRegisterError,
+} from '@/lib/profileValidation';
+import {
+  getPasswordStrengthMeta,
+  validateAuthEmail,
+  validateStrongPassword,
+  authFormBannerMessage,
+  isAuthRequestError,
+} from '@/lib/authValidation';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -17,6 +30,10 @@ const PERKS = [
   { icon: Star,       color: '#f59e0b', title: 'Low Fees — 0.1%',         desc: 'Maker & taker fee, no hidden charges' },
 ];
 
+const emptyRegisterFieldErrors = () => ({
+  name: '', email: '', password: '', confirm: '', terms: '',
+});
+
 const TICKER = [
   { pair: 'BTC/USDT', price: '$71,903', change: '+0.48%', up: true },
   { pair: 'ETH/USDT', price: '$3,241',  change: '+1.22%', up: true },
@@ -26,33 +43,62 @@ const TICKER = [
 
 export default function RegisterPage() {
   const { register } = useAuth();
-  const navigate     = useNavigate();
+  const navigate = useNavigate();
 
-  const [name,     setName]     = useState('');
-  const [email,    setEmail]    = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirm,  setConfirm]  = useState('');
-  const [showPw,   setShowPw]   = useState(false);
-  const [agree,    setAgree]    = useState(false);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [agree, setAgree] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState(emptyRegisterFieldErrors);
 
-  const strength      = password.length === 0 ? 0 : password.length < 6 ? 1 : password.length < 10 ? 2 : 3;
-  const strengthLabel = ['', 'Weak', 'Fair', 'Strong'][strength];
-  const strengthColor = ['', '#ef4444', '#f59e0b', '#22c55e'][strength];
+  const strengthMeta = getPasswordStrengthMeta(password);
 
   const handleSubmit = async e => {
     e.preventDefault();
     setError('');
-    if (password !== confirm) { setError('Passwords do not match'); return; }
-    if (password.length < 8)  { setError('Password must be at least 8 characters'); return; }
-    if (!agree)               { setError('Please accept the Terms of Service'); return; }
+    setFieldErrors(emptyRegisterFieldErrors());
+    const nm = name.trim();
+    const em = email.trim();
+    const regErr = validateRegisterFields({ name: nm, email: em, password });
+    if (Object.keys(regErr).length) {
+      setFieldErrors({ ...emptyRegisterFieldErrors(), ...regErr });
+      setError(authFormBannerMessage(regErr, firstRegisterError(regErr)));
+      return;
+    }
+    const cErr = validateRegisterConfirm(password, confirm);
+    if (cErr) {
+      setFieldErrors({ ...emptyRegisterFieldErrors(), confirm: cErr });
+      setError(cErr);
+      return;
+    }
+    if (!agree) {
+      const t = 'Please accept the Terms of Service.';
+      setFieldErrors({ ...emptyRegisterFieldErrors(), terms: t });
+      setError(t);
+      return;
+    }
     setLoading(true);
     try {
-      await register(name, email, password);
+      await register(nm, em, password);
       navigate('/kyc');
     } catch (err) {
-      setError(err.message || 'Registration failed. Please try again.');
+      if (isAuthRequestError(err) && err.fieldErrors) {
+        setFieldErrors({
+          name: err.fieldErrors.name || '',
+          email: err.fieldErrors.email || '',
+          password: err.fieldErrors.password || '',
+          confirm: '',
+          terms: '',
+        });
+        setError(err.message);
+      } else {
+        setFieldErrors(emptyRegisterFieldErrors());
+        setError(err.message || 'Registration failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -163,6 +209,7 @@ export default function RegisterPage() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="max-w-lg w-full mx-auto">
 
+          <>
           <h1 className="text-3xl xl:text-4xl font-extrabold text-white mb-1">Create your account</h1>
           <p className="text-white text-base mb-8">Free demo · No deposit required</p>
 
@@ -175,51 +222,124 @@ export default function RegisterPage() {
             </motion.div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form noValidate onSubmit={handleSubmit} className="space-y-4">
             {/* Name + Email row */}
             <div className="grid sm:grid-cols-2 gap-4">
-              {[
-                { label: 'Full Name', value: name, set: setName, icon: User, type: 'text', placeholder: 'John Doe' },
-                { label: 'Email',     value: email, set: setEmail, icon: Mail, type: 'email', placeholder: 'you@email.com' },
-              ].map(f => (
-                <div key={f.label}>
-                  <label className="block text-sm font-semibold text-white mb-2">{f.label}</label>
-                  <div className="flex items-center bg-surface-card border border-surface-border
-                    rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
-                    <f.icon size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
-                    <input type={f.type} value={f.value}
-                      onChange={e => f.set(e.target.value)} required placeholder={f.placeholder}
-                      className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
-                  </div>
+              <div>
+                <label className="block text-sm font-semibold text-white mb-2">Full Name</label>
+                <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                  fieldErrors.name ? 'border-red-500/50' : 'border-surface-border'
+                }`}>
+                  <User size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={e => {
+                      setName(e.target.value);
+                      setFieldErrors(f => ({ ...f, name: '' }));
+                      setError('');
+                    }}
+                    onBlur={() => {
+                      if (!name.trim()) {
+                        setFieldErrors(f => ({ ...f, name: '' }));
+                        return;
+                      }
+                      const msg = validateRegisterName(name);
+                      setFieldErrors(f => ({ ...f, name: msg || '' }));
+                    }}
+                    placeholder="John Doe"
+                    autoComplete="name"
+                    aria-invalid={Boolean(fieldErrors.name)}
+                    className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                  />
                 </div>
-              ))}
+                {fieldErrors.name && (
+                  <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.name}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-white mb-2">Email</label>
+                <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                  fieldErrors.email ? 'border-red-500/50' : 'border-surface-border'
+                }`}>
+                  <Mail size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => {
+                      setEmail(e.target.value);
+                      setFieldErrors(f => ({ ...f, email: '' }));
+                      setError('');
+                    }}
+                    onBlur={() => {
+                      const msg = validateAuthEmail(email);
+                      setFieldErrors(f => ({ ...f, email: msg || '' }));
+                    }}
+                    placeholder="you@email.com"
+                    autoComplete="email"
+                    aria-invalid={Boolean(fieldErrors.email)}
+                    className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                  />
+                </div>
+                {fieldErrors.email && (
+                  <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.email}</p>
+                )}
+              </div>
             </div>
 
             {/* Password */}
             <div>
               <label className="block text-sm font-semibold text-white mb-2">Password</label>
-              <div className="flex items-center bg-surface-card border border-surface-border
-                rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+              <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                fieldErrors.password ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
                 <Lock size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
-                <input type={showPw ? 'text' : 'password'} value={password}
-                  onChange={e => setPassword(e.target.value)} required
-                  placeholder="Minimum 8 characters"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => {
+                    setPassword(e.target.value);
+                    setFieldErrors(f => ({ ...f, password: '', confirm: '' }));
+                    setError('');
+                  }}
+                  onBlur={() => {
+                    if (!password) {
+                      setFieldErrors(f => ({ ...f, password: '' }));
+                      return;
+                    }
+                    const msg = validateStrongPassword(password);
+                    setFieldErrors(f => ({ ...f, password: msg || '' }));
+                  }}
+                  placeholder="8+ chars: upper, lower, number, symbol"
+                  autoComplete="new-password"
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                />
                 <button type="button" onClick={() => setShowPw(v => !v)}
                   className="text-white hover:text-white transition-colors ml-2">
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {password && (
-                <div className="flex items-center gap-2.5 mt-2">
-                  <div className="flex gap-1.5 flex-1">
-                    {[1, 2, 3].map(lvl => (
-                      <div key={lvl} className="flex-1 h-1.5 rounded-full transition-all"
-                        style={{ background: strength >= lvl ? strengthColor : 'rgba(255,255,255,0.07)' }} />
-                    ))}
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex gap-1.5 flex-1">
+                      {[1, 2, 3, 4].map(lvl => (
+                        <div key={lvl} className="flex-1 h-1.5 rounded-full transition-all"
+                          style={{ background: strengthMeta.score >= lvl ? strengthMeta.color : 'rgba(255,255,255,0.07)' }} />
+                      ))}
+                    </div>
+                    {strengthMeta.label && (
+                      <span className="text-xs font-bold whitespace-nowrap" style={{ color: strengthMeta.color }}>{strengthMeta.label}</span>
+                    )}
                   </div>
-                  <span className="text-xs font-bold" style={{ color: strengthColor }}>{strengthLabel}</span>
+                  <p className="text-[11px] text-white leading-snug">
+                    Use at least 8 characters with uppercase, lowercase, a number, and a symbol (e.g. ! or #).
+                  </p>
                 </div>
+              )}
+              {fieldErrors.password && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.password}</p>
               )}
             </div>
 
@@ -228,24 +348,48 @@ export default function RegisterPage() {
               <label className="block text-sm font-semibold text-white mb-2">Confirm Password</label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5
                 focus-within:border-gold/50 transition-colors ${
-                confirm && confirm !== password ? 'border-red-500/50' : 'border-surface-border'
+                fieldErrors.confirm || (confirm && confirm !== password) ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Lock size={16} className="text-white mr-3" />
-                <input type="password" value={confirm}
-                  onChange={e => setConfirm(e.target.value)} required
+                <input
+                  type="password"
+                  value={confirm}
+                  onChange={e => {
+                    setConfirm(e.target.value);
+                    setFieldErrors(f => ({ ...f, confirm: '' }));
+                    setError('');
+                  }}
+                  onBlur={() => {
+                    const msg = validateRegisterConfirm(password, confirm);
+                    setFieldErrors(f => ({ ...f, confirm: msg || '' }));
+                  }}
                   placeholder="Repeat your password"
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45" />
-                {confirm && confirm === password && (
+                  autoComplete="new-password"
+                  aria-invalid={Boolean(fieldErrors.confirm)}
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                />
+                {confirm && confirm === password && !fieldErrors.confirm && (
                   <CheckCircle size={16} className="text-green-400 ml-2" />
                 )}
               </div>
+              {fieldErrors.confirm && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.confirm}</p>
+              )}
             </div>
 
             {/* Terms */}
             <label className="flex items-start gap-3 cursor-pointer group">
               <div className="mt-0.5 flex-shrink-0">
-                <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)}
-                  className="w-4 h-4 rounded border-surface-border accent-gold cursor-pointer" />
+                <input
+                  type="checkbox"
+                  checked={agree}
+                  onChange={e => {
+                    setAgree(e.target.checked);
+                    setFieldErrors(f => ({ ...f, terms: '' }));
+                    setError('');
+                  }}
+                  className="w-4 h-4 rounded border-surface-border accent-gold cursor-pointer"
+                />
               </div>
               <span className="text-sm text-white leading-relaxed">
                 I agree to the{' '}
@@ -255,6 +399,9 @@ export default function RegisterPage() {
                 This is a demo platform for educational purposes.
               </span>
             </label>
+            {fieldErrors.terms && (
+              <p className="text-xs text-red-400 font-medium -mt-2" role="alert">{fieldErrors.terms}</p>
+            )}
 
             {/* Submit */}
             <button type="submit" disabled={loading}
@@ -268,6 +415,7 @@ export default function RegisterPage() {
                 : <><span>Create Free Account</span> <ArrowRight size={18} /></>}
             </button>
           </form>
+          </>
 
           <p className="text-center text-white text-sm mt-6">
             Already have an account?{' '}

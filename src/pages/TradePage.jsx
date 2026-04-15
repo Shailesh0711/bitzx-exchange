@@ -14,7 +14,7 @@
  * └──────────────────────────────────────────────────────────────────┘  ← fold
  *
  * ┌──────────────────────────────────────────────────────────────────┐  ← scroll ↓
- * │  ZONE 2 — Positions | Open Orders | Order History                │
+ * │  ZONE 2 — Working orders (first) | Spot assets | Order history   │
  * └──────────────────────────────────────────────────────────────────┘
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -449,12 +449,17 @@ function BottomPanel({ symbol }) {
     userTradesLoading,
     fetchUserTrades,
   } = useAuth();
-  const [tab,        setTab]        = useState('positions');
+  const [tab,         setTab]         = useState('orders');
+  const [orderFilter, setOrderFilter] = useState('all');
   const [cancelling, setCancelling] = useState(null);
   const [cancelError, setCancelError] = useState(null);
 
   useEffect(() => {
     if (tab !== 'orders') setCancelError(null);
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'orders') setOrderFilter('all');
   }, [tab]);
 
   const orderPnlById = useMemo(() => buildOrderRealizedPnlMap(userTrades), [userTrades]);
@@ -499,9 +504,9 @@ function BottomPanel({ symbol }) {
                       : <Clock size={11} />;
 
   const TABS = [
-    { id: 'positions', label: 'Assets',       badge: null },
-    { id: 'orders',    label: 'Open orders',  badge: openOrders.length || null },
-    { id: 'history',   label: 'Order history' },
+    { id: 'orders',    label: 'Working orders', badge: openOrders.length || null },
+    { id: 'positions', label: 'Spot assets',    badge: null },
+    { id: 'history',   label: 'Order history',  badge: null },
   ];
 
   return (
@@ -534,53 +539,63 @@ function BottomPanel({ symbol }) {
           </button>
         ))}
 
-        {(tab === 'orders' || tab === 'history') && (
+        {(tab === 'orders' || tab === 'history' || tab === 'positions') && (
           <button
             onClick={async () => {
-              await fetchOrders();
-              if (tab === 'history') await fetchUserTrades();
+              if (tab === 'orders' || tab === 'history') {
+                await fetchOrders();
+                if (tab === 'history') await fetchUserTrades();
+              }
+              if (tab === 'positions') await fetchLiveSpotPositions();
             }}
-            disabled={ordersLoading || (tab === 'history' && userTradesLoading)}
-            style={{ marginLeft: 'auto', padding: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: ordersLoading || (tab === 'history' && userTradesLoading) ? 0.4 : 1 }}
+            disabled={
+              tab === 'positions'
+                ? false
+                : ordersLoading || (tab === 'history' && userTradesLoading)
+            }
+            style={{ marginLeft: 'auto', padding: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: '#ffffff', opacity: (tab !== 'positions' && (ordersLoading || (tab === 'history' && userTradesLoading))) ? 0.4 : 1 }}
             className="hover:text-white transition-colors"
             title="Refresh"
           >
-            <RefreshCw size={16} className={ordersLoading || (tab === 'history' && userTradesLoading) ? 'animate-spin' : ''} />
+            <RefreshCw size={16} className={(tab !== 'positions' && (ordersLoading || (tab === 'history' && userTradesLoading))) ? 'animate-spin' : ''} />
           </button>
         )}
       </div>
 
       {tab === 'positions' && (
         <TabHint>
-          <strong style={{ color: '#ffffff' }}>Spot holdings</strong> (like Binance &quot;Assets&quot; or Coinbase balance): one row per coin.
-          <strong style={{ color: '#ffffff' }}> Unrealized P&amp;L</strong> is estimated profit or loss in USDT if you sold at the mark price, using your average buy cost.
+          <strong style={{ color: '#ffffff' }}>Spot assets</strong> — coins you already own (wallet + locked in sells). This is <strong style={{ color: '#ffffff' }}>not</strong> where limit orders wait: use <strong style={{ color: '#EBD38D' }}>Working orders</strong> for anything still on the book before it executes.
+          <strong style={{ color: '#ffffff' }}> Unrealized P&amp;L</strong> is vs your average buy cost at the mark price.
         </TabHint>
       )}
       {tab === 'orders' && (
         <TabHint>
-          Orders that are <strong style={{ color: '#ffffff' }}>working on the book</strong> (limit) or waiting to complete (market).
-          Nothing here is final P&amp;L until the order <strong style={{ color: '#ffffff' }}>fills</strong> — then it moves to order history and your asset balance updates.
+          <strong style={{ color: '#ffffff' }}>Before execution:</strong> every <strong style={{ color: '#ffffff' }}>limit</strong> order and any <strong style={{ color: '#ffffff' }}>partially filled</strong> order lives here — not under Spot assets and not in Order history until it is <strong style={{ color: '#ffffff' }}>fully filled</strong> or <strong style={{ color: '#ffffff' }}>cancelled</strong>.
+          Use <strong style={{ color: '#EBD38D' }}>Limits only</strong> below to hide market rows. <strong style={{ color: '#ffffff' }}>Remain</strong> is what is still working on the book.
         </TabHint>
       )}
       {tab === 'history' && (
         <TabHint>
-          <strong style={{ color: '#ffffff' }}>Ledger of past orders</strong> (each row = one order you placed).
-          <strong style={{ color: '#ffffff' }}> Realized P&amp;L</strong> (USDT) only on <strong style={{ color: '#ffffff' }}>sells</strong> that executed — buys open or add to your position; they show &quot;—&quot; here.
-          For every individual fill, use the <Link to="/portfolio" style={{ color: '#EBD38D', fontWeight: 700 }}>P&amp;L</Link> page.
+          <strong style={{ color: '#ffffff' }}>Completed orders only</strong> — <strong style={{ color: '#ffffff' }}>filled</strong> or <strong style={{ color: '#ffffff' }}>cancelled</strong>. Nothing still working appears here.
+          <strong style={{ color: '#ffffff' }}> Realized P&amp;L</strong> (USDT) on <strong style={{ color: '#ffffff' }}>sells</strong> that executed. Per-fill detail: <Link to="/portfolio" style={{ color: '#EBD38D', fontWeight: 700 }}>P&amp;L</Link>.
         </TabHint>
       )}
 
       {/* Positions */}
       {tab === 'positions' && <PositionsTab activePair={symbol} />}
 
-      {/* Open Orders / History */}
+      {/* Working orders / Order history */}
       {(tab === 'orders' || tab === 'history') && (() => {
-        const rows = tab === 'orders' ? openOrders : orderHistory;
+        const rawOpen = tab === 'orders' ? openOrders : orderHistory;
+        const rows =
+          tab === 'orders' && orderFilter === 'limit'
+            ? rawOpen.filter(o => String(o.type || '').toLowerCase() === 'limit')
+            : rawOpen;
         const histPnl = tab === 'history';
         const gridCols = histPnl
           ? '1.22fr 0.78fr 0.48fr 0.48fr 0.88fr 0.88fr 1.05fr 1.02fr 0.88fr 0.62fr'
-          : '1.38fr 0.85fr 0.5fr 0.5fr 0.92fr 0.88fr 0.92fr 0.9fr';
-        const minW = histPnl ? 980 : 760;
+          : '1.38fr 0.85fr 0.5fr 0.5fr 0.92fr 0.88fr 0.88fr 0.88fr 0.9fr';
+        const minW = histPnl ? 980 : 840;
         return (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'auto' }}>
             {tab === 'orders' && cancelError && (
@@ -593,6 +608,40 @@ function BottomPanel({ symbol }) {
                 role="alert"
               >
                 {cancelError}
+              </div>
+            )}
+            {tab === 'orders' && user && (
+              <div
+                style={{
+                  display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+                  padding: '10px 20px 12px',
+                  borderBottom: '1px solid rgba(255,255,255,0.05)',
+                }}
+              >
+                <span style={{ fontSize: 11, color: '#ffffff', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>
+                  Show
+                </span>
+                {[
+                  { id: 'all', label: 'All working', sub: `${openOrders.length} on book` },
+                  { id: 'limit', label: 'Limits only', sub: `${openOrders.filter(o => String(o.type || '').toLowerCase() === 'limit').length} limits` },
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setOrderFilter(f.id)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700,
+                      border: `1px solid ${orderFilter === f.id ? 'rgba(235,211,141,0.45)' : 'rgba(255,255,255,0.12)'}`,
+                      background: orderFilter === f.id ? 'rgba(235,211,141,0.14)' : 'rgba(255,255,255,0.04)',
+                      color: orderFilter === f.id ? '#EBD38D' : '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s, border-color 0.15s',
+                    }}
+                  >
+                    {f.label}
+                    <span style={{ opacity: 0.75, fontWeight: 600, fontSize: 11, marginLeft: 6 }}>({f.sub})</span>
+                  </button>
+                ))}
               </div>
             )}
             {histPnl && user && rows.length > 0 && (
@@ -651,6 +700,7 @@ function BottomPanel({ symbol }) {
               )}
               <Th main={histPnl ? 'Executed' : 'Order qty'} sub={histPnl ? 'Filled / total' : 'Requested size'} align="right" />
               {!histPnl && <Th main="Filled" sub="So far" align="right" title="Amount already matched" />}
+              {!histPnl && <Th main="Remain" sub="On book" align="right" title="Unfilled quantity still working" />}
               {histPnl && (
                 <Th main="Realized P&amp;L" sub="USDT · sells" align="right" title="Profit or loss on sold size for this order (avg. cost)" />
               )}
@@ -671,15 +721,23 @@ function BottomPanel({ symbol }) {
                   <Link to="/login" style={{ color: '#EBD38D', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>Sign in →</Link>
                 </div>
               ) : rows.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 56, gap: 10, color: '#ffffff', textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 56, gap: 10, color: '#ffffff', textAlign: 'center', maxWidth: 440, margin: '0 auto' }}>
                   <Clock size={32} />
                   <span style={{ fontSize: 16, fontWeight: 700, color: '#ffffff' }}>
-                    {tab === 'orders' ? 'No open orders' : 'No order history yet'}
+                    {tab === 'orders'
+                      ? (openOrders.length === 0
+                        ? 'No working orders'
+                        : orderFilter === 'limit'
+                          ? 'No limit orders in this filter'
+                          : 'No rows to show')
+                      : 'No order history yet'}
                   </span>
                   <span style={{ fontSize: 12, lineHeight: 1.45 }}>
                     {tab === 'orders'
-                      ? 'Place a limit order (or a market order that rests) and it will show here until it fills or you cancel.'
-                      : 'Completed and cancelled orders appear here — like an account ledger. Realized P&L shows on sells that executed.'}
+                      ? (openOrders.length === 0
+                        ? 'Limit orders appear here as soon as you place them — before they execute. Filled or cancelled orders move to Order history. Spot balances are under Spot assets.'
+                        : 'Switch to “All working” to see every open order, or place a new limit from the form above.')
+                      : 'Filled and cancelled orders only — still-working limits stay under Working orders.'}
                   </span>
                 </div>
               ) : rows.map(o => {
@@ -741,6 +799,9 @@ function BottomPanel({ symbol }) {
                             ({((o.filled / o.amount) * 100).toFixed(0)}%)
                           </span>
                         )}
+                      </span>
+                      <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: '#EBD38D', fontWeight: 700 }}>
+                        {(o.remaining != null ? o.remaining : Math.max(0, o.amount - o.filled)).toFixed(6)}
                       </span>
                     </>
                   )}

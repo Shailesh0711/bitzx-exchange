@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Shield, CheckCircle, Clock, AlertCircle,
@@ -6,8 +6,17 @@ import {
   Globe, CreditCard, Upload, ImageIcon,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
+import { exchangeApiOrigin } from '@/lib/apiBase';
+import SuggestionTextField from '@/components/kyc/SuggestionTextField';
+import { suggestCountries, suggestCities } from '@/data/kycLocations';
+import {
+  validateKycPersonal,
+  validateKycDocument,
+  validateKycFile,
+  firstErrorMessage,
+} from '@/lib/kycValidation';
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 // ─── Why KYC info panel ───────────────────────────────────────────────────────
 const KYC_BENEFITS = [
@@ -97,7 +106,8 @@ function StepIndicator({ current }) {
 }
 
 // ─── Form Input ───────────────────────────────────────────────────────────────
-function FormInput({ label, required, ...props }) {
+function FormInput({ label, required, error, ...props }) {
+  const err = error?.trim();
   return (
     <div>
       <label className="block text-sm font-semibold text-white mb-2">
@@ -105,36 +115,64 @@ function FormInput({ label, required, ...props }) {
       </label>
       <input
         {...props}
-        className="w-full rounded-xl px-4 py-3.5 text-white text-base outline-none
-          focus:border-gold/50 transition-colors placeholder:text-white/45"
-        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
+        className={`w-full rounded-xl px-4 py-3.5 text-white text-base outline-none
+          focus:border-gold/50 transition-colors placeholder:text-white/45 ${err ? 'border-red-500/50' : ''}`}
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: err ? '1px solid rgba(239,68,68,0.45)' : '1px solid rgba(255,255,255,0.09)',
+        }}
       />
+      {err && <p className="text-xs text-red-400 mt-1.5 font-semibold">{err}</p>}
     </div>
   );
 }
 
 // ─── Step 1: Personal Info ────────────────────────────────────────────────────
-function Step1({ data, onChange }) {
+function Step1({ data, onChange, errors = {}, revealErrors }) {
+  const ctrySuggest = useMemo(() => suggestCountries(data.country || ''), [data.country]);
+  const citySuggest = useMemo(
+    () => suggestCities(data.country || '', data.city || ''),
+    [data.country, data.city],
+  );
+
+  const show = (k) => (revealErrors ? errors[k] : '');
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
       <div className="sm:col-span-2">
-        <FormInput label="Full Legal Name" required value={data.full_name || ''} placeholder="Exactly as it appears on your ID"
+        <FormInput label="Full Legal Name" required error={show('full_name')} value={data.full_name || ''} placeholder="Exactly as it appears on your ID"
           onChange={e => onChange('full_name', e.target.value)} />
       </div>
-      <FormInput label="Date of Birth" required type="date" value={data.date_of_birth || ''}
+      <FormInput label="Date of Birth" required error={show('date_of_birth')} type="date" value={data.date_of_birth || ''}
         onChange={e => onChange('date_of_birth', e.target.value)} />
-      <FormInput label="Nationality" required value={data.nationality || ''} placeholder="e.g. Indian, American"
+      <FormInput label="Nationality" required error={show('nationality')} value={data.nationality || ''} placeholder="e.g. Indian, British, American"
         onChange={e => onChange('nationality', e.target.value)} />
       <div className="sm:col-span-2">
-        <FormInput label="Street Address" required value={data.address || ''} placeholder="House / Flat number, Street name"
+        <FormInput label="Street Address" required error={show('address')} value={data.address || ''} placeholder="House / flat, street, area, landmark"
           onChange={e => onChange('address', e.target.value)} />
       </div>
-      <FormInput label="City" required value={data.city || ''} placeholder="City"
-        onChange={e => onChange('city', e.target.value)} />
-      <FormInput label="Country" required value={data.country || ''} placeholder="e.g. India, USA"
-        onChange={e => onChange('country', e.target.value)} />
-      <FormInput label="Postal / ZIP Code" required value={data.postal_code || ''} placeholder="6-digit code"
-        onChange={e => onChange('postal_code', e.target.value)} />
+      <SuggestionTextField
+        label="Country"
+        required
+        error={show('country')}
+        value={data.country || ''}
+        placeholder="Start typing your country"
+        suggestions={ctrySuggest}
+        onChange={(v) => onChange('country', v)}
+      />
+      <SuggestionTextField
+        label="City"
+        required
+        error={show('city')}
+        value={data.city || ''}
+        placeholder="Start typing your city"
+        suggestions={citySuggest}
+        onChange={(v) => onChange('city', v)}
+      />
+      <div className="sm:col-span-2">
+        <FormInput label="Postal / ZIP Code" required error={show('postal_code')} value={data.postal_code || ''} placeholder="Postal or ZIP code"
+          onChange={e => onChange('postal_code', e.target.value)} />
+      </div>
     </div>
   );
 }
@@ -161,7 +199,11 @@ function Step2({
   onPickFront,
   onPickBack,
   uploading,
+  errors = {},
+  revealErrors,
 }) {
+  const show = (k) => (revealErrors ? errors[k] : '');
+
   return (
     <div className="space-y-6">
       <div>
@@ -181,13 +223,16 @@ function Step2({
             </button>
           ))}
         </div>
+        {revealErrors && errors.document_type && (
+          <p className="text-xs text-red-400 mt-2 font-semibold">{errors.document_type}</p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <FormInput label="Document Number" required value={data.document_number || ''}
+        <FormInput label="Document Number" required error={show('document_number')} value={data.document_number || ''}
           placeholder="As printed on the document"
           onChange={e => onChange('document_number', e.target.value)} />
-        <FormInput label="Expiry Date" required type="date" value={data.document_expiry || ''}
+        <FormInput label="Expiry Date" required error={show('document_expiry')} type="date" value={data.document_expiry || ''}
           onChange={e => onChange('document_expiry', e.target.value)} />
       </div>
 
@@ -217,6 +262,9 @@ function Step2({
             {docFrontUrl && !idFrontFile && !isImagePath(docFrontUrl) && (
               <a href={`${API}${docFrontUrl}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 mt-2 inline-block">View uploaded PDF</a>
             )}
+            {revealErrors && errors.document_front && (
+              <p className="text-xs text-red-400 mt-1.5 font-semibold">{errors.document_front}</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-bold text-white/70 mb-2">ID — back (optional)</label>
@@ -231,6 +279,9 @@ function Step2({
             )}
             {docBackUrl && !idBackFile && !isImagePath(docBackUrl) && (
               <a href={`${API}${docBackUrl}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 mt-2 inline-block">View uploaded PDF</a>
+            )}
+            {revealErrors && errors.document_back && (
+              <p className="text-xs text-red-400 mt-1.5 font-semibold">{errors.document_back}</p>
             )}
           </div>
         </div>
@@ -325,6 +376,8 @@ export default function KYCPage() {
   const [idFrontFile, setIdFrontFile] = useState(null);
   const [idBackFile, setIdBackFile] = useState(null);
   const [uploadingDocs, setUploadingDocs] = useState(false);
+  const [revealPersonalErrors, setRevealPersonalErrors] = useState(false);
+  const [revealDocumentErrors, setRevealDocumentErrors] = useState(false);
 
   useEffect(() => {
     authFetch(`${API}/api/kyc/status`)
@@ -347,10 +400,23 @@ export default function KYCPage() {
   const updatePersonal = (k, v) => setPersonal(p => ({ ...p, [k]: v }));
   const updateDoc      = (k, v) => setDocInfo(d => ({ ...d, [k]: v }));
 
-  const step1Valid = Object.values(personal).every(v => v.trim());
   const hasIdFront = !!(idFrontFile || docFrontUrl);
-  const step2Valid = docInfo.document_type && docInfo.document_number && docInfo.document_expiry && hasIdFront;
-  const canNext    = step === 0 ? step1Valid : step === 1 ? step2Valid : true;
+  const personalErrors = useMemo(() => validateKycPersonal(personal), [personal]);
+  const documentErrors = useMemo(() => {
+    const base = validateKycDocument(docInfo, { hasFrontUpload: hasIdFront });
+    if (idFrontFile) {
+      const fe = validateKycFile(idFrontFile);
+      if (fe) base.document_front = fe;
+    }
+    if (idBackFile) {
+      const be = validateKycFile(idBackFile);
+      if (be) base.document_back = be;
+    }
+    return base;
+  }, [docInfo, hasIdFront, idFrontFile, idBackFile]);
+
+  const step1Valid = Object.keys(personalErrors).length === 0;
+  const step2Valid = Object.keys(documentErrors).length === 0;
 
   const parseError = (data) => {
     const d = data?.detail;
@@ -359,14 +425,14 @@ export default function KYCPage() {
   };
 
   const uploadIdFiles = async () => {
-    if (!idFrontFile && !idBackFile) return;
+    if (!idFrontFile && !idBackFile) return null;
     if (!idFrontFile && !docFrontUrl) {
       throw new Error('Upload the front of your ID first.');
     }
     const fd = new FormData();
     if (idFrontFile) fd.append('document_front', idFrontFile);
     if (idBackFile) fd.append('document_back', idBackFile);
-    if (!fd.has('document_front') && !fd.has('document_back')) return;
+    if (!fd.has('document_front') && !fd.has('document_back')) return null;
     setUploadingDocs(true);
     try {
       const res = await authFetch(`${API}/api/kyc/upload`, { method: 'POST', body: fd });
@@ -376,6 +442,7 @@ export default function KYCPage() {
       if (j.document_back_url) setDocBackUrl(j.document_back_url);
       setIdFrontFile(null);
       setIdBackFile(null);
+      return j;
     } finally {
       setUploadingDocs(false);
     }
@@ -383,15 +450,33 @@ export default function KYCPage() {
 
   const handleNext = async () => {
     setError('');
+    if (step === 0) {
+      setRevealPersonalErrors(true);
+      if (!step1Valid) {
+        setError(firstErrorMessage(personalErrors) || 'Please complete all required fields.');
+        return;
+      }
+      setStep(1);
+      return;
+    }
+    if (step === 1) {
+      setRevealDocumentErrors(true);
+      if (!step2Valid) {
+        setError(firstErrorMessage(documentErrors) || 'Please complete document details and uploads.');
+        return;
+      }
+    }
+    let uploadJson = null;
     if (step === 1 && (idFrontFile || idBackFile)) {
       try {
-        await uploadIdFiles();
+        uploadJson = await uploadIdFiles();
       } catch (e) {
         setError(e.message || 'Upload failed');
         return;
       }
     }
-    if (step === 1 && !docFrontUrl && !idFrontFile) {
+    const frontAfterUpload = uploadJson?.document_front_url || docFrontUrl;
+    if (step === 1 && !frontAfterUpload && !idFrontFile) {
       setError('Upload the front of your ID before continuing.');
       return;
     }
@@ -401,6 +486,21 @@ export default function KYCPage() {
   const handleSubmit = async () => {
     setSubmitting(true); setError('');
     try {
+      const pe = validateKycPersonal(personal);
+      const de = validateKycDocument(docInfo, { hasFrontUpload: !!(idFrontFile || docFrontUrl) });
+      if (idFrontFile) {
+        const fe = validateKycFile(idFrontFile);
+        if (fe) de.document_front = fe;
+      }
+      if (idBackFile) {
+        const be = validateKycFile(idBackFile);
+        if (be) de.document_back = be;
+      }
+      if (Object.keys(pe).length || Object.keys(de).length) {
+        setRevealPersonalErrors(true);
+        setRevealDocumentErrors(true);
+        throw new Error(firstErrorMessage({ ...pe, ...de }) || 'Please fix validation errors.');
+      }
       if (!docFrontUrl) {
         throw new Error('Missing document upload. Go back to the document step and upload your ID.');
       }
@@ -553,7 +653,14 @@ export default function KYCPage() {
 
               <motion.div key={step} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.25 }}>
-                {step === 0 && <Step1 data={personal} onChange={updatePersonal} />}
+                {step === 0 && (
+                  <Step1
+                    data={personal}
+                    onChange={updatePersonal}
+                    errors={personalErrors}
+                    revealErrors={revealPersonalErrors}
+                  />
+                )}
                 {step === 1 && (
                   <Step2
                     data={docInfo}
@@ -565,6 +672,8 @@ export default function KYCPage() {
                     onPickFront={setIdFrontFile}
                     onPickBack={setIdBackFile}
                     uploading={uploadingDocs}
+                    errors={documentErrors}
+                    revealErrors={revealDocumentErrors}
                   />
                 )}
                 {step === 2 && (
@@ -583,7 +692,7 @@ export default function KYCPage() {
               {/* Navigation */}
               <div className="flex items-center justify-between mt-8 pt-6"
                 style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                <button onClick={() => setStep(s => s - 1)} disabled={step === 0}
+                <button onClick={() => { setError(''); setStep(s => s - 1); }} disabled={step === 0}
                   className="flex items-center gap-2 px-6 py-3 rounded-xl text-white
                     hover:text-white transition-colors text-base font-semibold disabled:opacity-0"
                   style={{ border: '1px solid rgba(255,255,255,0.09)' }}>
@@ -593,8 +702,8 @@ export default function KYCPage() {
                 {step < 2 ? (
                   <button
                     type="button"
-                    onClick={() => { if (step === 0) setStep(1); else handleNext(); }}
-                    disabled={!canNext || uploadingDocs}
+                    onClick={() => handleNext()}
+                    disabled={uploadingDocs}
                     className="flex items-center gap-2 px-8 py-3 rounded-xl
                       text-surface-dark font-bold text-base transition-all disabled:opacity-40"
                     style={{ background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }}>

@@ -68,7 +68,7 @@ export default function OpenOrders() {
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-8 gap-2 px-4 py-2.5 text-[11px] text-[#4A4B50] uppercase tracking-wider border-b border-surface-border flex-shrink-0">
+      <div className="grid grid-cols-9 gap-2 px-4 py-2.5 text-[11px] text-[#4A4B50] uppercase tracking-wider border-b border-surface-border flex-shrink-0">
         <span>Date</span>
         <span>Pair</span>
         <span>Type</span>
@@ -76,6 +76,7 @@ export default function OpenOrders() {
         <span className="text-right">Price</span>
         <span className="text-right">Amount</span>
         <span className="text-right">Filled</span>
+        <span className="text-right">Remain</span>
         <span className="text-right">{tab === 'open' ? 'Action' : 'Status'}</span>
       </div>
 
@@ -93,7 +94,7 @@ export default function OpenOrders() {
         ) : (
           rows.map(o => (
             <div key={o.id}
-              className="grid grid-cols-8 gap-2 px-4 py-3 text-[13px] border-b border-surface-border/40 hover:bg-white/[.04] items-center transition-colors">
+              className="grid grid-cols-9 gap-2 px-4 py-3 text-[13px] border-b border-surface-border/40 hover:bg-white/[.04] items-center transition-colors">
               <span className="text-[#4A4B50] truncate text-xs">{fmt(o.created_at)}</span>
               <span className="text-white font-semibold">{o.symbol.replace('USDT', '/USDT')}</span>
               <span className="text-[#8A8B90] capitalize">{o.type}</span>
@@ -111,6 +112,9 @@ export default function OpenOrders() {
                     ({((o.filled / o.amount) * 100).toFixed(0)}%)
                   </span>
                 )}
+              </span>
+              <span className="text-right text-gold-light/90 font-mono text-xs">
+                {(o.remaining != null ? o.remaining : Math.max(0, o.amount - o.filled)).toFixed(4)}
               </span>
 
               {tab === 'open' ? (

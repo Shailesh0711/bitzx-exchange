@@ -7,7 +7,7 @@
  *   currentPrice : optional — if omitted the modal fetches live price itself
  *   onClose      : () => void
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPortal }        from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -16,6 +16,12 @@ import {
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { COIN_ICONS, PAIRS, exchangeWsPath } from '@/services/marketApi';
+import {
+  validateMarketQuickOrder,
+  MIN_BASE_AMOUNT,
+  MIN_ORDER_VALUE_USDT,
+  MARKET_BUY_LOCK_BUFFER,
+} from '@/lib/tradeRules';
 
 const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const FEE  = 0.001; // 0.1%
@@ -113,6 +119,21 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
 
   const kycBlocked = user && kyc?.status !== 'approved';
 
+  const orderCheck = useMemo(
+    () =>
+      validateMarketQuickOrder({
+        symbol,
+        side,
+        amountStr: amount,
+        price,
+        balanceUSDT: availUSDT,
+        balanceBase: availBase,
+        baseAsset: base,
+        userLoggedIn: !!user,
+      }),
+    [symbol, side, amount, price, availUSDT, availBase, base, user],
+  );
+
   const applyPct = pct => {
     const max = maxBase * pct;
     setAmount(max > 0 ? max.toFixed(base === 'BTC' ? 6 : base === 'ETH' ? 5 : 4) : '');
@@ -124,8 +145,22 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
   };
 
   const handleSubmit = async () => {
-    if (!qty || qty <= 0)  { showToast('Enter a valid amount', false); return; }
-    if (kycBlocked)         { showToast('KYC verification required to trade', false); return; }
+    if (!user) {
+      if (!orderCheck.ok && orderCheck.message) {
+        showToast(orderCheck.message, false);
+        return;
+      }
+      window.location.href = '/login';
+      return;
+    }
+    if (kycBlocked) {
+      showToast('KYC verification required to trade', false);
+      return;
+    }
+    if (!orderCheck.ok) {
+      showToast(orderCheck.message || 'Check your order details.', false);
+      return;
+    }
     setLoading(true);
     try {
       const res  = await authFetch(`${API}/api/orders`, {
@@ -343,12 +378,22 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
             </div>
 
             {/* ─── Amount input ───────────────────────────────────────── */}
+            <p style={{ fontSize: 10, color: '#6B6B70', fontWeight: 700, marginBottom: 8, lineHeight: 1.4 }}>
+              Min {MIN_BASE_AMOUNT} {base} · Min ${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT notional · Buys lock ≈{' '}
+              {((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% above mark
+            </p>
             <div style={{
               display: 'flex', alignItems: 'center',
               background: 'rgba(255,255,255,0.05)',
-              border: `1px solid ${amount ? 'rgba(235,211,141,0.4)' : 'rgba(255,255,255,0.1)'}`,
+              border: `1px solid ${
+                orderCheck.errors.amount || orderCheck.errors.balance || orderCheck.errors.total
+                  ? 'rgba(239,68,68,0.5)'
+                  : amount
+                    ? 'rgba(235,211,141,0.4)'
+                    : 'rgba(255,255,255,0.1)'
+              }`,
               borderRadius: 14, padding: '0 16px',
-              marginBottom: 12, transition: 'border-color 0.2s',
+              marginBottom: 8, transition: 'border-color 0.2s',
             }}>
               <input
                 type="number" min="0" step="any"
@@ -363,6 +408,15 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
               />
               <span style={{ color: '#6B6B70', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{base}</span>
             </div>
+            {(orderCheck.errors.amount || orderCheck.errors.balance || orderCheck.errors.total || orderCheck.errors.price || orderCheck.errors.symbol) && (
+              <p style={{ fontSize: 12, color: '#ef4444', fontWeight: 700, marginBottom: 10 }}>
+                {orderCheck.errors.amount
+                  || orderCheck.errors.price
+                  || orderCheck.errors.total
+                  || orderCheck.errors.balance
+                  || orderCheck.errors.symbol}
+              </p>
+            )}
 
             {/* ─── % presets ──────────────────────────────────────────── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 18 }}>
@@ -450,30 +504,34 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
 
             {/* ─── CTA button ─────────────────────────────────────────── */}
             {!user ? (
-              <a href="/login" style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                width: '100%', padding: '16px 0',
-                background: 'linear-gradient(135deg, #9C7941, #EBD38D)',
-                color: '#0d0f14', fontWeight: 900, fontSize: 16,
-                borderRadius: 14, textDecoration: 'none',
-              }}>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!orderCheck.ok}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  width: '100%', padding: '16px 0',
+                  background: !orderCheck.ok ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg, #9C7941, #EBD38D)',
+                  color: !orderCheck.ok ? '#4A4B50' : '#0d0f14', fontWeight: 900, fontSize: 16,
+                  borderRadius: 14, border: 'none', cursor: !orderCheck.ok ? 'not-allowed' : 'pointer',
+                }}>
                 Sign In to Trade
-              </a>
+              </button>
             ) : (
-              <button onClick={handleSubmit} disabled={loading || kycBlocked || !qty}
+              <button onClick={handleSubmit} disabled={loading || kycBlocked || !orderCheck.ok}
                 style={{
                   width: '100%', padding: '16px 0', border: 'none', cursor: 'pointer',
                   borderRadius: 14, fontWeight: 900, fontSize: 16,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   transition: 'all 0.2s',
-                  background: loading || kycBlocked || !qty
+                  background: loading || kycBlocked || !orderCheck.ok
                     ? 'rgba(255,255,255,0.06)'
                     : side === 'buy'
                       ? 'linear-gradient(135deg, #16a34a, #22c55e)'
                       : 'linear-gradient(135deg, #dc2626, #ef4444)',
-                  color: loading || kycBlocked || !qty ? '#4A4B50' : '#fff',
+                  color: loading || kycBlocked || !orderCheck.ok ? '#4A4B50' : '#fff',
                   opacity: kycBlocked ? 0.55 : 1,
-                  boxShadow: loading || kycBlocked || !qty ? 'none'
+                  boxShadow: loading || kycBlocked || !orderCheck.ok ? 'none'
                     : side === 'buy' ? '0 8px 24px rgba(34,197,94,0.25)'
                                      : '0 8px 24px rgba(239,68,68,0.25)',
                 }}>

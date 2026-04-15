@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
@@ -8,6 +8,7 @@ import {
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
+import { validateDepositRequest, validateWithdrawRequest, MIN_WALLET_NOTIONAL_USDT } from '@/lib/walletValidation';
 
 const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
@@ -200,7 +201,7 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet, priceByAsset })
 
 // ── Deposit Tab ───────────────────────────────────────────────────────────────
 
-function DepositTab({ fetchWallet, kycBlocked, kyc }) {
+function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
   const [asset,   setAsset]   = useState('USDT');
   const [amount,  setAmount]  = useState('');
   const [txHash,  setTxHash]  = useState('');
@@ -210,6 +211,20 @@ function DepositTab({ fetchWallet, kycBlocked, kyc }) {
   const [result,  setResult]  = useState(null); // {ok, message}
 
   const networks = ASSET_NETWORKS[asset] || [];
+
+  const depositCheck = useMemo(
+    () =>
+      validateDepositRequest({
+        asset,
+        amountStr: amount,
+        txHash,
+        network,
+        notes,
+        supportedAssets: SUPPORTED_ASSETS,
+        priceByAsset: priceByAsset || { USDT: 1 },
+      }),
+    [asset, amount, txHash, network, notes, priceByAsset],
+  );
 
   const handleAsset = (a) => {
     setAsset(a);
@@ -227,12 +242,22 @@ function DepositTab({ fetchWallet, kycBlocked, kyc }) {
       });
       return;
     }
+    if (!depositCheck.ok) {
+      setResult({ ok: false, message: depositCheck.message || 'Please fix the highlighted fields.' });
+      return;
+    }
     setLoading(true);
     setResult(null);
     try {
       const res  = await authFetch(`${API}/api/wallet/deposit`, {
         method: 'POST',
-        body:   JSON.stringify({ asset, amount: parseFloat(amount), tx_hash: txHash, network, notes: notes || null }),
+        body:   JSON.stringify({
+          asset,
+          amount: parseFloat(amount),
+          tx_hash: txHash.trim(),
+          network,
+          notes: (notes && notes.trim()) ? notes.trim() : null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Request failed');
@@ -272,33 +297,52 @@ function DepositTab({ fetchWallet, kycBlocked, kyc }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
+          {depositCheck.errors.asset && (
+            <p className="text-xs text-red-400 font-semibold -mt-2">{depositCheck.errors.asset}</p>
+          )}
 
           {/* Network */}
           <div>
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
             <select value={network} onChange={e => setNetwork(e.target.value)} required
-              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors">
+              className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors ${
+                depositCheck.errors.network ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
               {networks.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
+            {depositCheck.errors.network && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.network}</p>
+            )}
           </div>
 
           {/* Amount */}
           <div>
+            <p className="text-[10px] text-white/60 mb-1.5">Minimum {MIN_WALLET_NOTIONAL_USDT} USDT equivalent (non-USDT uses live mark).</p>
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Amount</label>
-            <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
+            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
+              depositCheck.errors.amount ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
               <input type="number" step="any" min="0" value={amount} onChange={e => setAmount(e.target.value)} required
                 placeholder="0.00" className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
               <span className="text-xs text-white font-semibold">{asset}</span>
             </div>
+            {depositCheck.errors.amount && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.amount}</p>
+            )}
           </div>
 
           {/* TX Hash */}
           <div>
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Transaction Hash / Reference</label>
-            <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
+            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
+              depositCheck.errors.tx_hash ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
               <input type="text" value={txHash} onChange={e => setTxHash(e.target.value)} required
                 placeholder="0x..." className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
             </div>
+            {depositCheck.errors.tx_hash && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.tx_hash}</p>
+            )}
           </div>
 
           {/* Notes */}
@@ -306,7 +350,12 @@ function DepositTab({ fetchWallet, kycBlocked, kyc }) {
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Notes (optional)</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               placeholder="Any extra information for the admin..."
-              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-gold/50 transition-colors resize-none" />
+              className={`w-full bg-surface-card border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-gold/50 transition-colors resize-none ${
+                depositCheck.errors.notes ? 'border-red-500/50' : 'border-surface-border'
+              }`} />
+            {depositCheck.errors.notes && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.notes}</p>
+            )}
           </div>
 
           <AnimatePresence>
@@ -319,7 +368,7 @@ function DepositTab({ fetchWallet, kycBlocked, kyc }) {
             )}
           </AnimatePresence>
 
-          <button type="submit" disabled={loading || kycBlocked}
+          <button type="submit" disabled={loading || kycBlocked || !depositCheck.ok}
             className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-gold to-gold-light text-surface-dark font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50">
             {loading ? <div className="w-5 h-5 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" /> : <><ArrowDownCircle size={16} /> Submit Deposit Request</>}
           </button>
@@ -361,7 +410,7 @@ function DepositTab({ fetchWallet, kycBlocked, kyc }) {
 
 // ── Withdraw Tab ──────────────────────────────────────────────────────────────
 
-function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
+function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc, priceByAsset }) {
   const [asset,   setAsset]   = useState('USDT');
   const [amount,  setAmount]  = useState('');
   const [address, setAddress] = useState('');
@@ -373,6 +422,21 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
   const networks    = ASSET_NETWORKS[asset] || [];
   const walletEntry = walletAssets.find(w => w.asset === asset);
   const available   = walletEntry?.available || 0;
+
+  const withdrawCheck = useMemo(
+    () =>
+      validateWithdrawRequest({
+        asset,
+        amountStr: amount,
+        address,
+        network,
+        memo,
+        available,
+        supportedAssets: SUPPORTED_ASSETS,
+        priceByAsset: priceByAsset || { USDT: 1 },
+      }),
+    [asset, amount, address, network, memo, available, priceByAsset],
+  );
 
   const handleAsset = (a) => {
     setAsset(a);
@@ -391,8 +455,8 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
       });
       return;
     }
-    if (parseFloat(amount) > available) {
-      setResult({ ok: false, message: `Insufficient balance. You have ${available} ${asset} available.` });
+    if (!withdrawCheck.ok) {
+      setResult({ ok: false, message: withdrawCheck.message || 'Please fix the highlighted fields.' });
       return;
     }
     setLoading(true);
@@ -400,7 +464,13 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
     try {
       const res  = await authFetch(`${API}/api/wallet/withdraw`, {
         method: 'POST',
-        body:   JSON.stringify({ asset, amount: parseFloat(amount), address, network, memo: memo || null }),
+        body:   JSON.stringify({
+          asset,
+          amount: parseFloat(amount),
+          address: address.trim(),
+          network,
+          memo: (memo && memo.trim()) ? memo.trim() : null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Request failed');
@@ -441,6 +511,9 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
+          {withdrawCheck.errors.asset && (
+            <p className="text-xs text-red-400 font-semibold -mt-2">{withdrawCheck.errors.asset}</p>
+          )}
 
           {/* Available balance hint */}
           <div className="flex items-center justify-between text-xs text-white bg-surface-card border border-surface-border rounded-lg px-3 py-2">
@@ -452,30 +525,46 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
           <div>
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
             <select value={network} onChange={e => setNetwork(e.target.value)} required
-              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors">
+              className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors ${
+                withdrawCheck.errors.network ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
               {networks.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
+            {withdrawCheck.errors.network && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.network}</p>
+            )}
           </div>
 
           {/* Amount */}
           <div>
+            <p className="text-[10px] text-white/60 mb-1.5">Minimum {MIN_WALLET_NOTIONAL_USDT} USDT equivalent; cannot exceed available.</p>
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Amount</label>
-            <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
+            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
+              withdrawCheck.errors.amount ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
               <input type="number" step="any" min="0" max={available} value={amount} onChange={e => setAmount(e.target.value)} required
                 placeholder="0.00" className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
               <button type="button" onClick={() => setAmount(String(available))}
                 className="text-[10px] font-bold text-gold-light hover:text-gold bg-gold/10 px-2 py-0.5 rounded mr-2 transition-colors">MAX</button>
               <span className="text-xs text-white font-semibold">{asset}</span>
             </div>
+            {withdrawCheck.errors.amount && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.amount}</p>
+            )}
           </div>
 
           {/* Address */}
           <div>
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Destination Wallet Address</label>
-            <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors">
+            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
+              withdrawCheck.errors.address ? 'border-red-500/50' : 'border-surface-border'
+            }`}>
               <input type="text" value={address} onChange={e => setAddress(e.target.value)} required
                 placeholder="0x..." className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
             </div>
+            {withdrawCheck.errors.address && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.address}</p>
+            )}
           </div>
 
           {/* Memo */}
@@ -483,7 +572,12 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Memo / Tag (optional)</label>
             <input type="text" value={memo} onChange={e => setMemo(e.target.value)}
               placeholder="For exchanges that require a memo or tag..."
-              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors" />
+              className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors ${
+                withdrawCheck.errors.memo ? 'border-red-500/50' : 'border-surface-border'
+              }`} />
+            {withdrawCheck.errors.memo && (
+              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.memo}</p>
+            )}
           </div>
 
           <AnimatePresence>
@@ -496,7 +590,7 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc }) {
             )}
           </AnimatePresence>
 
-          <button type="submit" disabled={loading || kycBlocked || !amount || parseFloat(amount) <= 0}
+          <button type="submit" disabled={loading || kycBlocked || !withdrawCheck.ok}
             className="w-full flex items-center justify-center gap-2 bg-red-500/80 hover:bg-red-500 text-white font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50">
             {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><ArrowUpCircle size={16} /> Submit Withdrawal Request</>}
           </button>
@@ -776,8 +870,8 @@ export default function WalletPage() {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
             {tab === 'balances'  && <BalancesTab walletAssets={walletAssets} walletLoading={walletLoading} fetchWallet={fetchWallet} priceByAsset={priceByAsset} />}
-            {tab === 'deposit'   && <DepositTab fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} />}
-            {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} />}
+            {tab === 'deposit'   && <DepositTab fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} priceByAsset={priceByAsset} />}
+            {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} priceByAsset={priceByAsset} />}
             {tab === 'history'   && <HistoryTab />}
           </motion.div>
         </AnimatePresence>

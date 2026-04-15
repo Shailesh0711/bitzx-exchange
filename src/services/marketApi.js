@@ -1,5 +1,7 @@
 // ── Constants ────────────────────────────────────────────────────────────────
-const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+import { exchangeApiOrigin } from '@/lib/apiBase';
+
+const BACKEND = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 /**
  * WebSocket origin for `/api/ws/...` paths.

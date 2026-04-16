@@ -130,7 +130,7 @@ export function cityPoolForCountry(countryName) {
  * @param {number} limit
  * @returns {string[]}
  */
-export function suggestCountries(query, limit = 14) {
+export function suggestCountries(query, limit = 48) {
   const q = norm(query);
   const all = listCountryNames();
   if (!q) return all.slice(0, limit);
@@ -150,7 +150,7 @@ export function suggestCountries(query, limit = 14) {
  * @param {number} limit
  * @returns {string[]}
  */
-export function suggestCities(countryName, query, limit = 14) {
+export function suggestCities(countryName, query, limit = 48) {
   const q = norm(query);
   const pool = cityPoolForCountry(countryName);
   if (!q) return pool.slice(0, limit);

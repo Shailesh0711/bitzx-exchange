@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { QRCodeSVG } from 'react-qr-code';
 import { motion, AnimatePresence } from 'framer-motion';
+import QrImagePreview from '@/components/ui/QrImagePreview';
 import {
   Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
   CheckCircle, XCircle, AlertCircle, ChevronDown, Copy, Check,
@@ -212,6 +212,7 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
   const [result,  setResult]  = useState(null); // {ok, message}
   const [depositAddresses, setDepositAddresses] = useState([]);
   const [depAddrLoading, setDepAddrLoading] = useState(false);
+  const [depAddrError, setDepAddrError] = useState(null);
   const [selectedDepositAddressId, setSelectedDepositAddressId] = useState(null);
 
   const networks = ASSET_NETWORKS[asset] || [];
@@ -220,19 +221,41 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
     let cancelled = false;
     (async () => {
       setDepAddrLoading(true);
+      setDepAddrError(null);
       setSelectedDepositAddressId(null);
       try {
         const u = new URLSearchParams({ asset, network });
         const res = await fetch(`${API}/api/wallet/deposit-addresses?${u}`);
-        if (!res.ok) throw new Error('bad response');
+        if (!res.ok) {
+          let detail = `Could not load deposit addresses (HTTP ${res.status}).`;
+          try {
+            const j = await res.json();
+            if (j?.detail) detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail);
+          } catch {
+            /* ignore */
+          }
+          if (!cancelled) {
+            setDepositAddresses([]);
+            setDepAddrError(detail);
+          }
+          return;
+        }
         const data = await res.json();
         if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
         setDepositAddresses(list);
         if (list.length) setSelectedDepositAddressId(list[0].id);
-      } catch {
+      } catch (e) {
         if (!cancelled) {
           setDepositAddresses([]);
+          const isNet =
+            e?.name === 'TypeError'
+            || (typeof e?.message === 'string' && /fetch|network|Failed to fetch/i.test(e.message));
+          setDepAddrError(
+            isNet
+              ? 'Could not reach the API. Confirm VITE_BACKEND_URL matches your backend and that CORS allows this site.'
+              : 'Could not load deposit addresses. Try again in a moment.',
+          );
         }
       } finally {
         if (!cancelled) setDepAddrLoading(false);
@@ -320,72 +343,25 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
             <Shield size={16} className="flex-shrink-0" />
             <span>
               {kyc?.status === 'pending'
-                ? 'Your KYC is pending admin review. You can submit deposits after approval.'
+                ? 'Your KYC is pending admin review. You can view deposit details below, but submitting a deposit request is enabled only after approval.'
                 : kyc?.status === 'rejected'
-                  ? 'Your KYC was rejected. Resubmit documents to enable deposits.'
-                  : 'Verify your identity (KYC) before depositing.'}{' '}
+                  ? 'Your KYC was rejected. Resubmit documents to submit deposit requests. You may still view published deposit addresses below.'
+                  : 'Identity verification (KYC) is required before you can submit a deposit request. Published deposit addresses (if any) still appear below so you know where to send.'}{' '}
               <Link to="/kyc" className="font-bold underline text-gold-light">Go to KYC →</Link>
             </span>
           </div>
         )}
 
-        {depAddrLoading && (
-          <p className="text-xs text-white/45 mb-4">Loading deposit addresses…</p>
-        )}
-        {!depAddrLoading && depositAddresses.length > 0 && (
-          <div className="mb-6 space-y-3">
-            <p className="text-[11px] text-white/60 uppercase font-bold tracking-wider">Send to — scan QR</p>
-            <div className="grid gap-3 sm:grid-cols-1">
-              {depositAddresses.map(addr => (
-                <label
-                  key={addr.id}
-                  className={`cursor-pointer rounded-xl border p-4 flex gap-3 transition-colors ${
-                    selectedDepositAddressId === addr.id
-                      ? 'border-gold/45 bg-gold/10 ring-1 ring-gold/20'
-                      : 'border-surface-border bg-surface-card hover:border-white/15'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="deposit_address_pick"
-                    className="mt-1 accent-gold"
-                    checked={selectedDepositAddressId === addr.id}
-                    onChange={() => setSelectedDepositAddressId(addr.id)}
-                  />
-                  <div className="flex flex-1 min-w-0 gap-3 flex-col sm:flex-row sm:items-start">
-                    <div className="shrink-0 bg-white p-2 rounded-xl self-start">
-                      <QRCodeSVG value={addr.qr_payload || addr.address} size={112} level="M" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {addr.label && (
-                        <p className="text-xs font-bold text-gold-light mb-1">{addr.label}</p>
-                      )}
-                      <p className="text-[11px] text-white/45 uppercase mb-1">Address</p>
-                      <p className="text-sm text-white font-mono break-all leading-relaxed">{addr.address}</p>
-                      <div className="mt-2 flex items-center gap-1">
-                        <span className="text-[10px] text-white/40">Copy</span>
-                        <CopyBtn text={addr.address} />
-                      </div>
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-        {!depAddrLoading && depositAddresses.length === 0 && (
-          <p className="text-xs text-white/40 mb-4 rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2">
-            No published deposit QR for this asset and network yet. You can still submit your transaction after sending funds using instructions from support.
-          </p>
-        )}
-
         <form onSubmit={handleSubmit} className="space-y-4">
+          <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider -mb-1">Step 1 — Asset &amp; network</p>
+          <p className="text-xs text-white/50 -mt-1 mb-1">
+            Deposit QR codes are loaded for this exact pair. The admin panel must use the same network label (e.g. <span className="font-mono text-white/70">BEP-20 (BNB Chain)</span>).
+          </p>
           <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
           {depositCheck.errors.asset && (
             <p className="text-xs text-red-400 font-semibold -mt-2">{depositCheck.errors.asset}</p>
           )}
 
-          {/* Network */}
           <div>
             <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
             <select value={network} onChange={e => setNetwork(e.target.value)} required
@@ -398,6 +374,77 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
               <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.network}</p>
             )}
           </div>
+
+          <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider pt-1">Step 2 — Deposit address (if published)</p>
+
+          {depAddrLoading && (
+            <p className="text-xs text-white/45">Loading deposit addresses…</p>
+          )}
+          {depAddrError && !depAddrLoading && (
+            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+              <span className="font-bold text-amber-200">Could not load addresses: </span>
+              {depAddrError}
+            </div>
+          )}
+          {!depAddrLoading && !depAddrError && depositAddresses.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-white/60 uppercase font-bold tracking-wider">Send to — scan QR</p>
+              <div className="grid gap-3 sm:grid-cols-1">
+                {depositAddresses.map(addr => (
+                  <label
+                    key={addr.id}
+                    className={`cursor-pointer rounded-xl border p-4 flex gap-3 transition-colors ${
+                      selectedDepositAddressId === addr.id
+                        ? 'border-gold/45 bg-gold/10 ring-1 ring-gold/20'
+                        : 'border-surface-border bg-surface-card hover:border-white/15'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="deposit_address_pick"
+                      className="mt-1 accent-gold"
+                      checked={selectedDepositAddressId === addr.id}
+                      onChange={() => setSelectedDepositAddressId(addr.id)}
+                    />
+                    <div className="flex flex-1 min-w-0 gap-3 flex-col sm:flex-row sm:items-start">
+                      <div className="shrink-0 bg-white p-2 rounded-xl self-start">
+                        <QrImagePreview
+                          key={`${addr.id}-${(addr.qr_payload || addr.address || '').slice(0, 96)}`}
+                          value={addr.qr_payload || addr.address}
+                          size={112}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        {addr.label && (
+                          <p className="text-xs font-bold text-gold-light mb-1">{addr.label}</p>
+                        )}
+                        <p className="text-[11px] text-white/45 uppercase mb-1">Address</p>
+                        <p className="text-sm text-white font-mono break-all leading-relaxed">{addr.address}</p>
+                        <div className="mt-2 flex items-center gap-1">
+                          <span className="text-[10px] text-white/40">Copy</span>
+                          <CopyBtn text={addr.address} />
+                        </div>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {!depAddrLoading && !depAddrError && depositAddresses.length === 0 && (
+            <div className="rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2.5 text-xs text-white/65 space-y-1.5">
+              <p>
+                No <strong className="text-white">enabled</strong> deposit address is published for{' '}
+                <strong className="text-gold-light font-mono">{asset}</strong> on{' '}
+                <strong className="text-white font-mono">{network}</strong>.
+              </p>
+              <p className="text-white/50">
+                In Admin → Deposit QR, add a row with this exact asset and network string, enable it, then refresh this page or change network if you use another chain.
+              </p>
+            </div>
+          )}
+
+          <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider pt-2">Step 3 — Request details</p>
 
           {/* Amount */}
           <div>

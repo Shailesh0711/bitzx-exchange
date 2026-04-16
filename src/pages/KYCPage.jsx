@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Shield, CheckCircle, Clock, AlertCircle,
@@ -14,6 +14,11 @@ import {
   validateKycDocument,
   validateKycFile,
   firstErrorMessage,
+  KYC_POSTAL_CATALOG_MAX,
+  ENV_POSTAL_MAX_LEN,
+  extractPydanticMaxStringLen,
+  parseKycSubmit422FieldErrors,
+  formatKycSubmit422Banner,
 } from '@/lib/kycValidation';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
@@ -128,33 +133,31 @@ function FormInput({ label, required, error, ...props }) {
 }
 
 // ─── Step 1: Personal Info ────────────────────────────────────────────────────
-function Step1({ data, onChange, errors = {}, revealErrors }) {
+function Step1({ data, onChange, showField, postalMaxLen = KYC_POSTAL_CATALOG_MAX }) {
   const ctrySuggest = useMemo(() => suggestCountries(data.country || ''), [data.country]);
   const citySuggest = useMemo(
     () => suggestCities(data.country || '', data.city || ''),
     [data.country, data.city],
   );
 
-  const show = (k) => (revealErrors ? errors[k] : '');
-
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
       <div className="sm:col-span-2">
-        <FormInput label="Full Legal Name" required error={show('full_name')} value={data.full_name || ''} placeholder="Exactly as it appears on your ID"
+        <FormInput label="Full Legal Name" required error={showField('full_name')} value={data.full_name || ''} placeholder="Exactly as it appears on your ID"
           onChange={e => onChange('full_name', e.target.value)} />
       </div>
-      <FormInput label="Date of Birth" required error={show('date_of_birth')} type="date" value={data.date_of_birth || ''}
+      <FormInput label="Date of Birth" required error={showField('date_of_birth')} type="date" value={data.date_of_birth || ''}
         onChange={e => onChange('date_of_birth', e.target.value)} />
-      <FormInput label="Nationality" required error={show('nationality')} value={data.nationality || ''} placeholder="e.g. Indian, British, American"
+      <FormInput label="Nationality" required error={showField('nationality')} value={data.nationality || ''} placeholder="e.g. Indian, British, American"
         onChange={e => onChange('nationality', e.target.value)} />
       <div className="sm:col-span-2">
-        <FormInput label="Street Address" required error={show('address')} value={data.address || ''} placeholder="House / flat, street, area, landmark"
+        <FormInput label="Street Address" required error={showField('address')} value={data.address || ''} placeholder="House / flat, street, area, landmark"
           onChange={e => onChange('address', e.target.value)} />
       </div>
       <SuggestionTextField
         label="Country"
         required
-        error={show('country')}
+        error={showField('country')}
         value={data.country || ''}
         placeholder="Start typing your country"
         suggestions={ctrySuggest}
@@ -163,15 +166,30 @@ function Step1({ data, onChange, errors = {}, revealErrors }) {
       <SuggestionTextField
         label="City"
         required
-        error={show('city')}
+        error={showField('city')}
         value={data.city || ''}
         placeholder="Start typing your city"
         suggestions={citySuggest}
         onChange={(v) => onChange('city', v)}
       />
       <div className="sm:col-span-2">
-        <FormInput label="Postal / ZIP Code" required error={show('postal_code')} value={data.postal_code || ''} placeholder="Postal or ZIP code"
-          onChange={e => onChange('postal_code', e.target.value)} />
+        <FormInput
+          label="Postal / ZIP Code"
+          required
+          error={showField('postal_code')}
+          value={data.postal_code || ''}
+          placeholder="e.g. 10001, SW1A 1AA, 560001"
+          maxLength={postalMaxLen}
+          inputMode="text"
+          autoComplete="postal-code"
+          onChange={(e) => {
+            const v = e.target.value.replace(/[^A-Za-z0-9\s-]/g, '');
+            onChange('postal_code', v.slice(0, postalMaxLen));
+          }}
+        />
+        <p className="text-[10px] text-white/45 mt-1.5">
+          Letters, numbers, spaces, and hyphens only — max {postalMaxLen} characters.
+        </p>
       </div>
     </div>
   );
@@ -200,9 +218,16 @@ function Step2({
   onPickBack,
   uploading,
   errors = {},
+  touched = {},
   revealErrors,
+  serverErrors = {},
 }) {
-  const show = (k) => (revealErrors ? errors[k] : '');
+  const show = (k) => {
+    const msg = errors[k];
+    if (!msg) return '';
+    if (revealErrors || touched[k] || serverErrors[k]) return msg;
+    return '';
+  };
 
   return (
     <div className="space-y-6">
@@ -223,9 +248,9 @@ function Step2({
             </button>
           ))}
         </div>
-        {revealErrors && errors.document_type && (
-          <p className="text-xs text-red-400 mt-2 font-semibold">{errors.document_type}</p>
-        )}
+        {show('document_type') ? (
+          <p className="text-xs text-red-400 mt-2 font-semibold">{show('document_type')}</p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -262,9 +287,9 @@ function Step2({
             {docFrontUrl && !idFrontFile && !isImagePath(docFrontUrl) && (
               <a href={`${API}${docFrontUrl}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 mt-2 inline-block">View uploaded PDF</a>
             )}
-            {revealErrors && errors.document_front && (
-              <p className="text-xs text-red-400 mt-1.5 font-semibold">{errors.document_front}</p>
-            )}
+            {show('document_front') ? (
+              <p className="text-xs text-red-400 mt-1.5 font-semibold">{show('document_front')}</p>
+            ) : null}
           </div>
           <div>
             <label className="block text-xs font-bold text-white/70 mb-2">ID — back (optional)</label>
@@ -280,9 +305,9 @@ function Step2({
             {docBackUrl && !idBackFile && !isImagePath(docBackUrl) && (
               <a href={`${API}${docBackUrl}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 mt-2 inline-block">View uploaded PDF</a>
             )}
-            {revealErrors && errors.document_back && (
-              <p className="text-xs text-red-400 mt-1.5 font-semibold">{errors.document_back}</p>
-            )}
+            {show('document_back') ? (
+              <p className="text-xs text-red-400 mt-1.5 font-semibold">{show('document_back')}</p>
+            ) : null}
           </div>
         </div>
         {uploading && (
@@ -378,6 +403,12 @@ export default function KYCPage() {
   const [uploadingDocs, setUploadingDocs] = useState(false);
   const [revealPersonalErrors, setRevealPersonalErrors] = useState(false);
   const [revealDocumentErrors, setRevealDocumentErrors] = useState(false);
+  const [touchedPersonal, setTouchedPersonal] = useState({});
+  const [touchedDoc, setTouchedDoc] = useState({});
+  const [serverPersonalErrors, setServerPersonalErrors] = useState({});
+  const [serverDocumentErrors, setServerDocumentErrors] = useState({});
+  /** When API returns a stricter postal max (e.g. 10), remember it for live validation without another failed submit. */
+  const [postalMaxLearned, setPostalMaxLearned] = useState(null);
 
   useEffect(() => {
     authFetch(`${API}/api/kyc/status`)
@@ -397,12 +428,60 @@ export default function KYCPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const updatePersonal = (k, v) => setPersonal(p => ({ ...p, [k]: v }));
-  const updateDoc      = (k, v) => setDocInfo(d => ({ ...d, [k]: v }));
+  const updatePersonal = (k, v) => {
+    setServerPersonalErrors({});
+    setPersonal(p => ({ ...p, [k]: v }));
+    setTouchedPersonal(t => ({ ...t, [k]: true }));
+  };
+  const updateDoc = (k, v) => {
+    setServerDocumentErrors({});
+    setDocInfo(d => ({ ...d, [k]: v }));
+    setTouchedDoc(t => ({ ...t, [k]: true }));
+  };
+
+  const handlePickFront = (f) => {
+    setServerDocumentErrors({});
+    setIdFrontFile(f);
+    setTouchedDoc(t => ({ ...t, document_front: true }));
+  };
+  const handlePickBack = (f) => {
+    setServerDocumentErrors({});
+    setIdBackFile(f);
+    setTouchedDoc(t => ({ ...t, document_back: true }));
+  };
 
   const hasIdFront = !!(idFrontFile || docFrontUrl);
-  const personalErrors = useMemo(() => validateKycPersonal(personal), [personal]);
-  const documentErrors = useMemo(() => {
+
+  const effectivePostalMaxLen = useMemo(() => {
+    const fromLearned =
+      postalMaxLearned != null && Number.isFinite(postalMaxLearned)
+        ? postalMaxLearned
+        : null;
+    const fromEnv = ENV_POSTAL_MAX_LEN;
+    const raw = fromLearned ?? fromEnv ?? KYC_POSTAL_CATALOG_MAX;
+    return Math.min(
+      KYC_POSTAL_CATALOG_MAX,
+      Math.max(2, raw),
+    );
+  }, [postalMaxLearned]);
+
+  useEffect(() => {
+    setPersonal((p) => {
+      const z = String(p.postal_code || '').replace(/[^A-Za-z0-9\s-]/g, '');
+      if (z.length <= effectivePostalMaxLen) return p;
+      return { ...p, postal_code: z.slice(0, effectivePostalMaxLen) };
+    });
+  }, [effectivePostalMaxLen]);
+
+  const clientPersonalErrors = useMemo(
+    () => validateKycPersonal(personal, { postalMaxLen: effectivePostalMaxLen }),
+    [personal, effectivePostalMaxLen],
+  );
+  const personalErrors = useMemo(
+    () => ({ ...serverPersonalErrors, ...clientPersonalErrors }),
+    [serverPersonalErrors, clientPersonalErrors],
+  );
+  const clientDocumentErrors = useMemo(() => {
     const base = validateKycDocument(docInfo, { hasFrontUpload: hasIdFront });
     if (idFrontFile) {
       const fe = validateKycFile(idFrontFile);
@@ -414,9 +493,26 @@ export default function KYCPage() {
     }
     return base;
   }, [docInfo, hasIdFront, idFrontFile, idBackFile]);
+  const documentErrors = useMemo(
+    () => ({ ...serverDocumentErrors, ...clientDocumentErrors }),
+    [serverDocumentErrors, clientDocumentErrors],
+  );
 
-  const step1Valid = Object.keys(personalErrors).length === 0;
-  const step2Valid = Object.keys(documentErrors).length === 0;
+  const step1Valid =
+    Object.keys(clientPersonalErrors).length === 0 && Object.keys(serverPersonalErrors).length === 0;
+  const step2Valid =
+    Object.keys(clientDocumentErrors).length === 0 && Object.keys(serverDocumentErrors).length === 0;
+
+  const showPersonalField = useCallback(
+    (k) => {
+      const msg = personalErrors[k];
+      if (!msg) return '';
+      if (k === 'postal_code') return msg;
+      if (serverPersonalErrors[k] || revealPersonalErrors || touchedPersonal[k]) return msg;
+      return '';
+    },
+    [personalErrors, revealPersonalErrors, touchedPersonal, serverPersonalErrors],
+  );
 
   const parseError = (data) => {
     const d = data?.detail;
@@ -453,7 +549,7 @@ export default function KYCPage() {
     if (step === 0) {
       setRevealPersonalErrors(true);
       if (!step1Valid) {
-        setError(firstErrorMessage(personalErrors) || 'Please complete all required fields.');
+        setError(firstErrorMessage(clientPersonalErrors) || 'Please complete all required fields.');
         return;
       }
       setStep(1);
@@ -462,7 +558,7 @@ export default function KYCPage() {
     if (step === 1) {
       setRevealDocumentErrors(true);
       if (!step2Valid) {
-        setError(firstErrorMessage(documentErrors) || 'Please complete document details and uploads.');
+        setError(firstErrorMessage(clientDocumentErrors) || 'Please complete document details and uploads.');
         return;
       }
     }
@@ -485,6 +581,8 @@ export default function KYCPage() {
 
   const handleSubmit = async () => {
     setSubmitting(true); setError('');
+    setServerPersonalErrors({});
+    setServerDocumentErrors({});
     try {
       const pe = validateKycPersonal(personal);
       const de = validateKycDocument(docInfo, { hasFrontUpload: !!(idFrontFile || docFrontUrl) });
@@ -514,8 +612,31 @@ export default function KYCPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(parseError(data));
+      if (!res.ok) {
+        if (res.status === 422 && Array.isArray(data?.detail)) {
+          for (const item of data.detail) {
+            const loc = item?.loc;
+            if (!Array.isArray(loc)) continue;
+            const pi = loc.indexOf('personal_info');
+            if (pi >= 0 && loc[pi + 1] === 'postal_code' && item.msg != null) {
+              const cap = extractPydanticMaxStringLen(item.msg);
+              if (cap != null) setPostalMaxLearned(cap);
+              break;
+            }
+          }
+          const { personal: pfe, document: dfe } = parseKycSubmit422FieldErrors(data.detail);
+          setServerPersonalErrors(pfe);
+          setServerDocumentErrors(dfe);
+          setRevealPersonalErrors(true);
+          setRevealDocumentErrors(true);
+          if (Object.keys(pfe).length) setStep(0);
+          else if (Object.keys(dfe).length) setStep(1);
+          throw new Error(formatKycSubmit422Banner(data.detail) || parseError(data));
+        }
+        throw new Error(parseError(data));
+      }
       setSubmitted(true);
+      setPostalMaxLearned(null);
       setKyc({ status: 'pending', submitted_at: new Date().toISOString() });
     } catch (e) {
       setError(e.message);
@@ -657,8 +778,8 @@ export default function KYCPage() {
                   <Step1
                     data={personal}
                     onChange={updatePersonal}
-                    errors={personalErrors}
-                    revealErrors={revealPersonalErrors}
+                    showField={showPersonalField}
+                    postalMaxLen={effectivePostalMaxLen}
                   />
                 )}
                 {step === 1 && (
@@ -669,11 +790,13 @@ export default function KYCPage() {
                     docBackUrl={docBackUrl}
                     idFrontFile={idFrontFile}
                     idBackFile={idBackFile}
-                    onPickFront={setIdFrontFile}
-                    onPickBack={setIdBackFile}
+                    onPickFront={handlePickFront}
+                    onPickBack={handlePickBack}
                     uploading={uploadingDocs}
                     errors={documentErrors}
+                    touched={touchedDoc}
                     revealErrors={revealDocumentErrors}
+                    serverErrors={serverDocumentErrors}
                   />
                 )}
                 {step === 2 && (
@@ -710,10 +833,14 @@ export default function KYCPage() {
                     Continue <ChevronRight size={17} />
                   </button>
                 ) : (
-                  <button onClick={handleSubmit} disabled={submitting}
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={submitting || !step1Valid || !step2Valid}
                     className="flex items-center gap-2 px-8 py-3 rounded-xl
                       bg-green-500 hover:bg-green-400 text-white font-bold text-base
-                      transition-all disabled:opacity-40">
+                      transition-all disabled:opacity-40"
+                  >
                     {submitting
                       ? <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       : <><CheckCircle size={17} /> {kyc?.status === 'rejected' ? 'Resubmit KYC' : 'Submit KYC'}</>}

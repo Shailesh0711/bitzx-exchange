@@ -142,6 +142,7 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
   const [tickSize, setTickSize] = useState(0.0001);
   const [tickOpen, setTickOpen] = useState(false);
   const [viewMode, setViewMode] = useState('all'); // 'all' | 'bids' | 'asks'
+  const [wsKick, setWsKick] = useState(0);
 
   const tickRef = useRef(null);
 
@@ -189,7 +190,7 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
         }
       }
     };
-  }, [symbol]);
+  }, [symbol, wsKick]);
 
   useEffect(() => {
     const p = parseFloat(lastPrice);
@@ -358,17 +359,18 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
           <span className="text-[10px] text-white">Check the API or your connection</span>
           <button
             type="button"
-            onClick={() => { setLoading(true); load(); }}
+            onClick={() => { setLoading(true); setLoadError(null); setWsKick(k => k + 1); }}
             className="text-[11px] font-bold text-gold-light hover:underline"
           >
             Retry
           </button>
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
 
-          <div className={`order-book-scroll overflow-hidden flex flex-col-reverse min-h-0 ${asksFlex}`}>
-            <div className="flex flex-col min-h-0">
+          {/* Outer justify-end keeps asks near the spread; inner scroll avoids flex-col-reverse (breaks overflow-y in Chromium). */}
+          <div className={`flex min-h-0 flex-col justify-end overflow-hidden ${asksFlex}`}>
+            <div className="order-book-scroll flex min-h-0 max-h-full w-full flex-col">
               {viewMode !== 'bids' && (
                 <div className="px-3 pt-2 pb-1 flex-shrink-0">
                   <span className="text-[11px] text-red-400/80 uppercase tracking-widest font-extrabold">
@@ -417,7 +419,7 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
             </div>
           </button>
 
-          <div className={`order-book-scroll overflow-hidden min-h-0 ${bidsFlex}`}>
+          <div className={`order-book-scroll min-h-0 ${bidsFlex}`}>
             {viewMode !== 'asks' && (
               <div className="px-3 pt-2 pb-1">
                 <span className="text-[11px] text-green-400/80 uppercase tracking-widest font-extrabold">

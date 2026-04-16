@@ -1082,7 +1082,7 @@ export default function TradePage() {
         <div style={{ background: '#0a0b0f', minHeight: 520 }}>
           {mobilePanelTab === 'trade'
             ? <TradeForm symbol={symbol} lastPrice={livePrice} limitPriceSeed={formPrice} initialSide={formInitialSide} />
-            : <div style={{ height: 520, position: 'relative', overflow: 'hidden' }}>
+            : <div className="flex h-[520px] min-h-0 flex-col overflow-hidden" style={{ position: 'relative' }}>
                 <OrderBook
                   symbol={symbol}
                   baseAsset={base}
@@ -1149,7 +1149,9 @@ export default function TradePage() {
           <div style={{ flex: '1 1 0', minWidth: 0, position: 'relative', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)', pointerEvents: pairOpen ? 'none' : 'auto' }}>
             <TradingChart symbol={symbol} />
           </div>
-          <div style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+          <div
+            className="flex min-h-0 w-[340px] shrink-0 flex-col overflow-hidden border-r border-white/[0.06]"
+          >
             <OrderBook
               symbol={symbol}
               baseAsset={base}

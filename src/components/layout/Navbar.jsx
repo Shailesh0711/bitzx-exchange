@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart } from 'lucide-react';
@@ -17,6 +18,9 @@ function userAvatarSrc(user) {
   return `${base}${u.startsWith('/') ? u : `/${u}`}`;
 }
 const TICKER_PAIRS   = ['BZXUSDT','BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT'];
+/** Tailwind `w-52` — menu width for viewport clamp math */
+const USER_MENU_WIDTH_PX = 208;
+const USER_MENU_EDGE_GAP = 8;
 
 const NAV_LINKS = [
   { label: 'Markets', to: '/markets' },
@@ -107,10 +111,16 @@ export default function Navbar() {
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [userOpen,  setUserOpen]  = useState(false);
   const [scrolled,  setScrolled]  = useState(false);
-  const userRef = useRef(null);
+  const [userMenuPos, setUserMenuPos] = useState(null);
+  const userTriggerRef = useRef(null);
+  const userMenuPanelRef = useRef(null);
 
   const isTrade = location.pathname.startsWith('/trade');
   const isHome = location.pathname === '/';
+
+  useEffect(() => {
+    setUserOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -118,8 +128,38 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  const updateUserMenuPosition = useCallback(() => {
+    const el = userTriggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    let left = r.right - USER_MENU_WIDTH_PX;
+    left = Math.max(
+      USER_MENU_EDGE_GAP,
+      Math.min(left, window.innerWidth - USER_MENU_WIDTH_PX - USER_MENU_EDGE_GAP),
+    );
+    setUserMenuPos({ top: r.bottom + USER_MENU_EDGE_GAP, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!userOpen) {
+      setUserMenuPos(null);
+      return;
+    }
+    updateUserMenuPosition();
+    window.addEventListener('scroll', updateUserMenuPosition, true);
+    window.addEventListener('resize', updateUserMenuPosition);
+    return () => {
+      window.removeEventListener('scroll', updateUserMenuPosition, true);
+      window.removeEventListener('resize', updateUserMenuPosition);
+    };
+  }, [userOpen, updateUserMenuPosition]);
+
   useEffect(() => {
-    const onClick = e => { if (userRef.current && !userRef.current.contains(e.target)) setUserOpen(false); };
+    const onClick = e => {
+      if (userTriggerRef.current?.contains(e.target)) return;
+      if (userMenuPanelRef.current?.contains(e.target)) return;
+      setUserOpen(false);
+    };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
@@ -216,9 +256,10 @@ export default function Navbar() {
                   <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-gold rounded-full" />
                 </button>
 
-                {/* User menu */}
-                <div className="relative" ref={userRef}>
+                {/* User menu — portaled + fixed so sticky header / transforms never misalign the panel */}
+                <div className="relative" ref={userTriggerRef}>
                   <button
+                    type="button"
                     onClick={() => setUserOpen(v => !v)}
                     className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-surface-card border border-surface-border hover:border-gold/40 transition-colors"
                   >
@@ -234,42 +275,51 @@ export default function Navbar() {
                     </span>
                     <ChevronDown size={15} className="text-white" />
                   </button>
-
-                  <AnimatePresence>
-                    {userOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-                        className="absolute right-0 top-full mt-2 w-52 bg-surface-card border border-surface-border rounded-xl shadow-2xl py-1 z-50"
-                      >
-                        <Link to="/dashboard" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                          <LayoutDashboard size={16} /> Dashboard
-                        </Link>
-                        <Link to="/portfolio" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                          <LineChart size={16} /> P&amp;L &amp; fills
-                        </Link>
-                        <Link to="/wallet" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                          <Wallet size={16} /> My Wallet
-                        </Link>
-                        <Link to="/profile" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                          <User size={16} /> Edit Profile
-                        </Link>
-                        <Link to="/kyc" onClick={() => setUserOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                          <Shield size={16} /> KYC Verification
-                        </Link>
-                        <div className="border-t border-surface-border my-1" />
-                        <button onClick={handleLogout}
-                          className="w-full flex items-center gap-2.5 px-4 py-3 text-base text-red-400 hover:bg-surface-hover transition-colors">
-                          <LogOut size={16} /> Sign Out
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                 </div>
+
+                {typeof document !== 'undefined' && userOpen && userMenuPos != null && createPortal(
+                  <motion.div
+                    ref={userMenuPanelRef}
+                    role="menu"
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="w-52 bg-surface-card border border-surface-border rounded-xl shadow-2xl py-1"
+                    style={{
+                      position: 'fixed',
+                      top: userMenuPos.top,
+                      left: userMenuPos.left,
+                      zIndex: 10050,
+                    }}
+                  >
+                    <Link to="/dashboard" onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      <LayoutDashboard size={16} /> Dashboard
+                    </Link>
+                    <Link to="/portfolio" onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      <LineChart size={16} /> P&amp;L &amp; fills
+                    </Link>
+                    <Link to="/wallet" onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      <Wallet size={16} /> My Wallet
+                    </Link>
+                    <Link to="/profile" onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      <User size={16} /> Edit Profile
+                    </Link>
+                    <Link to="/kyc" onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      <Shield size={16} /> KYC Verification
+                    </Link>
+                    <div className="border-t border-surface-border my-1" />
+                    <button type="button" onClick={handleLogout}
+                      className="w-full flex items-center gap-2.5 px-4 py-3 text-base text-red-400 hover:bg-surface-hover transition-colors">
+                      <LogOut size={16} /> Sign Out
+                    </button>
+                  </motion.div>,
+                  document.body,
+                )}
               </>
             ) : (
               <div className="flex items-center gap-3">

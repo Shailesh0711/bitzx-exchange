@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { QRCodeSVG } from 'react-qr-code';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
@@ -209,8 +210,36 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
   const [notes,   setNotes]   = useState('');
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState(null); // {ok, message}
+  const [depositAddresses, setDepositAddresses] = useState([]);
+  const [depAddrLoading, setDepAddrLoading] = useState(false);
+  const [selectedDepositAddressId, setSelectedDepositAddressId] = useState(null);
 
   const networks = ASSET_NETWORKS[asset] || [];
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setDepAddrLoading(true);
+      setSelectedDepositAddressId(null);
+      try {
+        const u = new URLSearchParams({ asset, network });
+        const res = await fetch(`${API}/api/wallet/deposit-addresses?${u}`);
+        if (!res.ok) throw new Error('bad response');
+        const data = await res.json();
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : [];
+        setDepositAddresses(list);
+        if (list.length) setSelectedDepositAddressId(list[0].id);
+      } catch {
+        if (!cancelled) {
+          setDepositAddresses([]);
+        }
+      } finally {
+        if (!cancelled) setDepAddrLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [asset, network]);
 
   const depositCheck = useMemo(
     () =>
@@ -246,6 +275,10 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
       setResult({ ok: false, message: depositCheck.message || 'Please fix the highlighted fields.' });
       return;
     }
+    if (depositAddresses.length > 0 && !selectedDepositAddressId) {
+      setResult({ ok: false, message: 'Choose which deposit address you sent to (QR above).' });
+      return;
+    }
     setLoading(true);
     setResult(null);
     try {
@@ -257,6 +290,7 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
           tx_hash: txHash.trim(),
           network,
           notes: (notes && notes.trim()) ? notes.trim() : null,
+          ...(selectedDepositAddressId ? { deposit_address_id: selectedDepositAddressId } : {}),
         }),
       });
       const data = await res.json();
@@ -293,6 +327,56 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
               <Link to="/kyc" className="font-bold underline text-gold-light">Go to KYC →</Link>
             </span>
           </div>
+        )}
+
+        {depAddrLoading && (
+          <p className="text-xs text-white/45 mb-4">Loading deposit addresses…</p>
+        )}
+        {!depAddrLoading && depositAddresses.length > 0 && (
+          <div className="mb-6 space-y-3">
+            <p className="text-[11px] text-white/60 uppercase font-bold tracking-wider">Send to — scan QR</p>
+            <div className="grid gap-3 sm:grid-cols-1">
+              {depositAddresses.map(addr => (
+                <label
+                  key={addr.id}
+                  className={`cursor-pointer rounded-xl border p-4 flex gap-3 transition-colors ${
+                    selectedDepositAddressId === addr.id
+                      ? 'border-gold/45 bg-gold/10 ring-1 ring-gold/20'
+                      : 'border-surface-border bg-surface-card hover:border-white/15'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="deposit_address_pick"
+                    className="mt-1 accent-gold"
+                    checked={selectedDepositAddressId === addr.id}
+                    onChange={() => setSelectedDepositAddressId(addr.id)}
+                  />
+                  <div className="flex flex-1 min-w-0 gap-3 flex-col sm:flex-row sm:items-start">
+                    <div className="shrink-0 bg-white p-2 rounded-xl self-start">
+                      <QRCodeSVG value={addr.qr_payload || addr.address} size={112} level="M" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {addr.label && (
+                        <p className="text-xs font-bold text-gold-light mb-1">{addr.label}</p>
+                      )}
+                      <p className="text-[11px] text-white/45 uppercase mb-1">Address</p>
+                      <p className="text-sm text-white font-mono break-all leading-relaxed">{addr.address}</p>
+                      <div className="mt-2 flex items-center gap-1">
+                        <span className="text-[10px] text-white/40">Copy</span>
+                        <CopyBtn text={addr.address} />
+                      </div>
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        {!depAddrLoading && depositAddresses.length === 0 && (
+          <p className="text-xs text-white/40 mb-4 rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2">
+            No published deposit QR for this asset and network yet. You can still submit your transaction after sending funds using instructions from support.
+          </p>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -368,8 +452,16 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
             )}
           </AnimatePresence>
 
-          <button type="submit" disabled={loading || kycBlocked || !depositCheck.ok}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-gold to-gold-light text-surface-dark font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50">
+          <button
+            type="submit"
+            disabled={
+              loading
+              || kycBlocked
+              || !depositCheck.ok
+              || (depositAddresses.length > 0 && !selectedDepositAddressId)
+            }
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-gold to-gold-light text-surface-dark font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50"
+          >
             {loading ? <div className="w-5 h-5 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" /> : <><ArrowDownCircle size={16} /> Submit Deposit Request</>}
           </button>
         </form>
@@ -382,7 +474,7 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
           <ol className="space-y-3 text-sm text-white">
             {[
               'Select the asset and network you\'ll send from.',
-              'Transfer funds to our deposit wallet address.',
+              'Scan the QR or copy our deposit address, then send from your wallet.',
               'Paste your transaction hash and submit.',
               'Our team verifies and credits your account (usually within 1–3 hours).',
             ].map((step, i) => (

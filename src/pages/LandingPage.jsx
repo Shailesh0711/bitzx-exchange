@@ -591,7 +591,7 @@ export default function LandingPage() {
           MARKET PULSE — live gainers / losers (API)
           ══════════════════════════════════════════════════════════════════ */}
       <section
-        className="relative z-[2] border-b border-white/[0.06] overflow-hidden"
+        className="relative z-[2] border-b border-white/[0.06] overflow-x-hidden"
         style={{ background: 'linear-gradient(165deg, rgba(8,9,12,1) 0%, rgba(12,14,20,0.98) 45%, rgba(10,11,15,1) 100%)' }}
       >
         <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(235,211,141,0.08),transparent_55%)]" />
@@ -834,8 +834,11 @@ export default function LandingPage() {
           ))}
         </div>
 
-        <div className="bitzx-hover-lift bitzx-hover-border rounded-2xl overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:thin]"
-          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        {/* No touch-pan-x: it locks touch to horizontal-only and blocks vertical page scroll on mobile. */}
+        <div
+          className="bitzx-hover-lift bitzx-hover-border rounded-2xl overflow-x-auto overscroll-x-contain touch-manipulation [-webkit-overflow-scrolling:touch] [scrollbar-width:thin]"
+          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}
+        >
           <table className="w-full text-left" style={{ minWidth: 920 }}>
             <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
               <tr className="text-[11px] sm:text-xs text-zinc-400 uppercase tracking-[0.14em] font-semibold">
@@ -972,7 +975,7 @@ export default function LandingPage() {
             <h2 className="bitzx-title-lg">We stack up against anyone</h2>
           </motion.div>
 
-          <div className="max-w-3xl mx-auto rounded-2xl overflow-x-auto"
+          <div className="max-w-3xl mx-auto rounded-2xl overflow-x-auto touch-manipulation [-webkit-overflow-scrolling:touch]"
             style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
             <div style={{ minWidth: 480 }}>
             {/* Header */}

@@ -15,7 +15,16 @@ const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const PCTS = [25, 50, 75, 100];
 const FEE_RATE = 0.001;
 
-export default function TradeForm({ symbol, currentPrice, initialSide }) {
+/** Format ticker last for display / placeholders (live-updating when `n` changes each tick). */
+function fmtLiveUsdt(n) {
+  if (n == null || !Number.isFinite(Number(n)) || Number(n) <= 0) return '—';
+  const v = Number(n);
+  if (v >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (v >= 1) return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  return v.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 8 });
+}
+
+export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', initialSide }) {
   const { user, balance, fetchWallet, fetchOrders, fetchLiveSpotPositions, kyc } = useAuth();
   const navigate = useNavigate();
   const base = symbol.replace('USDT', '');
@@ -30,13 +39,20 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
   const [type,    setType]    = useState('limit');
   const [price,   setPrice]   = useState('');
   const [amount,  setAmount]  = useState('');
+
+  /* Order-book click → prefill limit price only (do not freeze market reference — that uses `lastPrice`). */
+  useEffect(() => {
+    const s = limitPriceSeed == null ? '' : String(limitPriceSeed).replace(/,/g, '').trim();
+    if (!s) return;
+    setPrice(s);
+  }, [limitPriceSeed, symbol]);
   const [placing, setPlacing] = useState(false);
   const [result,  setResult]  = useState(null);
 
   const isBuy    = side === 'buy';
   const isMarket = type === 'market';
   const amtNum   = parseFloat(amount || 0) || 0;
-  const markPx   = parseMarketReferencePrice(currentPrice);
+  const markPx   = parseMarketReferencePrice(lastPrice);
   const limitPx  = parseLimitPrice(price);
   const effPrice = isMarket ? (markPx ?? 0) : (limitPx ?? 0);
   const total    = effPrice * amtNum;
@@ -65,13 +81,13 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
         type,
         amountStr: amount,
         priceStr: price,
-        currentPrice,
+        currentPrice: lastPrice,
         balanceUSDT: balance?.USDT ?? 0,
         balanceBase: balance?.[base] ?? 0,
         baseAsset: base,
         userLoggedIn: !!user,
       }),
-    [symbol, side, type, amount, price, currentPrice, balance, base, user],
+    [symbol, side, type, amount, price, lastPrice, balance, base, user],
   );
 
   const setPct = pct => {
@@ -144,12 +160,17 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
         {/* Order type */}
         <div className="flex gap-2 bg-surface-card rounded-xl p-1.5">
           {['limit', 'market'].map(t => (
-            <button key={t} onClick={() => setType(t)}
+            <button key={t} type="button" onClick={() => setType(t)}
               className={`flex-1 py-2.5 text-sm capitalize rounded-lg font-bold transition-colors ${
                 type === t ? 'bg-surface-hover text-white shadow' : 'text-white hover:text-white'
               }`}>{t === 'limit' ? 'Limit' : 'Market'}</button>
           ))}
         </div>
+        <p className="text-[11px] text-white/55 px-0.5 leading-relaxed -mt-2">
+          {isMarket
+            ? 'Fills at the best available prices now. Size is in ' + base + ' (same as API). Totals below track the last price in real time.'
+            : 'Sets a firm price: your order rests on the book until the market reaches this price or better.'}
+        </p>
 
         {/* Available balance + deposit */}
         <div className="flex items-center justify-between gap-2 text-sm text-white px-1">
@@ -178,9 +199,12 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
           {/* Price input */}
           {!isMarket ? (
             <div>
-              <label className="block text-xs text-white mb-2 uppercase tracking-widest font-extrabold">
-                Price (USDT)
+              <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
+                Limit price
               </label>
+              <p className="text-[10px] text-white/55 mb-2 px-0.5">
+                USDT you pay per 1 {base} (quote per base).
+              </p>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
                 spotCheck.errors.price ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
               }`}>
@@ -188,7 +212,7 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
                   type="number" step="any" min="0"
                   value={price}
                   onChange={e => setPrice(e.target.value)}
-                  placeholder={currentPrice || '0.0000'}
+                  placeholder={markPx != null ? String(markPx) : '0'}
                   className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
                 />
                 <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
@@ -199,9 +223,17 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
             </div>
           ) : (
             <div>
+              <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
+                Last price
+              </label>
+              <p className="text-[10px] text-white/55 mb-2 px-0.5">
+                Reference for sizing &amp; previews (updates with each ticker). Order fills at actual book prices.
+              </p>
               <div className="bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 flex justify-between items-center">
-                <span className="text-sm text-white font-bold">Market Price</span>
-                <span className="text-lg text-white font-mono font-bold">{currentPrice || '—'}</span>
+                <span className="text-sm text-white font-bold">USDT</span>
+                <span className="text-lg text-white font-mono font-bold tabular-nums">
+                  {markPx != null && markPx > 0 ? `$${fmtLiveUsdt(markPx)}` : '—'}
+                </span>
               </div>
               {spotCheck.errors.price && (
                 <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.price}</p>
@@ -211,13 +243,14 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
 
           {/* Amount input */}
           <div>
-            <label className="block text-xs text-white mb-2 uppercase tracking-widest font-extrabold">
-              Amount ({base})
+            <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
+              {isMarket ? 'Amount (size)' : 'Amount'}
             </label>
-            <p className="text-[10px] text-white/70 px-1 -mt-1">
-              Min {MIN_BASE_AMOUNT} {base} · Min order ${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT
-              {isMarket && (
-                <> · Market buys lock ≈ {((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% above mark</>
+            <p className="text-[10px] text-white/70 px-0.5 mb-2 leading-relaxed">
+              Order size in <span className="text-white font-semibold">{base}</span>
+              {' '}· Min {MIN_BASE_AMOUNT} {base} · Min notional ${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT
+              {isMarket && isBuy && (
+                <> · Buy locks ≈ {((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% above last for slippage</>
               )}
             </p>
             <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
@@ -263,19 +296,19 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
           {/* Live order summary */}
           <div className="bg-surface-card border border-surface-border rounded-xl px-4 py-4 space-y-2.5">
             <p className="text-[10px] text-white/60 uppercase tracking-widest font-extrabold mb-1">
-              Order preview {isMarket ? '(market)' : '(limit)'}
+              Order summary {isMarket ? '(market · live)' : '(limit)'}
             </p>
 
             <div className="flex items-center justify-between text-sm">
-              <span className="text-white/80 font-semibold">Mark price</span>
+              <span className="text-white/80 font-semibold">Last price</span>
               <span className="text-white font-mono font-bold tabular-nums">
-                {markPx != null ? `$${markPx.toLocaleString(undefined, { maximumFractionDigits: 8 })}` : '—'}
+                {markPx != null && markPx > 0 ? `$${fmtLiveUsdt(markPx)}` : '—'}
               </span>
             </div>
 
             {!isMarket && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-white/80 font-semibold">Limit price</span>
+                <span className="text-white/80 font-semibold">Your limit</span>
                 <span className="text-gold-light font-mono font-bold tabular-nums">
                   {limitPx != null ? `$${limitPx.toLocaleString(undefined, { maximumFractionDigits: 8 })}` : '—'}
                 </span>
@@ -290,7 +323,7 @@ export default function TradeForm({ symbol, currentPrice, initialSide }) {
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <span className="text-white/80 font-semibold">Notional</span>
+              <span className="text-white/80 font-semibold">{isMarket ? 'Est. total (USDT)' : 'Total (USDT)'}</span>
               <span className="text-white font-mono font-bold tabular-nums">
                 {amtNum > 0 && effPrice > 0 ? `$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : '—'}
               </span>

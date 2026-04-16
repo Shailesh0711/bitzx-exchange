@@ -920,7 +920,10 @@ export default function TradePage() {
   }, [symbol]);
 
   useEffect(() => {
-    if (p) setSymbol(String(p).toUpperCase());
+    if (p) {
+      setSymbol(String(p).toUpperCase());
+      setFormPrice('');
+    }
   }, [p]);
 
   const switchPair = sym => {
@@ -1078,7 +1081,7 @@ export default function TradePage() {
 
         <div style={{ background: '#0a0b0f', minHeight: 520 }}>
           {mobilePanelTab === 'trade'
-            ? <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} initialSide={formInitialSide} />
+            ? <TradeForm symbol={symbol} lastPrice={livePrice} limitPriceSeed={formPrice} initialSide={formInitialSide} />
             : <div style={{ height: 520, position: 'relative', overflow: 'hidden' }}>
                 <OrderBook
                   symbol={symbol}
@@ -1156,7 +1159,7 @@ export default function TradePage() {
           </div>
           <div style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ flex: '1 1 0', overflowY: 'auto' }} className="scrollbar-hide">
-              <TradeForm symbol={symbol} currentPrice={formPrice || fmtP(livePrice, base)} initialSide={formInitialSide} />
+              <TradeForm symbol={symbol} lastPrice={livePrice} limitPriceSeed={formPrice} initialSide={formInitialSide} />
             </div>
           </div>
         </div>

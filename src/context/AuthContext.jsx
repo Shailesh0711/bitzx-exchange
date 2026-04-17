@@ -17,10 +17,19 @@ const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const store = {
   getUser:  () => { try { return JSON.parse(localStorage.getItem('bitzx_ex_user') || 'null'); } catch { return null; } },
   getToken: () => localStorage.getItem('bitzx_ex_token') || null,
+  // Phase 7b — refresh token (rotated on every /auth/refresh). Optional
+  // on disk: if it's missing we simply fall back to the Phase-1 single
+  // access token behaviour and the user re-logs in when it expires.
+  getRefresh: () => localStorage.getItem('bitzx_ex_refresh') || null,
   setUser:  (u) => localStorage.setItem('bitzx_ex_user', JSON.stringify(u)),
   setToken: (t) => localStorage.setItem('bitzx_ex_token', t),
+  setRefresh: (t) => {
+    if (t) localStorage.setItem('bitzx_ex_refresh', t);
+    else   localStorage.removeItem('bitzx_ex_refresh');
+  },
   clear:    () => {
     localStorage.removeItem('bitzx_ex_token');
+    localStorage.removeItem('bitzx_ex_refresh');
     localStorage.removeItem('bitzx_ex_user');
   },
 };
@@ -61,7 +70,7 @@ function bodyShouldBeJsonStringified(body) {
   return proto === Object.prototype || proto === null;
 }
 
-export function authFetch(url, options = {}) {
+function buildAuthRequest(url, options) {
   const token = store.getToken();
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = { ...(options.headers || {}) };
@@ -73,7 +82,65 @@ export function authFetch(url, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
   if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(url, { ...options, headers, body });
+  return { url, init: { ...options, headers, body } };
+}
+
+// Phase 7b — in-flight refresh promise shared across concurrent 401s so
+// we only hit /auth/refresh once per rotation window. Resolves to true
+// on successful rotation, false otherwise.
+let _refreshInFlight = null;
+
+function clearAuthStorage() {
+  store.clear();
+}
+
+async function attemptRefresh() {
+  if (!_refreshInFlight) {
+    _refreshInFlight = (async () => {
+      const rt = store.getRefresh();
+      if (!rt) return false;
+      try {
+        const res = await fetch(`${API}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: rt }),
+        });
+        if (!res.ok) return false;
+        const data = await res.json().catch(() => ({}));
+        if (!data.access_token) return false;
+        store.setToken(data.access_token);
+        if (data.refresh_token) store.setRefresh(data.refresh_token);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        // small delay lets any sibling 401 finish its second attempt
+        setTimeout(() => { _refreshInFlight = null; }, 0);
+      }
+    })();
+  }
+  return _refreshInFlight;
+}
+
+export function authFetch(url, options = {}) {
+  const { url: finalUrl, init } = buildAuthRequest(url, options);
+  return fetch(finalUrl, init).then(async (res) => {
+    // Only retry on 401 for endpoints that look like protected API calls.
+    // /auth/refresh and /auth/login must NEVER recurse.
+    if (res.status !== 401) return res;
+    if (!store.getToken() || !store.getRefresh()) return res;
+    if (typeof finalUrl === 'string'
+        && (finalUrl.includes('/api/auth/refresh')
+            || finalUrl.includes('/api/auth/login')
+            || finalUrl.includes('/api/auth/register'))) {
+      return res;
+    }
+    const ok = await attemptRefresh();
+    if (!ok) return res;
+    // Retry once with the rotated access token.
+    const retry = buildAuthRequest(url, options);
+    return fetch(retry.url, retry.init);
+  });
 }
 
 // ── Wallet transform helper ───────────────────────────────────────────────────
@@ -194,6 +261,31 @@ export function AuthProvider({ children }) {
     } catch { /* silent */ }
   }, []);
 
+  /**
+   * Phase 2 — fetch the authenticated user's wallet ledger
+   * (`GET /api/wallet/transactions`). Pure data plumbing — no UI redesign;
+   * pages can consume this to show per-asset / per-order ledger history.
+   *
+   * Supported filters (all optional): `asset`, `type`, `ref_id`,
+   * `date_from`, `date_to`, `skip`, `limit`. The endpoint returns
+   * `{ items, total, skip, limit }` newest-first.
+   */
+  const fetchWalletTransactions = useCallback(async (filters = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([k, v]) => {
+      if (v === undefined || v === null) return;
+      const s = String(v).trim();
+      if (s !== '') params.set(k, s);
+    });
+    const qs = params.toString();
+    const res = await authFetch(`${API}/api/wallet/transactions${qs ? `?${qs}` : ''}`);
+    if (!res.ok) {
+      const err = await readJsonSafe(res);
+      throw new Error(err?.detail || `Could not load wallet transactions (HTTP ${res.status})`);
+    }
+    return res.json();
+  }, []);
+
   // ── Live account stream (wallet + orders + fills + spot positions); auto-reconnect like market WS ─
   useEffect(() => {
     if (!user) return undefined;
@@ -282,6 +374,7 @@ export function AuthProvider({ children }) {
     const data = await readJsonSafe(res);
     if (!res.ok) throwAuthFailure(res, data, 'Login failed');
     store.setToken(data.access_token);
+    if (data.refresh_token) store.setRefresh(data.refresh_token);
     store.setUser(data.user);
     setUser(data.user);
     await Promise.all([
@@ -298,6 +391,7 @@ export function AuthProvider({ children }) {
   // ── Register (one-step) ─────────────────────────────────────────────────────
   const applyTokenResponse = useCallback(async (data) => {
     store.setToken(data.access_token);
+    if (data.refresh_token) store.setRefresh(data.refresh_token);
     store.setUser(data.user);
     setUser(data.user);
     await Promise.all([
@@ -333,7 +427,25 @@ export function AuthProvider({ children }) {
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(() => {
-    store.clear();
+    // Fire-and-forget refresh-token revocation so the server drops the
+    // rotated jti even if we never use it again. The response is ignored
+    // — if it fails (offline / 401) the TTL index still reaps the row.
+    const rt = store.getRefresh();
+    const tok = store.getToken();
+    if (rt && tok) {
+      try {
+        fetch(`${API}/api/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${tok}`,
+          },
+          body: JSON.stringify({ refresh_token: rt }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch { /* ignore */ }
+    }
+    clearAuthStorage();
     setUser(null);
     setWalletAssets([]); setBalance({}); setLockedBalance({});
     setOpenOrders([]); setOrderHistory([]);
@@ -345,6 +457,20 @@ export function AuthProvider({ children }) {
     setUserFeaturesPaused(false);
     setUserTradingPaused(false);
     setUserPauseNote(null);
+  }, []);
+
+  // ── Phase 7b — revoke every other session ─────────────────────────────────
+  const revokeAllSessions = useCallback(async () => {
+    const res = await authFetch(`${API}/api/auth/sessions/revoke-all`, { method: 'POST' });
+    const data = await readJsonSafe(res);
+    if (!res.ok) {
+      throw new Error(data?.detail || 'Could not revoke sessions');
+    }
+    // Our own session was also killed by the epoch bump; log out locally
+    // and push the user to /login so they re-authenticate cleanly.
+    clearAuthStorage();
+    setUser(null);
+    return data;
   }, []);
 
   const updateUser = useCallback((next) => {
@@ -364,10 +490,12 @@ export function AuthProvider({ children }) {
       openOrders, orderHistory, ordersLoading, fetchOrders,
       userTrades, userTradesLoading, fetchUserTrades,
       liveSpotPositions, fetchLiveSpotPositions,
+      // Phase 2 — wallet ledger fetcher (paged, filterable)
+      fetchWalletTransactions,
       // KYC
       kyc, fetchKyc,
       // Auth
-      login, register, logout,
+      login, register, logout, revokeAllSessions,
       impersonationActive, impersonatorAdminId, refreshSession,
       userFeaturesPaused, userTradingPaused, userPauseNote,
     }}>

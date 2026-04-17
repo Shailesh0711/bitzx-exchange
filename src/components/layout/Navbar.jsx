@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const TOKEN_SITE_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
 
 function userAvatarSrc(user) {

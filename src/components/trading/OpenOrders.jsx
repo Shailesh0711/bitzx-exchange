@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { X, Clock, CheckCircle, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 const fmt  = iso => new Date(iso).toLocaleString('en-US', {
   month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   User, Lock, Shield, CheckCircle, AlertCircle,
   ChevronRight, Edit2, Eye, EyeOff, Mail, Phone,
-  Camera, Trash2, Globe, FileText,
+  Camera, Trash2, Globe, FileText, Copy, RefreshCw, LogOut, KeyRound,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import {
@@ -19,8 +19,9 @@ import {
   authFormBannerMessage,
   validateStrongPassword,
 } from '@/lib/authValidation';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 function resolveAvatarUrl(user) {
   if (!user?.avatar_url) return null;
@@ -533,6 +534,10 @@ function SecurityTab() {
           : <><Lock size={16} /> Update Password</>}
       </button>
 
+      <TwoFactorCard />
+
+      <SessionsCard />
+
       <div className="rounded-2xl p-6 space-y-3"
         style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
         <p className="text-base font-bold text-white flex items-center gap-2.5">
@@ -542,13 +547,343 @@ function SecurityTab() {
           'Use a unique password that you don\'t use on other websites',
           'Include uppercase, lowercase letters, numbers and symbols',
           'Never share your password with anyone, including BITZX support',
-          'Enable 2FA (coming soon) for an extra layer of security',
+          'Turn on 2FA above and keep your backup codes in a safe place',
         ].map(tip => (
           <p key={tip} className="text-sm text-white flex items-start gap-3">
             <span className="text-gold mt-0.5 flex-shrink-0">✓</span> {tip}
           </p>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── 2FA card (setup / verify / disable / backup codes) ──────────────────────
+
+function TwoFactorCard() {
+  const { user, updateUser } = useAuth();
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+  const [setup, setSetup] = useState(null);       // { otpauth_url, secret_b32 }
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [backupCodes, setBackupCodes] = useState(null);
+  const [disableForm, setDisableForm] = useState({ open: false, password: '', code: '' });
+  const [regenForm, setRegenForm] = useState({ open: false, code: '' });
+
+  const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 5000); };
+
+  const loadStatus = async () => {
+    setLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/auth/2fa/status`);
+      if (res.ok) setStatus(await res.json());
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { loadStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const beginSetup = async () => {
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API}/api/auth/2fa/setup`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(formatApiDetail(data.detail) || 'Could not start 2FA setup', false); return; }
+      setSetup(data);
+      setCode('');
+      setBackupCodes(null);
+    } finally { setBusy(false); }
+  };
+
+  const cancelSetup = () => { setSetup(null); setCode(''); };
+
+  const verifySetup = async () => {
+    if (!code.trim()) { showToast('Enter the 6-digit code from your app', false); return; }
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API}/api/auth/2fa/verify`, {
+        method: 'POST', body: JSON.stringify({ code: code.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(formatApiDetail(data.detail) || 'Invalid code', false); return; }
+      setBackupCodes(data.backup_codes || []);
+      setSetup(null);
+      setCode('');
+      if (user) updateUser(u => ({ ...(u || {}), two_factor_enabled: true }));
+      showToast('Two-factor authentication enabled', true);
+      await loadStatus();
+    } finally { setBusy(false); }
+  };
+
+  const submitDisable = async () => {
+    if (!disableForm.password) { showToast('Enter your current password', false); return; }
+    if (!disableForm.code.trim()) { showToast('Enter a 2FA or backup code', false); return; }
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API}/api/auth/2fa/disable`, {
+        method: 'POST',
+        body: JSON.stringify({ password: disableForm.password, code: disableForm.code.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(formatApiDetail(data.detail) || 'Could not disable 2FA', false); return; }
+      if (user) updateUser(u => ({ ...(u || {}), two_factor_enabled: false }));
+      setDisableForm({ open: false, password: '', code: '' });
+      setBackupCodes(null);
+      showToast('Two-factor authentication disabled', true);
+      await loadStatus();
+    } finally { setBusy(false); }
+  };
+
+  const submitRegen = async () => {
+    if (!regenForm.code.trim()) { showToast('Enter a 2FA or backup code', false); return; }
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API}/api/auth/2fa/backup-codes/regenerate`, {
+        method: 'POST', body: JSON.stringify({ code: regenForm.code.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(formatApiDetail(data.detail) || 'Could not regenerate codes', false); return; }
+      setBackupCodes(data.backup_codes || []);
+      setRegenForm({ open: false, code: '' });
+      showToast('New backup codes generated', true);
+      await loadStatus();
+    } finally { setBusy(false); }
+  };
+
+  const copyText = async (txt) => {
+    try { await navigator.clipboard.writeText(txt); showToast('Copied to clipboard', true); }
+    catch { showToast('Copy failed — select and copy manually', false); }
+  };
+
+  const enabled = !!status?.enabled;
+  const required = !!status?.required_for_withdrawal;
+  const remaining = status?.backup_codes_remaining ?? 0;
+  const qrSrc = setup?.otpauth_url
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(setup.otpauth_url)}`
+    : null;
+
+  return (
+    <div className="rounded-2xl p-6 space-y-5"
+      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+      <div className="flex items-start gap-4 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <p className="text-base font-bold text-white flex items-center gap-2.5">
+            <KeyRound size={16} className="text-gold" /> Two-Factor Authentication
+          </p>
+          <p className="text-sm text-white/70 mt-1">
+            Use an authenticator app (Google Authenticator, Authy, 1Password, …) to protect sign-in and withdrawals.
+          </p>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <span className={`text-xs px-3 py-1 rounded-full border ${enabled
+              ? 'border-green-500/30 text-green-400 bg-green-500/10'
+              : 'border-yellow-500/30 text-yellow-400 bg-yellow-500/10'}`}>
+              {loading ? 'Checking…' : enabled ? 'Enabled' : 'Not enabled'}
+            </span>
+            {required && (
+              <span className="text-xs px-3 py-1 rounded-full border border-gold/30 text-gold bg-gold/10">
+                Required for withdrawals
+              </span>
+            )}
+            {enabled && (
+              <span className="text-xs px-3 py-1 rounded-full border border-surface-border text-white/70">
+                {remaining} backup code{remaining === 1 ? '' : 's'} left
+              </span>
+            )}
+          </div>
+        </div>
+        {!loading && !enabled && !setup && (
+          <button onClick={beginSetup} disabled={busy}
+            className="px-5 py-3 rounded-xl bg-gold/90 hover:bg-gold text-surface-dark text-sm font-bold disabled:opacity-50">
+            {busy ? 'Preparing…' : 'Enable 2FA'}
+          </button>
+        )}
+      </div>
+
+      {setup && (
+        <div className="rounded-xl p-5 border border-surface-border bg-surface-card/60">
+          <p className="text-sm text-white/80 mb-4">
+            1. Scan the QR with your authenticator app (or paste the secret manually).<br />
+            2. Enter the 6-digit code the app shows to finish enabling 2FA.
+          </p>
+          <div className="flex flex-wrap items-start gap-6">
+            {qrSrc && (
+              <img src={qrSrc} alt="2FA QR code" width={180} height={180}
+                className="rounded-lg border border-surface-border bg-white p-2" />
+            )}
+            <div className="flex-1 min-w-[220px] space-y-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-white/50 mb-1">Secret (base32)</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 font-mono text-sm text-white bg-black/40 border border-surface-border rounded-lg px-3 py-2 break-all">
+                    {setup.secret_b32}
+                  </code>
+                  <button onClick={() => copyText(setup.secret_b32)} type="button"
+                    className="p-2 rounded-lg border border-surface-border text-white/80 hover:text-gold">
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-white/50 mb-1">6-digit code</p>
+                <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric" autoComplete="one-time-code" placeholder="123456"
+                  className="w-full bg-black/40 border border-surface-border rounded-lg px-3 py-3 text-white font-mono tracking-widest text-lg outline-none focus:border-gold/50" />
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={verifySetup} disabled={busy || code.length !== 6}
+                  className="px-4 py-2.5 rounded-lg bg-gold/90 hover:bg-gold text-surface-dark text-sm font-bold disabled:opacity-40">
+                  {busy ? 'Verifying…' : 'Verify & enable'}
+                </button>
+                <button onClick={cancelSetup} disabled={busy}
+                  className="px-4 py-2.5 rounded-lg border border-surface-border text-white/80 text-sm">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {backupCodes && (
+        <div className="rounded-xl p-5 border border-yellow-500/30 bg-yellow-500/5">
+          <p className="text-sm font-semibold text-yellow-300 flex items-center gap-2 mb-2">
+            <AlertCircle size={14} /> Save these backup codes now — they won't be shown again.
+          </p>
+          <p className="text-xs text-white/70 mb-3">
+            Each code works once. Use them to sign in / disable 2FA if you lose your authenticator.
+          </p>
+          <div className="grid grid-cols-2 gap-2 font-mono text-sm mb-3">
+            {backupCodes.map((c) => (
+              <code key={c} className="px-3 py-2 bg-black/40 border border-surface-border rounded-lg text-white tracking-widest">
+                {c}
+              </code>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => copyText(backupCodes.join('\n'))}
+              className="px-3 py-2 rounded-lg border border-surface-border text-white/80 text-xs flex items-center gap-2">
+              <Copy size={12} /> Copy all
+            </button>
+            <button onClick={() => setBackupCodes(null)}
+              className="px-3 py-2 rounded-lg border border-surface-border text-white/80 text-xs">
+              I've saved them
+            </button>
+          </div>
+        </div>
+      )}
+
+      {enabled && !setup && !backupCodes && (
+        <div className="flex flex-wrap gap-3 pt-1">
+          <button onClick={() => setRegenForm({ open: !regenForm.open, code: '' })}
+            className="px-4 py-2.5 rounded-lg border border-surface-border text-white/80 text-sm flex items-center gap-2">
+            <RefreshCw size={14} /> Regenerate backup codes
+          </button>
+          <button onClick={() => setDisableForm({ open: !disableForm.open, password: '', code: '' })}
+            className="px-4 py-2.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/5 text-sm">
+            Disable 2FA
+          </button>
+        </div>
+      )}
+
+      {regenForm.open && (
+        <div className="rounded-xl p-4 border border-surface-border bg-surface-card/60 space-y-3">
+          <p className="text-sm text-white/80">
+            Enter a current 6-digit code (or unused backup code) to mint a new set. All previous backup codes will stop working.
+          </p>
+          <input value={regenForm.code} onChange={(e) => setRegenForm(f => ({ ...f, code: e.target.value }))}
+            placeholder="Authenticator or backup code"
+            className="w-full bg-black/40 border border-surface-border rounded-lg px-3 py-2.5 text-white outline-none focus:border-gold/50" />
+          <div className="flex gap-2">
+            <button onClick={submitRegen} disabled={busy}
+              className="px-4 py-2 rounded-lg bg-gold/90 hover:bg-gold text-surface-dark text-sm font-bold disabled:opacity-40">
+              {busy ? 'Working…' : 'Regenerate'}
+            </button>
+            <button onClick={() => setRegenForm({ open: false, code: '' })} disabled={busy}
+              className="px-4 py-2 rounded-lg border border-surface-border text-white/80 text-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {disableForm.open && (
+        <div className="rounded-xl p-4 border border-red-500/30 bg-red-500/5 space-y-3">
+          <p className="text-sm text-red-300 font-semibold">Disable two-factor authentication</p>
+          <p className="text-xs text-white/70">Requires your current password AND a 2FA / backup code.</p>
+          <input value={disableForm.password} onChange={(e) => setDisableForm(f => ({ ...f, password: e.target.value }))}
+            type="password" autoComplete="current-password" placeholder="Current password"
+            className="w-full bg-black/40 border border-surface-border rounded-lg px-3 py-2.5 text-white outline-none focus:border-red-500/50" />
+          <input value={disableForm.code} onChange={(e) => setDisableForm(f => ({ ...f, code: e.target.value }))}
+            placeholder="Authenticator or backup code"
+            className="w-full bg-black/40 border border-surface-border rounded-lg px-3 py-2.5 text-white outline-none focus:border-red-500/50" />
+          <div className="flex gap-2">
+            <button onClick={submitDisable} disabled={busy}
+              className="px-4 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-40">
+              {busy ? 'Working…' : 'Disable 2FA'}
+            </button>
+            <button onClick={() => setDisableForm({ open: false, password: '', code: '' })} disabled={busy}
+              className="px-4 py-2 rounded-lg border border-surface-border text-white/80 text-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
+    </div>
+  );
+}
+
+// ── "Log out of all devices" card ───────────────────────────────────────────
+
+function SessionsCard() {
+  const { revokeAllSessions } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+
+  const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); };
+
+  const onRevoke = async () => {
+    setBusy(true);
+    try {
+      await revokeAllSessions();
+      showToast('All sessions revoked — please sign in again', true);
+      // Local session is also killed by the epoch bump on the backend.
+      setTimeout(() => { window.location.href = '/login'; }, 600);
+    } catch (e) {
+      showToast(e?.message || 'Could not revoke sessions', false);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl p-6 space-y-3"
+      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+      <p className="text-base font-bold text-white flex items-center gap-2.5">
+        <LogOut size={16} className="text-gold" /> Active sessions
+      </p>
+      <p className="text-sm text-white/70">
+        Sign out of every device where you're currently logged in. Useful if you've misplaced a device or suspect your account has been accessed.
+      </p>
+      {!confirming ? (
+        <button onClick={() => setConfirming(true)}
+          className="px-4 py-2.5 rounded-lg border border-surface-border text-white/85 text-sm flex items-center gap-2 hover:border-red-500/40 hover:text-red-300">
+          Log out of all devices
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={onRevoke} disabled={busy}
+            className="px-4 py-2.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-50">
+            {busy ? 'Revoking…' : 'Yes, log out everywhere'}
+          </button>
+          <button onClick={() => setConfirming(false)} disabled={busy}
+            className="px-4 py-2.5 rounded-lg border border-surface-border text-white/80 text-sm">
+            Cancel
+          </button>
+        </div>
+      )}
+      {toast && <Toast msg={toast.msg} ok={toast.ok} />}
     </div>
   );
 }

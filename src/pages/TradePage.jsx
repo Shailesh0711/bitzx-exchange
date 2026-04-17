@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { COIN_ICONS, PAIRS, exchangeWsPath } from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 import TradingChart    from '@/components/trading/TradingChart';
 import OrderBook       from '@/components/trading/OrderBook';
 import TradeForm       from '@/components/trading/TradeForm';
@@ -57,7 +58,7 @@ function StatItem({ label, value, color }) {
   );
 }
 
-const API       = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API       = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const ALL_PAIRS = PAIRS.map(p => p.symbol);
 
 // ─── Date formatter ───────────────────────────────────────────────────────────

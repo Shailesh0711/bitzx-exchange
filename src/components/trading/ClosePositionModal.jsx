@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { authFetch } from '@/context/AuthContext';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 import { MIN_BASE_AMOUNT, MIN_CLOSE_ORDER_VALUE_USDT } from '@/lib/tradeRules';
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 async function parseApiError(res) {
   try {

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Wallet, Plus, TrendingUp, AlertCircle, CheckCircle, Shield, Clock } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 import {
   validateSpotOrder,
   MIN_BASE_AMOUNT,
@@ -12,7 +13,7 @@ import {
   parseAmount,
 } from '@/lib/tradeRules';
 
-const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API  = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const PCTS = [25, 50, 75, 100];
 const FEE_RATE = 0.001;
 

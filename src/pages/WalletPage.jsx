@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import QrImagePreview from '@/components/ui/QrImagePreview';
 import {
@@ -9,44 +9,47 @@ import {
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
-import { validateDepositRequest, validateWithdrawRequest, MIN_WALLET_NOTIONAL_USDT } from '@/lib/walletValidation';
+import { exchangeApiOrigin } from '@/lib/apiBase';
+import { MIN_WALLET_NOTIONAL_USDT } from '@/lib/walletValidation';
 
-const API = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 const SUPPORTED_ASSETS = [
   'USDT', 'BZX', 'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'POL',
   'AVAX', 'DOT', 'LINK', 'LTC',
 ];
 
-const ASSET_NETWORKS = {
-  USDT: ['BEP-20 (BNB Chain)', 'ERC-20 (Ethereum)', 'TRC-20 (Tron)'],
-  BZX:  ['BEP-20 (BNB Chain)'],
-  BTC:  ['Bitcoin Network', 'BEP-20 (BNB Chain)'],
-  ETH:  ['ERC-20 (Ethereum)', 'BEP-20 (BNB Chain)'],
-  BNB:  ['BEP-20 (BNB Chain)'],
-  SOL:  ['Solana'],
-  XRP:  ['XRP Ledger', 'BEP-20 (BNB Chain)'],
-  DOGE: ['Dogecoin Network', 'BEP-20 (BNB Chain)'],
-  ADA:  ['Cardano', 'BEP-20 (BNB Chain)'],
-  POL: ['Polygon PoS', 'BEP-20 (BNB Chain)'],
-  AVAX: ['Avalanche C-Chain', 'BEP-20 (BNB Chain)'],
-  DOT:  ['Polkadot', 'BEP-20 (BNB Chain)'],
-  LINK: ['ERC-20 (Ethereum)', 'BEP-20 (BNB Chain)'],
-  LTC:  ['Litecoin Network', 'BEP-20 (BNB Chain)'],
-};
+// NOTE: The deposit asset/network table is no longer hardcoded here. It is
+// fetched from ``GET /api/wallet/supported-networks`` so the UI reflects
+// whatever combinations the blockchain provider can actually serve (e.g.
+// ETH on Sepolia in dev, or ETH+BTC on mainnet in prod). See ``DepositTab``.
 
 const STATUS_STYLES = {
-  pending:  { color: 'text-yellow-400',  bg: 'bg-yellow-400/10 border-yellow-400/20', icon: Clock },
-  approved: { color: 'text-green-400',   bg: 'bg-green-400/10 border-green-400/20',   icon: CheckCircle },
-  rejected: { color: 'text-red-400',     bg: 'bg-red-400/10 border-red-400/20',        icon: XCircle },
+  pending:          { color: 'text-yellow-400', bg: 'bg-yellow-400/10 border-yellow-400/20',  icon: Clock,       label: 'Pending' },
+  confirming:       { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'Confirming' },
+  credited:         { color: 'text-green-400',  bg: 'bg-green-400/10 border-green-400/20',    icon: CheckCircle, label: 'Credited' },
+  approved:         { color: 'text-green-400',  bg: 'bg-green-400/10 border-green-400/20',    icon: CheckCircle, label: 'Approved' },
+  rejected:         { color: 'text-red-400',    bg: 'bg-red-400/10 border-red-400/20',        icon: XCircle,     label: 'Rejected' },
+  pending_kyc:      { color: 'text-amber-300',  bg: 'bg-amber-400/10 border-amber-400/20',    icon: AlertCircle, label: 'KYC required' },
+  below_min:        { color: 'text-white/70',   bg: 'bg-white/5 border-white/10',             icon: AlertCircle, label: 'Below minimum' },
+  orphan:           { color: 'text-white/60',   bg: 'bg-white/5 border-white/10',             icon: AlertCircle, label: 'Unassigned' },
+  crediting:        { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'Crediting' },
+  reorg_review:     { color: 'text-red-300',    bg: 'bg-red-400/10 border-red-400/20',        icon: AlertCircle, label: 'Reorg review' },
+  // Phase 6 — withdrawal request statuses.
+  pending_approval: { color: 'text-yellow-400', bg: 'bg-yellow-400/10 border-yellow-400/20',  icon: Clock,       label: 'Awaiting approval' },
+  broadcasting:     { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'Broadcasting' },
+  broadcasted:      { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'In mempool' },
+  confirmed:        { color: 'text-green-400',  bg: 'bg-green-400/10 border-green-400/20',    icon: CheckCircle, label: 'Confirmed' },
+  failed:           { color: 'text-red-400',    bg: 'bg-red-400/10 border-red-400/20',        icon: XCircle,     label: 'Failed' },
 };
 
 function StatusBadge({ status }) {
   const s = STATUS_STYLES[status] || STATUS_STYLES.pending;
   const Icon = s.icon;
+  const label = s.label || String(status || 'pending').replace(/_/g, ' ');
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full border ${s.bg} ${s.color} capitalize`}>
-      <Icon size={11} /> {status}
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full border ${s.bg} ${s.color}`}>
+      <Icon size={11} /> {label}
     </span>
   );
 }
@@ -61,8 +64,13 @@ function CopyBtn({ text }) {
   );
 }
 
-function AssetSelect({ value, onChange, label }) {
+function AssetSelect({ value, onChange, label, assets }) {
   const [open, setOpen] = useState(false);
+  // Falls back to the static list so callers that don't pass ``assets``
+  // (e.g. the balances tab) keep working identically. Deposit flows pass
+  // the dynamic list returned by /api/wallet/supported-networks so the
+  // dropdown matches whatever the blockchain provider can actually serve.
+  const list = (Array.isArray(assets) && assets.length > 0) ? assets : SUPPORTED_ASSETS;
   return (
     <div className="relative">
       {label && <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">{label}</label>}
@@ -80,7 +88,7 @@ function AssetSelect({ value, onChange, label }) {
         {open && (
           <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
             className="absolute z-50 top-full mt-1 left-0 right-0 bg-surface-card border border-surface-border rounded-xl shadow-2xl overflow-hidden">
-            {SUPPORTED_ASSETS.map(a => (
+            {list.map(a => (
               <button key={a} type="button"
                 onClick={() => { onChange(a); setOpen(false); }}
                 className={`w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-surface-hover transition-colors ${a === value ? 'text-gold-light' : 'text-white'}`}>
@@ -202,30 +210,81 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet, priceByAsset })
 
 // ── Deposit Tab ───────────────────────────────────────────────────────────────
 
-function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
-  const [asset,   setAsset]   = useState('USDT');
-  const [amount,  setAmount]  = useState('');
-  const [txHash,  setTxHash]  = useState('');
-  const [network, setNetwork] = useState(ASSET_NETWORKS['USDT'][0]);
-  const [notes,   setNotes]   = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result,  setResult]  = useState(null); // {ok, message}
+function DepositTab({ kycBlocked, kyc }) {
+  // Supported (asset, network) combinations come from the backend —
+  // GET /api/wallet/supported-networks reflects the live provider
+  // configuration (which QuickNode URLs are set, mainnet vs testnet, …).
+  // ``asset`` / ``network`` are empty strings until the list lands so we
+  // never fire a deposit-addresses call with a combo the server can't serve.
+  const [supported, setSupported]       = useState([]);
+  const [netsLoading, setNetsLoading]   = useState(true);
+  const [netsError, setNetsError]       = useState(null);
+  const [asset,   setAsset]             = useState('');
+  const [network, setNetwork]           = useState('');
   const [depositAddresses, setDepositAddresses] = useState([]);
-  const [depAddrLoading, setDepAddrLoading] = useState(false);
-  const [depAddrError, setDepAddrError] = useState(null);
-  const [selectedDepositAddressId, setSelectedDepositAddressId] = useState(null);
+  const [depAddrLoading, setDepAddrLoading]     = useState(false);
+  const [depAddrError, setDepAddrError]         = useState(null);
 
-  const networks = ASSET_NETWORKS[asset] || [];
+  // Fetch supported networks once on mount. This endpoint is public so it
+  // works the same way regardless of auth state.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setNetsLoading(true);
+      setNetsError(null);
+      try {
+        const res = await fetch(`${API}/api/wallet/supported-networks`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : [];
+        setSupported(list);
+        if (list.length > 0) {
+          setAsset(list[0].asset);
+          setNetwork(list[0].network);
+        } else {
+          setAsset('');
+          setNetwork('');
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setSupported([]);
+          setNetsError(
+            e?.message?.includes('Failed to fetch')
+              ? 'Could not reach the API. Check VITE_BACKEND_URL and CORS.'
+              : 'Could not load supported networks. Try again in a moment.',
+          );
+        }
+      } finally {
+        if (!cancelled) setNetsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Derived dropdown sources — unique assets, and networks for the current asset.
+  const availableAssets = Array.from(new Set(supported.map(r => r.asset)));
+  const networks        = supported.filter(r => r.asset === asset);
 
   useEffect(() => {
+    // Don't hit the deposit-addresses endpoint until we know which combo
+    // the provider supports; otherwise the server just returns 400.
+    if (!asset || !network) {
+      setDepositAddresses([]);
+      setDepAddrError(null);
+      setDepAddrLoading(false);
+      return undefined;
+    }
     let cancelled = false;
     (async () => {
       setDepAddrLoading(true);
       setDepAddrError(null);
-      setSelectedDepositAddressId(null);
       try {
         const u = new URLSearchParams({ asset, network });
-        const res = await fetch(`${API}/api/wallet/deposit-addresses?${u}`);
+        // Phase 4 — strictly the authenticated user's HD-derived deposit
+        // address. The backend no longer returns shared fallback addresses,
+        // so this list has at most one row (the user's own).
+        const res = await authFetch(`${API}/api/wallet/deposit-addresses?${u}`);
         if (!res.ok) {
           let detail = `Could not load deposit addresses (HTTP ${res.status}).`;
           try {
@@ -244,7 +303,6 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
         if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
         setDepositAddresses(list);
-        if (list.length) setSelectedDepositAddressId(list[0].id);
       } catch (e) {
         if (!cancelled) {
           setDepositAddresses([]);
@@ -264,75 +322,24 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
     return () => { cancelled = true; };
   }, [asset, network]);
 
-  const depositCheck = useMemo(
-    () =>
-      validateDepositRequest({
-        asset,
-        amountStr: amount,
-        txHash,
-        network,
-        notes,
-        supportedAssets: SUPPORTED_ASSETS,
-        priceByAsset: priceByAsset || { USDT: 1 },
-      }),
-    [asset, amount, txHash, network, notes, priceByAsset],
-  );
-
   const handleAsset = (a) => {
     setAsset(a);
-    setNetwork(ASSET_NETWORKS[a]?.[0] || '');
+    const firstForAsset = supported.find(r => r.asset === a);
+    setNetwork(firstForAsset ? firstForAsset.network : '');
   };
 
-  const handleSubmit = async e => {
-    e.preventDefault();
-    if (kycBlocked) {
-      setResult({
-        ok: false,
-        message: kyc?.status === 'pending'
-          ? 'KYC is under review. Deposits unlock after an administrator approves your application.'
-          : 'Complete identity verification (KYC) before submitting a deposit request.',
-      });
-      return;
-    }
-    if (!depositCheck.ok) {
-      setResult({ ok: false, message: depositCheck.message || 'Please fix the highlighted fields.' });
-      return;
-    }
-    if (depositAddresses.length > 0 && !selectedDepositAddressId) {
-      setResult({ ok: false, message: 'Choose which deposit address you sent to (QR above).' });
-      return;
-    }
-    setLoading(true);
-    setResult(null);
-    try {
-      const res  = await authFetch(`${API}/api/wallet/deposit`, {
-        method: 'POST',
-        body:   JSON.stringify({
-          asset,
-          amount: parseFloat(amount),
-          tx_hash: txHash.trim(),
-          network,
-          notes: (notes && notes.trim()) ? notes.trim() : null,
-          ...(selectedDepositAddressId ? { deposit_address_id: selectedDepositAddressId } : {}),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Request failed');
-      setResult({ ok: true, id: data.id, message: `Deposit request submitted (ID: ${data.id}). An admin will credit your balance after verification.` });
-      setAmount(''); setTxHash(''); setNotes('');
-    } catch (err) {
-      setResult({ ok: false, message: err.message });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const personalAddress = depositAddresses[0] || null;
+  const hasSupported    = supported.length > 0;
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
-      {/* Form */}
+      {/* Address panel (left column — was the manual submit form) */}
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
-        <h3 className="text-lg font-bold text-white mb-1">Submit Deposit Request</h3>
-        <p className="text-white text-sm mb-6">Send funds to our wallet address, then submit your transaction hash for verification.</p>
+        <h3 className="text-lg font-bold text-white mb-1">Your Deposit Address</h3>
+        <p className="text-white text-sm mb-6">
+          Send funds to your personal address below. Deposits are detected on-chain and credited
+          automatically once the network confirms the transaction.
+        </p>
 
         {kycBlocked && (
           <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center gap-2 ${
@@ -343,187 +350,107 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
             <Shield size={16} className="flex-shrink-0" />
             <span>
               {kyc?.status === 'pending'
-                ? 'Your KYC is pending admin review. You can view deposit details below, but submitting a deposit request is enabled only after approval.'
+                ? 'Your KYC is pending admin review. You can view your deposit address, but deposits will only be credited after approval.'
                 : kyc?.status === 'rejected'
-                  ? 'Your KYC was rejected. Resubmit documents to submit deposit requests. You may still view published deposit addresses below.'
-                  : 'Identity verification (KYC) is required before you can submit a deposit request. Published deposit addresses (if any) still appear below so you know where to send.'}{' '}
+                  ? 'Your KYC was rejected. Resubmit documents to unlock deposits. Your deposit address still appears below.'
+                  : 'Identity verification (KYC) is required before deposits are credited. Your personal deposit address still appears below so you can prepare.'}{' '}
               <Link to="/kyc" className="font-bold underline text-gold-light">Go to KYC →</Link>
             </span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-4">
           <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider -mb-1">Step 1 — Asset &amp; network</p>
-          <p className="text-xs text-white/50 -mt-1 mb-1">
-            Deposit QR codes are loaded for this exact pair. The admin panel must use the same network label (e.g. <span className="font-mono text-white/70">BEP-20 (BNB Chain)</span>).
-          </p>
-          <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
-          {depositCheck.errors.asset && (
-            <p className="text-xs text-red-400 font-semibold -mt-2">{depositCheck.errors.asset}</p>
+
+          {netsLoading && (
+            <p className="text-xs text-white/45">Loading supported networks…</p>
           )}
-
-          <div>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
-            <select value={network} onChange={e => setNetwork(e.target.value)} required
-              className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors ${
-                depositCheck.errors.network ? 'border-red-500/50' : 'border-surface-border'
-              }`}>
-              {networks.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-            {depositCheck.errors.network && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.network}</p>
-            )}
-          </div>
-
-          <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider pt-1">Step 2 — Deposit address (if published)</p>
-
-          {depAddrLoading && (
-            <p className="text-xs text-white/45">Loading deposit addresses…</p>
-          )}
-          {depAddrError && !depAddrLoading && (
+          {netsError && !netsLoading && (
             <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
-              <span className="font-bold text-amber-200">Could not load addresses: </span>
+              <span className="font-bold text-amber-200">Could not load networks: </span>{netsError}
+            </div>
+          )}
+          {!netsLoading && !netsError && !hasSupported && (
+            <div className="rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2.5 text-xs text-white/65">
+              No deposit networks are currently enabled. Please check back shortly — the operator is
+              still configuring the blockchain provider.
+            </div>
+          )}
+          {hasSupported && (
+            <>
+              <AssetSelect value={asset} onChange={handleAsset} label="Asset" assets={availableAssets} />
+
+              <div>
+                <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
+                <select value={network} onChange={e => setNetwork(e.target.value)} required
+                  className="w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors border-surface-border">
+                  {networks.map(n => (
+                    <option key={`${n.asset}-${n.network}-${n.chain || ''}`} value={n.network}>
+                      {n.label ? n.label : n.network}{n.testnet ? ' · testnet' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+
+          <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider pt-1">Step 2 — Scan or copy</p>
+
+          {hasSupported && depAddrLoading && (
+            <p className="text-xs text-white/45">Loading your deposit address…</p>
+          )}
+          {hasSupported && depAddrError && !depAddrLoading && (
+            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+              <span className="font-bold text-amber-200">Could not load address: </span>
               {depAddrError}
             </div>
           )}
-          {!depAddrLoading && !depAddrError && depositAddresses.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-[11px] text-white/60 uppercase font-bold tracking-wider">Send to — scan QR</p>
-              <div className="grid gap-3 sm:grid-cols-1">
-                {depositAddresses.map(addr => (
-                  <label
-                    key={addr.id}
-                    className={`cursor-pointer rounded-xl border p-4 flex gap-3 transition-colors ${
-                      selectedDepositAddressId === addr.id
-                        ? 'border-gold/45 bg-gold/10 ring-1 ring-gold/20'
-                        : 'border-surface-border bg-surface-card hover:border-white/15'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="deposit_address_pick"
-                      className="mt-1 accent-gold"
-                      checked={selectedDepositAddressId === addr.id}
-                      onChange={() => setSelectedDepositAddressId(addr.id)}
-                    />
-                    <div className="flex flex-1 min-w-0 gap-3 flex-col sm:flex-row sm:items-start">
-                      <div className="shrink-0 bg-white p-2 rounded-xl self-start">
-                        <QrImagePreview
-                          key={`${addr.id}-${(addr.qr_payload || addr.address || '').slice(0, 96)}`}
-                          value={addr.qr_payload || addr.address}
-                          size={112}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        {addr.label && (
-                          <p className="text-xs font-bold text-gold-light mb-1">{addr.label}</p>
-                        )}
-                        <p className="text-[11px] text-white/45 uppercase mb-1">Address</p>
-                        <p className="text-sm text-white font-mono break-all leading-relaxed">{addr.address}</p>
-                        <div className="mt-2 flex items-center gap-1">
-                          <span className="text-[10px] text-white/40">Copy</span>
-                          <CopyBtn text={addr.address} />
-                        </div>
-                      </div>
-                    </div>
-                  </label>
-                ))}
+          {hasSupported && !depAddrLoading && !depAddrError && personalAddress && (
+            <div className="rounded-xl border border-gold/30 bg-gold/5 p-4 flex flex-col sm:flex-row gap-4 items-start">
+              <div className="shrink-0 bg-white p-2 rounded-xl">
+                <QrImagePreview
+                  key={`${personalAddress.id}-${(personalAddress.qr_payload || personalAddress.address || '').slice(0, 96)}`}
+                  value={personalAddress.qr_payload || personalAddress.address}
+                  size={128}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-gold-light mb-2">{personalAddress.label || 'Your deposit address'}</p>
+                <p className="text-[11px] text-white/45 uppercase mb-1">Address</p>
+                <p className="text-sm text-white font-mono break-all leading-relaxed">{personalAddress.address}</p>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-[10px] text-white/50">Copy</span>
+                  <CopyBtn text={personalAddress.address} />
+                </div>
               </div>
             </div>
           )}
-          {!depAddrLoading && !depAddrError && depositAddresses.length === 0 && (
+          {hasSupported && !depAddrLoading && !depAddrError && !personalAddress && (
             <div className="rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2.5 text-xs text-white/65 space-y-1.5">
               <p>
-                No <strong className="text-white">enabled</strong> deposit address is published for{' '}
-                <strong className="text-gold-light font-mono">{asset}</strong> on{' '}
-                <strong className="text-white font-mono">{network}</strong>.
+                A deposit address for <strong className="text-gold-light font-mono">{asset}</strong>{' '}
+                on <strong className="text-white font-mono">{network}</strong> is not available yet.
               </p>
               <p className="text-white/50">
-                In Admin → Deposit QR, add a row with this exact asset and network string, enable it, then refresh this page or change network if you use another chain.
+                The blockchain provider may not support this asset / network combination yet, or
+                onboarding is still in progress. Try another network, or contact support if this
+                persists.
               </p>
             </div>
           )}
-
-          <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider pt-2">Step 3 — Request details</p>
-
-          {/* Amount */}
-          <div>
-            <p className="text-[10px] text-white/60 mb-1.5">Minimum {MIN_WALLET_NOTIONAL_USDT} USDT equivalent (non-USDT uses live mark).</p>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Amount</label>
-            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
-              depositCheck.errors.amount ? 'border-red-500/50' : 'border-surface-border'
-            }`}>
-              <input type="number" step="any" min="0" value={amount} onChange={e => setAmount(e.target.value)} required
-                placeholder="0.00" className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
-              <span className="text-xs text-white font-semibold">{asset}</span>
-            </div>
-            {depositCheck.errors.amount && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.amount}</p>
-            )}
-          </div>
-
-          {/* TX Hash */}
-          <div>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Transaction Hash / Reference</label>
-            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
-              depositCheck.errors.tx_hash ? 'border-red-500/50' : 'border-surface-border'
-            }`}>
-              <input type="text" value={txHash} onChange={e => setTxHash(e.target.value)} required
-                placeholder="0x..." className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
-            </div>
-            {depositCheck.errors.tx_hash && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.tx_hash}</p>
-            )}
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Notes (optional)</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-              placeholder="Any extra information for the admin..."
-              className={`w-full bg-surface-card border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-gold/50 transition-colors resize-none ${
-                depositCheck.errors.notes ? 'border-red-500/50' : 'border-surface-border'
-              }`} />
-            {depositCheck.errors.notes && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{depositCheck.errors.notes}</p>
-            )}
-          </div>
-
-          <AnimatePresence>
-            {result && (
-              <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className={`rounded-xl p-4 text-sm flex items-start gap-2 ${result.ok ? 'bg-green-500/10 border border-green-500/25 text-green-400' : 'bg-red-500/10 border border-red-500/25 text-red-400'}`}>
-                {result.ok ? <CheckCircle size={15} className="flex-shrink-0 mt-0.5" /> : <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />}
-                {result.message}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <button
-            type="submit"
-            disabled={
-              loading
-              || kycBlocked
-              || !depositCheck.ok
-              || (depositAddresses.length > 0 && !selectedDepositAddressId)
-            }
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-gold to-gold-light text-surface-dark font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50"
-          >
-            {loading ? <div className="w-5 h-5 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" /> : <><ArrowDownCircle size={16} /> Submit Deposit Request</>}
-          </button>
-        </form>
+        </div>
       </div>
 
-      {/* Info panel */}
+      {/* Info panel (unchanged layout) */}
       <div className="space-y-5">
         <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
           <p className="text-white font-bold mb-3 flex items-center gap-2"><Info size={15} className="text-gold-light" /> How it works</p>
           <ol className="space-y-3 text-sm text-white">
             {[
-              'Select the asset and network you\'ll send from.',
-              'Scan the QR or copy our deposit address, then send from your wallet.',
-              'Paste your transaction hash and submit.',
-              'Our team verifies and credits your account (usually within 1–3 hours).',
+              'Pick the asset and network you want to deposit.',
+              'Scan the QR code or copy your personal deposit address.',
+              'Send the funds from your external wallet to that address.',
+              'The network confirms, we detect the transaction and credit your balance automatically.',
             ].map((step, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-gold/20 text-gold-light text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
@@ -537,9 +464,9 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
           <p className="text-yellow-400 font-semibold text-sm flex items-center gap-1.5 mb-2"><AlertCircle size={14} /> Important</p>
           <ul className="text-xs text-white space-y-1.5 list-disc list-inside">
             <li>Always send on the correct network to avoid permanent loss.</li>
-            <li>Minimum deposit: 10 USDT equivalent.</li>
-            <li>Deposits are credited after 1 network confirmation.</li>
-            <li>This is a demo platform — no real funds are involved.</li>
+            <li>Minimum deposit: {MIN_WALLET_NOTIONAL_USDT} USDT equivalent.</li>
+            <li>Your balance is credited automatically once the required confirmations are reached.</li>
+            <li>Incoming transactions appear in the History tab as soon as they are detected on-chain.</li>
           </ul>
         </div>
       </div>
@@ -549,86 +476,145 @@ function DepositTab({ fetchWallet, kycBlocked, kyc, priceByAsset }) {
 
 // ── Withdraw Tab ──────────────────────────────────────────────────────────────
 
-function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc, priceByAsset }) {
-  const [asset,   setAsset]   = useState('USDT');
-  const [amount,  setAmount]  = useState('');
-  const [address, setAddress] = useState('');
-  const [network, setNetwork] = useState(ASSET_NETWORKS['USDT'][0]);
-  const [memo,    setMemo]    = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result,  setResult]  = useState(null);
+function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
+  // Phase 6 — on-chain withdrawals via BlockchainProvider.send_transaction.
+  // Only assets the backend can actually broadcast appear in the dropdown;
+  // the same ``/api/wallet/supported-networks`` endpoint powers both tabs.
+  const [supported, setSupported]     = useState([]);
+  const [netsLoading, setNetsLoading] = useState(true);
+  const [netsError, setNetsError]     = useState(null);
 
-  const networks    = ASSET_NETWORKS[asset] || [];
-  const walletEntry = walletAssets.find(w => w.asset === asset);
-  const available   = walletEntry?.available || 0;
+  const [asset,   setAsset]           = useState('');
+  const [network, setNetwork]         = useState('');
+  const [address, setAddress]         = useState('');
+  const [amount,  setAmount]          = useState('');
+  const [note,    setNote]            = useState('');
+  const [totp,    setTotp]            = useState('');
+  const [submitting, setSubmitting]   = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [submitOk,    setSubmitOk]    = useState(null);
 
-  const withdrawCheck = useMemo(
-    () =>
-      validateWithdrawRequest({
-        asset,
-        amountStr: amount,
-        address,
-        network,
-        memo,
-        available,
-        supportedAssets: SUPPORTED_ASSETS,
-        priceByAsset: priceByAsset || { USDT: 1 },
-      }),
-    [asset, amount, address, network, memo, available, priceByAsset],
-  );
+  // Phase 7a — fetch 2FA status so we know whether to show the TOTP input
+  // (user has enrolled) and whether it's strictly required. Refreshed on
+  // every mount so a user who just turned 2FA off in another tab doesn't
+  // keep seeing the input.
+  const [twofa, setTwofa] = useState({ enabled: false, required_for_withdrawal: false });
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await authFetch(`${API}/api/auth/2fa/status`);
+        if (res.ok) setTwofa(await res.json());
+      } catch { /* silent — worst case the UI just hides the field */ }
+    })();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setNetsLoading(true);
+      setNetsError(null);
+      try {
+        const res = await fetch(`${API}/api/wallet/supported-networks`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : [];
+        setSupported(list);
+        if (list.length > 0) {
+          setAsset(list[0].asset);
+          setNetwork(list[0].network);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setSupported([]);
+          setNetsError(
+            e?.message?.includes('Failed to fetch')
+              ? 'Could not reach the API. Check VITE_BACKEND_URL and CORS.'
+              : 'Could not load supported networks. Try again in a moment.',
+          );
+        }
+      } finally {
+        if (!cancelled) setNetsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const availableAssets = Array.from(new Set(supported.map(r => r.asset)));
+  const networks        = supported.filter(r => r.asset === asset);
+  const hasSupported    = supported.length > 0;
 
   const handleAsset = (a) => {
     setAsset(a);
-    setNetwork(ASSET_NETWORKS[a]?.[0] || '');
-    setAmount('');
+    const firstForAsset = supported.find(r => r.asset === a);
+    setNetwork(firstForAsset ? firstForAsset.network : '');
   };
 
-  const handleSubmit = async e => {
+  // Available balance for the currently selected asset (drives the Max button
+  // + live balance readout). ``walletAssets`` is the canonical source from
+  // AuthContext so trades and other tabs stay in sync.
+  const assetRow = (walletAssets || []).find(w => w.asset === asset) || { available: 0, locked: 0 };
+  const availableBalance = Number(assetRow.available || 0);
+
+  const onSubmit = async (e) => {
     e.preventDefault();
-    if (kycBlocked) {
-      setResult({
-        ok: false,
-        message: kyc?.status === 'pending'
-          ? 'KYC is under review. Withdrawals unlock after an administrator approves your application.'
-          : 'Complete identity verification (KYC) before requesting a withdrawal.',
-      });
+    setSubmitError(null);
+    setSubmitOk(null);
+    if (!asset || !network) {
+      setSubmitError('Please pick an asset and network.');
       return;
     }
-    if (!withdrawCheck.ok) {
-      setResult({ ok: false, message: withdrawCheck.message || 'Please fix the highlighted fields.' });
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setSubmitError('Enter a valid amount.');
       return;
     }
-    setLoading(true);
-    setResult(null);
+    if (!address.trim()) {
+      setSubmitError('Enter a destination address.');
+      return;
+    }
+    if (twofa.enabled && !totp.trim()) {
+      setSubmitError('Enter the code from your authenticator app (or a backup code).');
+      return;
+    }
+    setSubmitting(true);
     try {
-      const res  = await authFetch(`${API}/api/wallet/withdraw`, {
+      const res = await authFetch(`${API}/api/wallet/withdraw`, {
         method: 'POST',
-        body:   JSON.stringify({
-          asset,
-          amount: parseFloat(amount),
-          address: address.trim(),
-          network,
-          memo: (memo && memo.trim()) ? memo.trim() : null,
+        body: JSON.stringify({
+          asset, network, address: address.trim(),
+          amount: amt, note: note.trim() || null,
+          totp: totp.trim() || null,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Request failed');
-      setResult({ ok: true, message: `Withdrawal request submitted (ID: ${data.id}). Funds moved to locked. You will be notified once processed.` });
-      setAmount(''); setAddress(''); setMemo('');
-      await fetchWallet(); // refresh balance to show new locked amount
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.detail || `Withdrawal failed (HTTP ${res.status}).`);
+      }
+      setSubmitOk({
+        id: data?.withdrawal?.id,
+        status: data?.withdrawal?.status,
+        auto: !!data?.withdrawal?.auto_approved,
+      });
+      setAmount('');
+      setAddress('');
+      setNote('');
+      setTotp('');
     } catch (err) {
-      setResult({ ok: false, message: err.message });
+      setSubmitError(err.message || 'Could not submit withdrawal.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
-      {/* Form */}
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
         <h3 className="text-lg font-bold text-white mb-1">Withdraw Funds</h3>
-        <p className="text-white text-sm mb-6">Submit a withdrawal request. Funds will be locked immediately and released after admin approval.</p>
+        <p className="text-white text-sm mb-6">
+          Withdrawals are broadcast on-chain automatically. Large amounts may require admin
+          review before broadcast.
+        </p>
 
         {kycBlocked && (
           <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center gap-2 ${
@@ -639,114 +625,155 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc, priceByAsset 
             <Shield size={16} className="flex-shrink-0" />
             <span>
               {kyc?.status === 'pending'
-                ? 'Your KYC is pending admin review. Withdrawals are available after approval.'
+                ? 'Your KYC is pending review. Withdrawals unlock after approval.'
                 : kyc?.status === 'rejected'
-                  ? 'Your KYC was rejected. Resubmit documents to enable withdrawals.'
-                  : 'Verify your identity (KYC) before withdrawing.'}{' '}
+                  ? 'Your KYC was rejected. Resubmit documents to unlock withdrawals.'
+                  : 'Identity verification (KYC) is required before withdrawing.'}{' '}
               <Link to="/kyc" className="font-bold underline text-gold-light">Go to KYC →</Link>
             </span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <AssetSelect value={asset} onChange={handleAsset} label="Asset" />
-          {withdrawCheck.errors.asset && (
-            <p className="text-xs text-red-400 font-semibold -mt-2">{withdrawCheck.errors.asset}</p>
-          )}
-
-          {/* Available balance hint */}
-          <div className="flex items-center justify-between text-xs text-white bg-surface-card border border-surface-border rounded-lg px-3 py-2">
-            <span className="flex items-center gap-1"><Wallet size={11} /> Available</span>
-            <span className="text-white font-mono font-semibold">{available.toFixed(asset === 'USDT' ? 2 : 6)} {asset}</span>
+        {netsLoading && (
+          <p className="text-xs text-white/45">Loading supported networks…</p>
+        )}
+        {netsError && !netsLoading && (
+          <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+            <span className="font-bold text-amber-200">Could not load networks: </span>{netsError}
           </div>
-
-          {/* Network */}
-          <div>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
-            <select value={network} onChange={e => setNetwork(e.target.value)} required
-              className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors ${
-                withdrawCheck.errors.network ? 'border-red-500/50' : 'border-surface-border'
-              }`}>
-              {networks.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-            {withdrawCheck.errors.network && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.network}</p>
-            )}
+        )}
+        {!netsLoading && !netsError && !hasSupported && (
+          <div className="rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2.5 text-xs text-white/65">
+            No withdrawal networks are currently enabled. Please check back shortly.
           </div>
+        )}
 
-          {/* Amount */}
-          <div>
-            <p className="text-[10px] text-white/60 mb-1.5">Minimum {MIN_WALLET_NOTIONAL_USDT} USDT equivalent; cannot exceed available.</p>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Amount</label>
-            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
-              withdrawCheck.errors.amount ? 'border-red-500/50' : 'border-surface-border'
-            }`}>
-              <input type="number" step="any" min="0" max={available} value={amount} onChange={e => setAmount(e.target.value)} required
-                placeholder="0.00" className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
-              <button type="button" onClick={() => setAmount(String(available))}
-                className="text-[10px] font-bold text-gold-light hover:text-gold bg-gold/10 px-2 py-0.5 rounded mr-2 transition-colors">MAX</button>
-              <span className="text-xs text-white font-semibold">{asset}</span>
+        {hasSupported && (
+          <form onSubmit={onSubmit} className="space-y-4">
+            <AssetSelect value={asset} onChange={handleAsset} label="Asset" assets={availableAssets} />
+
+            <div>
+              <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
+              <select value={network} onChange={e => setNetwork(e.target.value)} required
+                className="w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors border-surface-border">
+                {networks.map(n => (
+                  <option key={`${n.asset}-${n.network}-${n.chain || ''}`} value={n.network}>
+                    {n.label ? n.label : n.network}{n.testnet ? ' · testnet' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
-            {withdrawCheck.errors.amount && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.amount}</p>
-            )}
-          </div>
 
-          {/* Address */}
-          <div>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Destination Wallet Address</label>
-            <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 transition-colors ${
-              withdrawCheck.errors.address ? 'border-red-500/50' : 'border-surface-border'
-            }`}>
-              <input type="text" value={address} onChange={e => setAddress(e.target.value)} required
-                placeholder="0x..." className="flex-1 bg-transparent text-sm text-white outline-none font-mono" />
+            <div>
+              <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Destination address</label>
+              <input
+                type="text"
+                value={address}
+                onChange={e => setAddress(e.target.value)}
+                placeholder="0x… or bc1…"
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white font-mono outline-none focus:border-gold/50 transition-colors"
+              />
             </div>
-            {withdrawCheck.errors.address && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.address}</p>
-            )}
-          </div>
 
-          {/* Memo */}
-          <div>
-            <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Memo / Tag (optional)</label>
-            <input type="text" value={memo} onChange={e => setMemo(e.target.value)}
-              placeholder="For exchanges that require a memo or tag..."
-              className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors ${
-                withdrawCheck.errors.memo ? 'border-red-500/50' : 'border-surface-border'
-              }`} />
-            {withdrawCheck.errors.memo && (
-              <p className="text-xs text-red-400 mt-1 font-semibold">{withdrawCheck.errors.memo}</p>
-            )}
-          </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs text-white uppercase tracking-wider">Amount ({asset})</label>
+                <span className="text-[11px] text-white/60">
+                  Available: <span className="text-white font-mono">{availableBalance.toFixed(6)}</span>
+                  <button type="button"
+                    onClick={() => setAmount(availableBalance > 0 ? String(availableBalance) : '')}
+                    className="ml-2 text-gold-light hover:text-gold font-bold">Max</button>
+                </span>
+              </div>
+              <input
+                type="number"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                step="any"
+                min="0"
+                placeholder="0.00"
+                className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white font-mono outline-none focus:border-gold/50 transition-colors"
+              />
+            </div>
 
-          <AnimatePresence>
-            {result && (
-              <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className={`rounded-xl p-4 text-sm flex items-start gap-2 ${result.ok ? 'bg-green-500/10 border border-green-500/25 text-green-400' : 'bg-red-500/10 border border-red-500/25 text-red-400'}`}>
-                {result.ok ? <CheckCircle size={15} className="flex-shrink-0 mt-0.5" /> : <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />}
-                {result.message}
-              </motion.div>
-            )}
-          </AnimatePresence>
+            <div>
+              <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Note <span className="text-white/40 normal-case">(optional, for your records)</span></label>
+              <input
+                type="text"
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                maxLength={200}
+                placeholder="e.g. personal wallet"
+                className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors"
+              />
+            </div>
 
-          <button type="submit" disabled={loading || kycBlocked || !withdrawCheck.ok}
-            className="w-full flex items-center justify-center gap-2 bg-red-500/80 hover:bg-red-500 text-white font-bold py-3.5 rounded-xl hover:scale-[1.01] active:scale-[.99] transition-all disabled:opacity-50">
-            {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><ArrowUpCircle size={16} /> Submit Withdrawal Request</>}
-          </button>
-        </form>
+            {twofa.enabled && (
+              <div>
+                <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">
+                  2FA code <span className="text-white/40 normal-case">(authenticator or backup code)</span>
+                </label>
+                <input
+                  type="text"
+                  value={totp}
+                  onChange={e => setTotp(e.target.value)}
+                  autoComplete="one-time-code"
+                  inputMode="text"
+                  placeholder="123 456 or backup code"
+                  className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white font-mono tracking-widest outline-none focus:border-gold/50 transition-colors"
+                />
+              </div>
+            )}
+            {!twofa.enabled && twofa.required_for_withdrawal && (
+              <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100 flex items-start gap-2">
+                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                <span>
+                  Two-factor authentication is required for withdrawals. Enable 2FA in your{' '}
+                  <Link to="/profile" className="font-bold underline">Profile → Security</Link> first.
+                </span>
+              </div>
+            )}
+
+            {submitError && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs text-red-100 flex items-start gap-2">
+                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                <span>{submitError}</span>
+              </div>
+            )}
+            {submitOk && (
+              <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-xs text-green-100 flex items-start gap-2">
+                <CheckCircle size={14} className="flex-shrink-0 mt-0.5" />
+                <span>
+                  Withdrawal <span className="font-mono">{submitOk.id}</span> submitted — status{' '}
+                  <span className="font-bold">{submitOk.status}</span>
+                  {submitOk.auto ? ' (auto-approved; broadcasting shortly)' : ' (awaiting admin approval)'}.
+                </span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting || kycBlocked}
+              className="w-full flex items-center justify-center gap-2 bg-gold hover:bg-gold-dark disabled:bg-gold/40 text-black font-bold py-3.5 rounded-xl transition-colors"
+            >
+              {submitting ? (<><RefreshCw size={16} className="animate-spin" /> Submitting…</>)
+                : (<><ArrowUpCircle size={16} /> Submit withdrawal</>)}
+            </button>
+          </form>
+        )}
       </div>
 
-      {/* Info panel */}
       <div className="space-y-5">
         <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
-          <p className="text-white font-bold mb-3 flex items-center gap-2"><Info size={15} className="text-gold-light" /> Withdrawal Process</p>
+          <p className="text-white font-bold mb-3 flex items-center gap-2"><Info size={15} className="text-gold-light" /> How it works</p>
           <ol className="space-y-3 text-sm text-white">
             {[
-              'Submit your withdrawal request with destination address.',
-              'Funds are immediately moved from available → locked.',
-              'An admin reviews and processes the transfer.',
-              'Once sent, your locked balance is deducted and the transfer is complete.',
-              'If rejected, locked funds are returned to your available balance.',
+              'Pick the asset, network and paste your destination address.',
+              'We lock the amount (plus the platform fee) in your balance the moment you submit.',
+              'Small withdrawals auto-broadcast on-chain; larger ones wait for admin approval.',
+              'Once the network confirms the transaction, the lock is released from your balance.',
             ].map((step, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-gold/20 text-gold-light text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
@@ -757,12 +784,12 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc, priceByAsset 
         </div>
 
         <div className="bg-yellow-400/5 border border-yellow-400/20 rounded-2xl p-5">
-          <p className="text-yellow-400 font-semibold text-sm flex items-center gap-1.5 mb-2"><AlertCircle size={14} /> Before You Withdraw</p>
+          <p className="text-yellow-400 font-semibold text-sm flex items-center gap-1.5 mb-2"><AlertCircle size={14} /> Important</p>
           <ul className="text-xs text-white space-y-1.5 list-disc list-inside">
-            <li>Double-check the destination address — transfers are irreversible.</li>
-            <li>Ensure the network matches where you are receiving funds.</li>
-            <li>Processing time: typically 1–24 hours on business days.</li>
-            <li>Minimum withdrawal: 10 USDT equivalent.</li>
+            <li>Double-check the destination address — on-chain sends are irreversible.</li>
+            <li>Withdrawals to the platform&apos;s own deposit addresses are blocked.</li>
+            <li>Network fees come out of the treasury; you are charged the platform fee rate on top of your amount.</li>
+            <li>Track progress and tx hashes in the History tab.</li>
           </ul>
         </div>
       </div>
@@ -773,20 +800,38 @@ function WithdrawTab({ walletAssets, fetchWallet, kycBlocked, kyc, priceByAsset 
 // ── History Tab ───────────────────────────────────────────────────────────────
 
 function HistoryTab() {
-  const [deposits,     setDeposits]     = useState([]);
-  const [withdrawals,  setWithdrawals]  = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [activeFilter, setActiveFilter] = useState('all');
+  // Phase 6 — two sub-tabs. Deposits come from ``/api/wallet/deposit-events``
+  // (blockchain sightings), withdrawals from ``/api/wallet/withdrawals``
+  // (user-initiated on-chain sends). Status badge + confirmation progress
+  // are shared across both, so this stays one component.
+  const [subTab, setSubTab]   = useState('deposits');
+  const [events,  setEvents]  = useState([]);
+  const [wds,     setWds]     = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [dRes, wRes] = await Promise.all([
-        authFetch(`${API}/api/wallet/deposits`),
-        authFetch(`${API}/api/wallet/withdrawals`),
+        authFetch(`${API}/api/wallet/deposit-events?limit=200`),
+        authFetch(`${API}/api/wallet/withdrawals?limit=200`),
       ]);
-      if (dRes.ok) setDeposits(await dRes.json());
-      if (wRes.ok) setWithdrawals(await wRes.json());
+      if (!dRes.ok) {
+        const j = await dRes.json().catch(() => ({}));
+        throw new Error(j?.detail || `Could not load deposits (HTTP ${dRes.status}).`);
+      }
+      if (!wRes.ok) {
+        const j = await wRes.json().catch(() => ({}));
+        throw new Error(j?.detail || `Could not load withdrawals (HTTP ${wRes.status}).`);
+      }
+      const dData = await dRes.json();
+      const wData = await wRes.json();
+      setEvents(Array.isArray(dData.items) ? dData.items : []);
+      setWds(Array.isArray(wData.items) ? wData.items : []);
+    } catch (e) {
+      setError(e.message || 'Could not load history.');
     } finally {
       setLoading(false);
     }
@@ -794,28 +839,31 @@ function HistoryTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const all = [
-    ...deposits.map(d => ({ ...d, kind: 'deposit' })),
-    ...withdrawals.map(w => ({ ...w, kind: 'withdrawal' })),
-  ].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const depositRows = events
+    .slice()
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  const withdrawRows = wds
+    .slice()
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 
-  const filtered = activeFilter === 'all'       ? all
-                 : activeFilter === 'deposits'   ? all.filter(r => r.kind === 'deposit')
-                 : all.filter(r => r.kind === 'withdrawal');
-
-  const fmt = iso => new Date(iso).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+  const fmt = iso => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—');
+  const fmtAmt = (amount, asset) => Number(amount || 0).toFixed(asset === 'USDT' ? 2 : 6);
+  const subTabBtn = (id, label) => (
+    <button key={id}
+      onClick={() => setSubTab(id)}
+      className={`px-4 py-1.5 text-xs font-semibold rounded-lg capitalize transition-colors ${
+        subTab === id ? 'bg-gold/20 text-gold-light' : 'text-white/70 hover:text-white'
+      }`}>
+      {label}
+    </button>
+  );
 
   return (
     <div className="space-y-4">
-      {/* Filter tabs + refresh */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 border border-surface-border rounded-xl p-1 bg-surface-DEFAULT overflow-x-auto scrollbar-hide">
-          {['all', 'deposits', 'withdrawals'].map(f => (
-            <button key={f} onClick={() => setActiveFilter(f)}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-lg capitalize transition-colors ${activeFilter === f ? 'bg-gold/20 text-gold-light' : 'text-white hover:text-white'}`}>
-              {f}
-            </button>
-          ))}
+        <div className="flex gap-1 border border-surface-border rounded-xl p-1 bg-surface-DEFAULT">
+          {subTabBtn('deposits', 'Deposits')}
+          {subTabBtn('withdrawals', 'Withdrawals')}
         </div>
         <button onClick={load} disabled={loading}
           className="flex items-center gap-1.5 text-xs text-white hover:text-white transition-colors disabled:opacity-40">
@@ -823,53 +871,150 @@ function HistoryTab() {
         </button>
       </div>
 
-      <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center py-16 gap-3 text-white">
-            <RefreshCw size={20} className="animate-spin" /> Loading history…
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-white">
-            <Clock size={32} />
-            <p>No {activeFilter === 'all' ? '' : activeFilter} transactions yet</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
-                  {['Date', 'Type', 'Asset', 'Amount', 'Reference', 'Network', 'Status'].map(h => (
-                    <th key={h} className={`px-5 py-3 ${h === 'Date' || h === 'Type' || h === 'Asset' ? 'text-left' : h === 'Status' ? 'text-right' : 'text-left'}`}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(r => (
-                  <tr key={r.id} className="border-b border-surface-border/40 hover:bg-white/[.02] transition-colors">
-                    <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{fmt(r.created_at)}</td>
-                    <td className="px-5 py-3">
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${r.kind === 'deposit' ? 'text-green-400' : 'text-red-400'}`}>
-                        {r.kind === 'deposit' ? <ArrowDownCircle size={12} /> : <ArrowUpCircle size={12} />}
-                        {r.kind === 'deposit' ? 'Deposit' : 'Withdrawal'}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-sm text-white font-bold">{r.asset}</td>
-                    <td className="px-5 py-3 text-sm text-white font-mono">{r.amount.toFixed(r.asset === 'USDT' ? 2 : 6)}</td>
-                    <td className="px-5 py-3 text-xs text-white font-mono">
-                      <span className="flex items-center gap-1">
-                        {(r.tx_hash || r.address || '—').slice(0, 16)}…
-                        {(r.tx_hash || r.address) && <CopyBtn text={r.tx_hash || r.address} />}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{r.network}</td>
-                    <td className="px-5 py-3 text-right"><StatusBadge status={r.status} /></td>
+      {error && !loading && (
+        <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200 flex items-start gap-2">
+          <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+          {error}
+        </div>
+      )}
+
+      {subTab === 'deposits' && (
+        <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl overflow-hidden">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 gap-3 text-white">
+              <RefreshCw size={20} className="animate-spin" /> Loading deposits…
+            </div>
+          ) : depositRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-white">
+              <Clock size={32} />
+              <p>No on-chain deposits detected yet</p>
+              <p className="text-xs text-white/50 max-w-sm text-center">
+                Send funds to your personal deposit address from the Deposit tab — we&apos;ll record
+                and credit them here automatically once the network confirms.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
+                    {['Date', 'Type', 'Asset', 'Amount', 'Tx Hash', 'Network', 'Confirmations', 'Status'].map(h => (
+                      <th key={h} className={`px-5 py-3 ${h === 'Status' ? 'text-right' : 'text-left'}`}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {depositRows.map(r => (
+                    <tr key={`${r.asset}-${r.network}-${r.tx_hash}-${r.address}`} className="border-b border-surface-border/40 hover:bg-white/[.02] transition-colors">
+                      <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{fmt(r.created_at)}</td>
+                      <td className="px-5 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-400">
+                          <ArrowDownCircle size={12} /> Deposit
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-sm text-white font-bold">{r.asset}</td>
+                      <td className="px-5 py-3 text-sm text-white font-mono">{fmtAmt(r.amount, r.asset)}</td>
+                      <td className="px-5 py-3 text-xs text-white font-mono">
+                        <span className="flex items-center gap-1">
+                          {(r.tx_hash || '—').slice(0, 16)}…
+                          {r.tx_hash && <CopyBtn text={r.tx_hash} />}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{r.network}</td>
+                      <td className="px-5 py-3 text-xs text-white whitespace-nowrap font-mono">
+                        {Number.isFinite(Number(r.threshold)) && Number(r.threshold) > 0 ? (
+                          <span className="inline-flex items-center gap-1">
+                            <span className={Number(r.confirmations ?? 0) >= Number(r.threshold) ? 'text-green-400' : 'text-white/80'}>
+                              {Math.min(Number(r.confirmations ?? 0), Number(r.threshold))}
+                            </span>
+                            <span className="text-white/40">/</span>
+                            <span className="text-white/70">{Number(r.threshold)}</span>
+                          </span>
+                        ) : (
+                          Number(r.confirmations ?? 0)
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right"><StatusBadge status={r.status || 'pending'} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {subTab === 'withdrawals' && (
+        <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl overflow-hidden">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 gap-3 text-white">
+              <RefreshCw size={20} className="animate-spin" /> Loading withdrawals…
+            </div>
+          ) : withdrawRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-white">
+              <Clock size={32} />
+              <p>No withdrawals yet</p>
+              <p className="text-xs text-white/50 max-w-sm text-center">
+                Submit a withdrawal from the Withdraw tab — small amounts are broadcast
+                on-chain automatically, larger ones are sent to admin for approval first.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
+                    {['Date', 'Asset', 'Amount', 'Fee', 'Destination', 'Tx Hash', 'Network', 'Confirmations', 'Status'].map(h => (
+                      <th key={h} className={`px-5 py-3 ${h === 'Status' ? 'text-right' : 'text-left'}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {withdrawRows.map(r => (
+                    <tr key={r.id} className="border-b border-surface-border/40 hover:bg-white/[.02] transition-colors">
+                      <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{fmt(r.created_at)}</td>
+                      <td className="px-5 py-3 text-sm text-white font-bold">{r.asset}</td>
+                      <td className="px-5 py-3 text-sm text-white font-mono">{fmtAmt(r.amount, r.asset)}</td>
+                      <td className="px-5 py-3 text-xs text-white/70 font-mono">{fmtAmt(r.fee_amount, r.asset)}</td>
+                      <td className="px-5 py-3 text-xs text-white font-mono">
+                        <span className="flex items-center gap-1">
+                          {(r.address || '—').slice(0, 10)}…{(r.address || '').slice(-6)}
+                          {r.address && <CopyBtn text={r.address} />}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-white font-mono">
+                        {r.tx_hash ? (
+                          <span className="flex items-center gap-1">
+                            {r.tx_hash.slice(0, 16)}…
+                            <CopyBtn text={r.tx_hash} />
+                          </span>
+                        ) : (
+                          <span className="text-white/40">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{r.network}</td>
+                      <td className="px-5 py-3 text-xs text-white whitespace-nowrap font-mono">
+                        {Number.isFinite(Number(r.threshold)) && Number(r.threshold) > 0 ? (
+                          <span className="inline-flex items-center gap-1">
+                            <span className={Number(r.confirmations ?? 0) >= Number(r.threshold) ? 'text-green-400' : 'text-white/80'}>
+                              {Math.min(Number(r.confirmations ?? 0), Number(r.threshold))}
+                            </span>
+                            <span className="text-white/40">/</span>
+                            <span className="text-white/70">{Number(r.threshold)}</span>
+                          </span>
+                        ) : (
+                          <span className="text-white/40">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right"><StatusBadge status={r.status || 'pending_approval'} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1009,8 +1154,8 @@ export default function WalletPage() {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
             {tab === 'balances'  && <BalancesTab walletAssets={walletAssets} walletLoading={walletLoading} fetchWallet={fetchWallet} priceByAsset={priceByAsset} />}
-            {tab === 'deposit'   && <DepositTab fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} priceByAsset={priceByAsset} />}
-            {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} fetchWallet={fetchWallet} kycBlocked={kycBlocked} kyc={kyc} priceByAsset={priceByAsset} />}
+            {tab === 'deposit'   && <DepositTab kycBlocked={kycBlocked} kyc={kyc} />}
+            {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} kycBlocked={kycBlocked} kyc={kyc} />}
             {tab === 'history'   && <HistoryTab />}
           </motion.div>
         </AnimatePresence>

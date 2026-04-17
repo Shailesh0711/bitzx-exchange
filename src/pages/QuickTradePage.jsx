@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { COIN_ICONS, PAIRS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 import {
   validateMarketQuickOrder,
   MIN_BASE_AMOUNT,
@@ -29,7 +30,7 @@ import {
   MARKET_BUY_LOCK_BUFFER,
 } from '@/lib/tradeRules';
 
-const API  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API  = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const FEE  = 0.001;
 const PCTS = [{ label: '25%', v: 25 }, { label: '50%', v: 50 }, { label: '75%', v: 75 }, { label: 'MAX', v: 100 }];
 

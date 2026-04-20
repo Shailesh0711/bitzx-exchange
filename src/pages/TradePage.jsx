@@ -196,15 +196,23 @@ function PositionsTab({ activePair }) {
     </div>
   );
 
-  // Total portfolio P&L
-  let totalInvested = 0, totalValue = 0;
+  // Portfolio summary. ``totalValue`` shows everything (deposited + bought) at
+  // mark — that's the user's actual worth. ``totalInvested`` and ``totalPnl``
+  // intentionally cover ONLY the bought slice (``bought_amount`` × mark vs
+  // ``total_invested``), so deposit-origin coins don't get reported as
+  // 100% profit. ``totalDeposited`` is shown separately so the user can see
+  // the value of holdings we have no acquisition price for.
+  let totalInvested = 0, totalValue = 0, boughtValue = 0, depositValue = 0;
   positions.forEach(p => {
     const cur = prices[p.asset] ?? 0;
     totalInvested += p.total_invested ?? 0;
-    totalValue    += cur * p.amount;
+    totalValue    += cur * (p.amount ?? 0);
+    boughtValue   += cur * (p.bought_amount ?? 0);
+    depositValue  += cur * (p.deposit_amount ?? 0);
   });
-  const totalPnl    = totalValue - totalInvested;
+  const totalPnl    = boughtValue - totalInvested;
   const totalPnlPct = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
+  const hasAnyCostBasis = totalInvested > 1e-10;
 
   return (
     <div style={{ flex: 1 }}>
@@ -225,24 +233,40 @@ function PositionsTab({ activePair }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Cost basis</span>
-          <span style={{ color: '#ffffff', fontSize: 11 }}>Avg. buy cost × size</span>
+          <span style={{ color: '#ffffff', fontSize: 11 }}>Avg. buy cost × bought size</span>
           <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 800, fontSize: 18 }}>
             ${totalInvested.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
             <span style={{ fontSize: 12, fontWeight: 700, color: '#ffffff' }}>USDT</span>
           </span>
         </div>
+        {depositValue > 1e-8 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Deposited</span>
+            <span style={{ color: '#ffffff', fontSize: 11 }}>No cost basis (excluded from P&amp;L)</span>
+            <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 800, fontSize: 18 }}>
+              ${depositValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#ffffff' }}>USDT</span>
+            </span>
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Unrealized P&amp;L</span>
-          <span style={{ color: '#ffffff', fontSize: 11 }}>Not sold yet — vs cost basis</span>
-          <span style={{
-            fontFamily: 'monospace', fontWeight: 900, fontSize: 20,
-            color: totalPnl >= 0 ? '#22c55e' : '#ef4444',
-          }}>
-            {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
-            <span style={{ fontSize: 14, fontWeight: 800, opacity: 0.9 }}>
-              ({totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%)
-            </span>
+          <span style={{ color: '#ffffff', fontSize: 11 }}>
+            {hasAnyCostBasis ? 'Not sold yet — vs cost basis' : 'Buy to enable P&L tracking'}
           </span>
+          {hasAnyCostBasis ? (
+            <span style={{
+              fontFamily: 'monospace', fontWeight: 900, fontSize: 20,
+              color: totalPnl >= 0 ? '#22c55e' : '#ef4444',
+            }}>
+              {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
+              <span style={{ fontSize: 14, fontWeight: 800, opacity: 0.9 }}>
+                ({totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%)
+              </span>
+            </span>
+          ) : (
+            <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: 20, color: '#ffffff' }}>—</span>
+          )}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
           <Link
@@ -273,25 +297,34 @@ function PositionsTab({ activePair }) {
         <Th main="Coin" sub="Spot pair" title="Asset you hold" />
         <Th main="Size" sub="Total balance" align="right" title="Total coins in wallet (incl. locked in orders)" />
         <Th main="Available" sub="Free to sell" align="right" title="Balance not locked in open sell orders" />
-        <Th main="Avg. entry" sub="USDT per coin" align="right" title="Average buy price from your trade history" />
+        <Th main="Avg. buy price" sub="USDT per coin" align="right" title="Average buy price from your trade history. — for deposit-only holdings." />
         <Th main="Mark" sub="Last / index" align="right" title="Current market price in USDT" />
-        <Th main="Value" sub="USDT" align="right" title="Size × mark price" />
+        <Th main="Value" sub="USDT" align="right" title="Size × mark price (everything you hold)" />
         <Th main="Last fill" sub="Buy or sell" align="right" title="Most recent execution on this pair (spot)" />
-        <Th main="Unrealized P&amp;L" sub="USDT &amp; ROI %" align="right" title="Value minus cost basis; profit if you sold at mark" />
-        <Th main="Action" sub="Reduce / close" align="right" />
+        <Th main="Unrealized P&amp;L" sub="On bought slice only" align="right" title="Bought-size × mark − cost basis. Hidden for deposit-only holdings (we have no acquisition price)." />
+        <Th main="Action" sub="Sell available" align="right" />
       </div>
 
       {/* Rows */}
       {positions.map(pos => {
         const currentPrice = prices[pos.asset] ?? 0;
         const currentValue = currentPrice * pos.amount;
-        const pnl          = currentValue - (pos.total_invested ?? 0);
-        const pnlPct       = (pos.total_invested ?? 0) > 0 ? (pnl / pos.total_invested) * 100 : 0;
-        const isUp         = pnl >= 0;
-        const icon         = COIN_ICONS[pos.asset];
+        // P&L is meaningful only on coins we actually bought. Deposit-origin
+        // coins have ``has_cost_basis === false`` (or source === "deposit"),
+        // and the backend already returns ``unrealized_pnl: 0`` for them.
+        // The UI must NOT compute its own P&L from price × amount; that's
+        // exactly the bug we're fixing.
+        const hasCost = Boolean(pos.has_cost_basis ?? ((pos.total_invested ?? 0) > 1e-10));
+        const pnl     = hasCost ? Number(pos.unrealized_pnl ?? 0)     : 0;
+        const pnlPct  = hasCost ? Number(pos.unrealized_pnl_pct ?? 0) : 0;
+        const isUp    = pnl >= 0;
+        const icon    = COIN_ICONS[pos.asset];
         const isActivePair = activePair && pos.symbol === String(activePair).toUpperCase();
+        const source = pos.source || (hasCost ? 'bought' : 'deposit');
 
-        const locked = Number(pos.locked ?? 0);
+        const available = Number(pos.available ?? 0);
+        const locked    = Number(pos.locked ?? 0);
+        const canSell   = available >= 1e-8;
         return (
           <div key={pos.asset}
             style={{
@@ -307,7 +340,35 @@ function PositionsTab({ activePair }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {icon && <img src={icon} alt={pos.asset} style={{ width: 28, height: 28, borderRadius: '50%' }} />}
               <div>
-                <div style={{ color: '#fff', fontWeight: 800, fontSize: 15 }}>{pos.asset}</div>
+                <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {pos.asset}
+                  {source === 'deposit' && (
+                    <span
+                      title="Deposited from another wallet — no on-platform buy price, so P&L can't be calculated."
+                      style={{
+                        fontSize: 9, fontWeight: 800, letterSpacing: '0.06em',
+                        color: '#7dd3fc', background: 'rgba(125,211,252,0.12)',
+                        border: '1px solid rgba(125,211,252,0.35)',
+                        padding: '1px 6px', borderRadius: 999, textTransform: 'uppercase',
+                      }}
+                    >
+                      Deposited
+                    </span>
+                  )}
+                  {source === 'mixed' && (
+                    <span
+                      title="Holdings include both deposits and on-platform buys. P&L only counts the bought slice."
+                      style={{
+                        fontSize: 9, fontWeight: 800, letterSpacing: '0.06em',
+                        color: '#fcd34d', background: 'rgba(252,211,77,0.12)',
+                        border: '1px solid rgba(252,211,77,0.35)',
+                        padding: '1px 6px', borderRadius: 999, textTransform: 'uppercase',
+                      }}
+                    >
+                      Mixed
+                    </span>
+                  )}
+                </div>
                 <div style={{ color: '#ffffff', fontSize: 11, fontWeight: 600 }}>{pos.symbol?.replace('USDT', '/USDT') || `${pos.asset}/USDT`}</div>
               </div>
             </div>
@@ -326,8 +387,11 @@ function PositionsTab({ activePair }) {
               )}
             </span>
 
-            <span style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 600 }}>
-              ${fmtOrdP(pos.avg_cost)}
+            <span
+              style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 600 }}
+              title={hasCost ? undefined : 'No cost basis: this asset was deposited (or its bought slice was already sold).'}
+            >
+              {hasCost ? `$${fmtOrdP(pos.avg_cost)}` : '—'}
             </span>
 
             <span style={{ textAlign: 'right', color: '#fff', fontFamily: 'monospace', fontSize: 13, fontWeight: 800 }}>
@@ -364,42 +428,62 @@ function PositionsTab({ activePair }) {
               )}
             </div>
 
-            <div style={{ textAlign: 'right', fontFamily: 'monospace' }}>
-              <span style={{ fontWeight: 900, fontSize: 14, color: isUp ? '#22c55e' : '#ef4444' }}>
-                {isUp ? '+' : ''}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              </span>
-              <span
-                style={{
-                  display: 'inline-block',
-                  marginLeft: 8,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  padding: '2px 8px',
-                  borderRadius: 6,
-                  background: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                  color: isUp ? '#22c55e' : '#ef4444',
-                }}
-              >
-                {isUp ? '+' : ''}{pnlPct.toFixed(2)}%
-              </span>
+            <div
+              style={{ textAlign: 'right', fontFamily: 'monospace' }}
+              title={hasCost ? undefined : 'P&L is hidden because this holding has no cost basis (deposited).'}
+            >
+              {hasCost ? (
+                <>
+                  <span style={{ fontWeight: 900, fontSize: 14, color: isUp ? '#22c55e' : '#ef4444' }}>
+                    {isUp ? '+' : ''}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </span>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      marginLeft: 8,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      background: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                      color: isUp ? '#22c55e' : '#ef4444',
+                    }}
+                  >
+                    {isUp ? '+' : ''}{pnlPct.toFixed(2)}%
+                  </span>
+                </>
+              ) : (
+                <span style={{ color: '#ffffff', fontWeight: 700, fontSize: 14 }}>—</span>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 type="button"
+                disabled={!canSell}
                 onClick={() => setCloseTarget({
                   ...pos,
                   symbol: String(pos.symbol || '').replace(/\//g, '').toUpperCase(),
                   current_price: pos.current_price ?? currentPrice,
                 })}
+                title={
+                  canSell
+                    ? `Sell ${pos.asset} at market or set a limit`
+                    : (locked > 1e-8
+                        ? `All ${pos.asset} is locked in open sell orders. Cancel them first to sell.`
+                        : `No ${pos.asset} available to sell.`)
+                }
                 style={{
                   padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800,
-                  color: '#EBD38D', background: 'rgba(235,211,141,0.12)',
-                  border: '1px solid rgba(235,211,141,0.35)', cursor: 'pointer',
+                  color: canSell ? '#EBD38D' : '#ffffff',
+                  background: canSell ? 'rgba(235,211,141,0.12)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${canSell ? 'rgba(235,211,141,0.35)' : 'rgba(255,255,255,0.10)'}`,
+                  cursor: canSell ? 'pointer' : 'not-allowed',
+                  opacity: canSell ? 1 : 0.5,
                 }}
-                className="hover:bg-gold/20 transition-colors"
+                className={canSell ? 'hover:bg-gold/20 transition-colors' : ''}
               >
-                Close
+                Sell
               </button>
             </div>
           </div>
@@ -566,7 +650,7 @@ function BottomPanel({ symbol }) {
       {tab === 'positions' && (
         <TabHint>
           <strong style={{ color: '#ffffff' }}>Spot assets</strong> — coins you already own (wallet + locked in sells). This is <strong style={{ color: '#ffffff' }}>not</strong> where limit orders wait: use <strong style={{ color: '#EBD38D' }}>Working orders</strong> for anything still on the book before it executes.
-          <strong style={{ color: '#ffffff' }}> Unrealized P&amp;L</strong> is vs your average buy cost at the mark price.
+          <strong style={{ color: '#ffffff' }}> Unrealized P&amp;L</strong> is vs your average buy cost at the mark price — coins you <strong style={{ color: '#7dd3fc' }}>deposited</strong> have no cost basis, so P&amp;L is shown as <strong style={{ color: '#ffffff' }}>—</strong>.
         </TabHint>
       )}
       {tab === 'orders' && (

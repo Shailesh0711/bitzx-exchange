@@ -57,12 +57,12 @@ export default function ClosePositionModal({ position, onDismiss, onSuccess }) {
     }
     if (sizeMode === 'full') {
       if (available < MIN_BASE_AMOUNT) {
-        throw new Error(`Nothing to close: need at least ${MIN_BASE_AMOUNT} available (excluding locked).`);
+        throw new Error(`Nothing to sell: need at least ${MIN_BASE_AMOUNT} available (excluding coins locked in open orders).`);
       }
       const refPx = ot === 'limit' ? parseFloat(limitPrice) : markPx;
       if (Number.isFinite(refPx) && refPx > 0 && available * refPx < MIN_CLOSE_ORDER_VALUE_USDT) {
         throw new Error(
-          `Close size is below minimum order value ($${MIN_CLOSE_ORDER_VALUE_USDT.toFixed(2)} USDT).`,
+          `Sell size is below minimum order value ($${MIN_CLOSE_ORDER_VALUE_USDT.toFixed(2)} USDT).`,
         );
       }
       return body;
@@ -143,7 +143,7 @@ export default function ClosePositionModal({ position, onDismiss, onSuccess }) {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/[.06]">
           <h2 id="close-pos-title" className="text-lg font-extrabold text-white">
-            Close {position.asset}
+            Sell {position.asset}
           </h2>
           <button
             type="button"
@@ -157,7 +157,7 @@ export default function ClosePositionModal({ position, onDismiss, onSuccess }) {
 
         <div className="px-5 py-4 space-y-4 text-sm">
           <div className="flex justify-between gap-4 text-white">
-            <span>Position size</span>
+            <span>Total balance</span>
             <span className="font-mono font-bold text-white">
               {totalAmt.toLocaleString(undefined, { maximumFractionDigits: 8 })} {position.asset}
             </span>
@@ -283,8 +283,9 @@ export default function ClosePositionModal({ position, onDismiss, onSuccess }) {
           <button
             type="button"
             onClick={submit}
-            disabled={submitting || available <= 0}
+            disabled={submitting || available < 1e-8}
             className="flex-1 py-3 rounded-xl font-extrabold text-surface-dark bg-gradient-to-r from-gold to-gold-light hover:opacity-95 disabled:opacity-40 transition-opacity"
+            title={available < 1e-8 ? `No ${position.asset} available to sell — cancel open sell orders to free up locked balance.` : undefined}
           >
             {submitting ? 'Submitting…' : orderType === 'market' ? 'Sell now' : 'Place limit sell'}
           </button>

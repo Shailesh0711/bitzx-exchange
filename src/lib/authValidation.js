@@ -30,7 +30,7 @@ export function formatApiDetail(detail) {
 /** FastAPI / Pydantic 422 `loc` segments we map to form fields. */
 const FASTAPI_BODY_FIELD = new Set([
   'email', 'password', 'name', 'code',
-  'current_password', 'new_password',
+  'current_password', 'new_password', 'token',
 ]);
 
 /** Map API / alternate keys → register form keys */

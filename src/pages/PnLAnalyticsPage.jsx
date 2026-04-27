@@ -436,6 +436,7 @@ export default function PnLAnalyticsPage() {
                       <th className="px-4 py-3">Time</th>
                       <th className="px-4 py-3">Pair</th>
                       <th className="px-4 py-3">Side</th>
+                      <th className="px-4 py-3">Source</th>
                       <th className="px-4 py-3 text-right">Price</th>
                       <th className="px-4 py-3 text-right">Amount</th>
                       <th className="px-4 py-3 text-right">Notional</th>
@@ -466,6 +467,11 @@ export default function PnLAnalyticsPage() {
                               }`}
                             >
                               {t.side}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs font-extrabold uppercase px-2 py-1 rounded-md bg-blue-500/15 text-blue-300">
+                              {String(t.liquidity_source || 'USER')}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right font-mono">${Number(t.price).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>

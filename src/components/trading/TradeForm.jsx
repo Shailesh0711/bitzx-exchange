@@ -62,6 +62,8 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   totalUsdtRef.current = totalUsdt;
   const [placing, setPlacing] = useState(false);
   const [result,  setResult]  = useState(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState({});
 
   useEffect(() => {
     setAmount('');
@@ -189,6 +191,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
 
   const handleSubmit = async e => {
     e.preventDefault();
+    setSubmitAttempted(true);
     if (!user) {
       if (!spotCheck.ok && spotCheck.message) {
         setResult({ ok: false, error: spotCheck.message });
@@ -230,6 +233,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
       setPlacing(false);
     }
   };
+
+  const markTouched = (key) => setTouched((t) => ({ ...t, [key]: true }));
+  const shouldShowError = (key) => Boolean(spotCheck.errors[key] && (submitAttempted || touched[key]));
 
   return (
     <div className="flex flex-col h-full bg-surface-DEFAULT">
@@ -301,19 +307,20 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 USDT you pay per 1 {base} (quote per base).
               </p>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
-                spotCheck.errors.price ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
+                shouldShowError('price') ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
               }`}>
                 <input
                   type="number" step="any" min="0"
                   value={price}
                   onChange={e => setPrice(e.target.value)}
+                  onBlur={() => markTouched('price')}
                   placeholder={markPx != null ? String(markPx) : '0'}
                   className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
                   aria-label="Limit price in USDT"
                 />
                 <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
               </div>
-              {spotCheck.errors.price && (
+              {shouldShowError('price') && (
                 <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.price}</p>
               )}
             </div>
@@ -331,7 +338,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                   {markPx != null && markPx > 0 ? `$${fmtLiveUsdt(markPx)}` : '—'}
                 </span>
               </div>
-              {spotCheck.errors.price && (
+              {shouldShowError('price') && (
                 <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.price}</p>
               )}
             </div>
@@ -350,7 +357,8 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
               )}
             </p>
             <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
-              spotCheck.errors.amount || spotCheck.errors.balance
+              (spotCheck.errors.amount || spotCheck.errors.balance)
+              && (submitAttempted || touched.amount || touched.balance)
                 ? 'border-red-500/50'
                 : 'border-surface-border focus-within:border-gold/60'
             }`}>
@@ -358,18 +366,19 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 type="number" step="any" min="0"
                 value={amount}
                 onChange={onAmountInputChange}
+                onBlur={() => { markTouched('amount'); markTouched('balance'); }}
                 placeholder="0.0000"
                 className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
               />
               <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{base}</span>
             </div>
-            {spotCheck.errors.amount && (
+            {shouldShowError('amount') && (
               <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.amount}</p>
             )}
-            {spotCheck.errors.balance && (
+            {shouldShowError('balance') && (
               <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.balance}</p>
             )}
-            {spotCheck.errors.symbol && (
+            {shouldShowError('symbol') && (
               <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.symbol}</p>
             )}
           </div>
@@ -384,7 +393,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 {' '}(updates live with limit price and {base} size). Edit total to size by quote; edit {base} to size by base.
               </p>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
-                spotCheck.errors.total ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
+                shouldShowError('total') ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
               }`}>
                 <input
                   type="number"
@@ -392,13 +401,14 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                   min="0"
                   value={totalUsdt}
                   onChange={onTotalUsdtInputChange}
+                  onBlur={() => markTouched('total')}
                   placeholder="0.00"
                   className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
                   aria-label="Limit order total in USDT"
                 />
                 <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
               </div>
-              {spotCheck.errors.total && (
+              {shouldShowError('total') && (
                 <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.total}</p>
               )}
             </div>
@@ -563,7 +573,6 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
             disabled={
               placing
               || (user && kyc?.status !== 'approved')
-              || !spotCheck.ok
             }
             className={`w-full py-4 rounded-xl font-extrabold text-base tracking-wider
               transition-all disabled:opacity-40 active:scale-[.98] ${

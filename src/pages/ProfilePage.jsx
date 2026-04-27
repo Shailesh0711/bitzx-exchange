@@ -79,6 +79,13 @@ function ProfileTab({ user, updateUser }) {
   const [toast, setToast] = useState(null);
   const [preview, setPreview] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState({
+    name: false,
+    phone: false,
+    country: false,
+    bio: false,
+  });
 
   useEffect(() => {
     if (!user) return;
@@ -99,11 +106,18 @@ function ProfileTab({ user, updateUser }) {
   }, [preview]);
 
   const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 4500); };
+  const showFieldError = field => Boolean(fieldErrors[field]) && (submitAttempted || touched[field]);
+  const markTouched = field => setTouched(prev => ({ ...prev, [field]: true }));
+  const validateSingleField = (field, nextForm = form) => {
+    const errs = validateProfileForm(nextForm);
+    return errs[field] || '';
+  };
 
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || '??';
   const avatarSrc = preview || resolveAvatarUrl(user);
 
   const handleSave = async () => {
+    setSubmitAttempted(true);
     const name = form.name.trim();
     const phone = form.phone.trim();
     const country = form.country.trim();
@@ -269,15 +283,19 @@ function ProfileTab({ user, updateUser }) {
 
         <div className="lg:col-span-8 space-y-6 min-w-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <FieldGroup label="Display Name" required error={fieldErrors.name} hint="Your name as shown on the exchange">
+        <FieldGroup label="Display Name" required error={showFieldError('name') ? fieldErrors.name : ''} hint="Your name as shown on the exchange">
           <div className={`flex items-center bg-surface-card border
             rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-              fieldErrors.name ? 'border-red-500/50' : 'border-surface-border'
+              showFieldError('name') ? 'border-red-500/50' : 'border-surface-border'
             }`}>
             <User size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
             <input
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              onBlur={() => {
+                markTouched('name');
+                setFieldErrors(prev => ({ ...prev, name: validateSingleField('name') }));
+              }}
               placeholder="Your display name"
               required
               className="flex-1 min-w-0 bg-transparent text-base text-white outline-none placeholder:text-white/45"
@@ -285,15 +303,19 @@ function ProfileTab({ user, updateUser }) {
           </div>
         </FieldGroup>
 
-        <FieldGroup label="Phone" required error={fieldErrors.phone} hint="Include country code (e.g. +1 …)">
+        <FieldGroup label="Phone" required error={showFieldError('phone') ? fieldErrors.phone : ''} hint="Include country code (e.g. +1 …)">
           <div className={`flex items-center bg-surface-card border
             rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-              fieldErrors.phone ? 'border-red-500/50' : 'border-surface-border'
+              showFieldError('phone') ? 'border-red-500/50' : 'border-surface-border'
             }`}>
             <Phone size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
             <input
               value={form.phone}
               onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+              onBlur={() => {
+                markTouched('phone');
+                setFieldErrors(prev => ({ ...prev, phone: validateSingleField('phone') }));
+              }}
               placeholder="+1 555 000 0000"
               required
               inputMode="tel"
@@ -303,15 +325,19 @@ function ProfileTab({ user, updateUser }) {
           </div>
         </FieldGroup>
 
-        <FieldGroup label="Country / Region" required error={fieldErrors.country}>
+        <FieldGroup label="Country / Region" required error={showFieldError('country') ? fieldErrors.country : ''}>
           <div className={`flex items-center bg-surface-card border
             rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-              fieldErrors.country ? 'border-red-500/50' : 'border-surface-border'
+              showFieldError('country') ? 'border-red-500/50' : 'border-surface-border'
             }`}>
             <Globe size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
             <input
               value={form.country}
               onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
+              onBlur={() => {
+                markTouched('country');
+                setFieldErrors(prev => ({ ...prev, country: validateSingleField('country') }));
+              }}
               placeholder="United States"
               required
               autoComplete="country-name"
@@ -332,15 +358,19 @@ function ProfileTab({ user, updateUser }) {
         </FieldGroup>
           </div>
 
-          <FieldGroup label="Bio" error={fieldErrors.bio} hint="Optional — a short line about you (max 500 characters)">
+          <FieldGroup label="Bio" error={showFieldError('bio') ? fieldErrors.bio : ''} hint="Optional — a short line about you (max 500 characters)">
             <div className={`flex items-start bg-surface-card border
               rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                fieldErrors.bio ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError('bio') ? 'border-red-500/50' : 'border-surface-border'
               }`}>
               <FileText size={17} className="text-white mr-3 mt-0.5 group-focus-within:text-gold transition-colors flex-shrink-0" />
               <textarea
                 value={form.bio}
                 onChange={e => setForm(f => ({ ...f, bio: e.target.value }))}
+                onBlur={() => {
+                  markTouched('bio');
+                  setFieldErrors(prev => ({ ...prev, bio: validateSingleField('bio') }));
+                }}
                 placeholder="Tell others a bit about your trading style…"
                 rows={4}
                 maxLength={500}
@@ -409,6 +439,12 @@ function SecurityTab() {
   const [saving, setSaving] = useState(false);
   const [toast,  setToast]  = useState(null);
   const [fieldErrors, setFieldErrors] = useState(emptyPwFieldErrors);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState({
+    current_password: false,
+    new_password: false,
+    confirm: false,
+  });
 
   const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 5000); };
   const onPwdChange = k => e => {
@@ -416,8 +452,10 @@ function SecurityTab() {
     setFieldErrors(f => ({ ...f, [k]: '' }));
   };
   const togglePw  = k => setShowPw(p => ({ ...p, [k]: !p[k] }));
+  const showFieldError = key => Boolean(fieldErrors[key]) && (submitAttempted || touched[key]);
 
   const handleChange = async () => {
+    setSubmitAttempted(true);
     const fe = validatePasswordChangeFields(form);
     if (Object.keys(fe).length) {
       setFieldErrors({
@@ -466,6 +504,7 @@ function SecurityTab() {
     {
       key: 'current_password', label: 'Current Password', placeholder: 'Enter your current password', showKey: 'cur',
       onBlur: () => {
+        setTouched(t => ({ ...t, current_password: true }));
         const cur = (form.current_password || '').trim();
         setFieldErrors(f => ({ ...f, current_password: cur ? '' : 'Enter your current password.' }));
       },
@@ -473,6 +512,7 @@ function SecurityTab() {
     {
       key: 'new_password', label: 'New Password', placeholder: '8+ chars, upper, lower, #, symbol', showKey: 'nw',
       onBlur: () => {
+        setTouched(t => ({ ...t, new_password: true }));
         const nw = form.new_password || '';
         const cur = (form.current_password || '').trim();
         let msg = validateStrongPassword(nw) || '';
@@ -485,6 +525,7 @@ function SecurityTab() {
     {
       key: 'confirm', label: 'Confirm New Password', placeholder: 'Re-enter new password', showKey: 'cnf',
       onBlur: () => {
+        setTouched(t => ({ ...t, confirm: true }));
         const nw = form.new_password || '';
         const cf = form.confirm || '';
         let msg = '';
@@ -499,9 +540,9 @@ function SecurityTab() {
     <div className="space-y-8">
       <div className="space-y-5">
         {pwFields.map(({ key, label, placeholder, showKey, onBlur }) => (
-          <FieldGroup key={key} label={label} error={fieldErrors[key]}>
+          <FieldGroup key={key} label={label} error={showFieldError(key) ? fieldErrors[key] : ''}>
             <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-              fieldErrors[key] ? 'border-red-500/50' : 'border-surface-border'
+              showFieldError(key) ? 'border-red-500/50' : 'border-surface-border'
             }`}>
               <Lock size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
               <input
@@ -526,7 +567,7 @@ function SecurityTab() {
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
 
       <button onClick={handleChange}
-        disabled={saving || !form.current_password || !form.new_password || !form.confirm}
+        disabled={saving}
         className="flex items-center gap-2.5 px-8 py-4 bg-gold/90 hover:bg-gold
           text-surface-dark font-bold rounded-xl text-base transition-all disabled:opacity-40">
         {saving

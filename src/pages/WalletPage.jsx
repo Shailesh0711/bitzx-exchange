@@ -4,7 +4,7 @@ import QrImagePreview from '@/components/ui/QrImagePreview';
 import {
   Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
   CheckCircle, XCircle, AlertCircle, ChevronDown, Copy, Check,
-  ExternalLink, Info, Shield,
+  ExternalLink, Info, Shield, ScrollText,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -493,6 +493,9 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
   const [submitting, setSubmitting]   = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitOk,    setSubmitOk]    = useState(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState({ address: false, amount: false, totp: false });
+  const [fieldErrors, setFieldErrors] = useState({ address: '', amount: '', totp: '' });
 
   // Phase 7a — fetch 2FA status so we know whether to show the TOTP input
   // (user has enrolled) and whether it's strictly required. Refreshed on
@@ -558,23 +561,20 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    setSubmitAttempted(true);
     setSubmitError(null);
     setSubmitOk(null);
+    const nextErrors = { address: '', amount: '', totp: '' };
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) nextErrors.amount = 'Enter a valid amount.';
+    if (!address.trim()) nextErrors.address = 'Enter a destination address.';
+    if (twofa.enabled && !totp.trim()) nextErrors.totp = 'Enter the code from your authenticator app (or a backup code).';
+    setFieldErrors(nextErrors);
     if (!asset || !network) {
       setSubmitError('Please pick an asset and network.');
       return;
     }
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setSubmitError('Enter a valid amount.');
-      return;
-    }
-    if (!address.trim()) {
-      setSubmitError('Enter a destination address.');
-      return;
-    }
-    if (twofa.enabled && !totp.trim()) {
-      setSubmitError('Enter the code from your authenticator app (or a backup code).');
+    if (nextErrors.amount || nextErrors.address || nextErrors.totp) {
       return;
     }
     setSubmitting(true);
@@ -669,12 +669,24 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
               <input
                 type="text"
                 value={address}
-                onChange={e => setAddress(e.target.value)}
+                onChange={e => {
+                  setAddress(e.target.value);
+                  setFieldErrors(prev => ({ ...prev, address: '' }));
+                }}
+                onBlur={() => {
+                  setTouched(prev => ({ ...prev, address: true }));
+                  setFieldErrors(prev => ({ ...prev, address: address.trim() ? '' : 'Enter a destination address.' }));
+                }}
                 placeholder="0x… or bc1…"
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white font-mono outline-none focus:border-gold/50 transition-colors"
+                className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white font-mono outline-none focus:border-gold/50 transition-colors ${
+                  (submitAttempted || touched.address) && fieldErrors.address ? 'border-red-500/50' : 'border-surface-border'
+                }`}
               />
+              {(submitAttempted || touched.address) && fieldErrors.address && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium">{fieldErrors.address}</p>
+              )}
             </div>
 
             <div>
@@ -690,12 +702,25 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
               <input
                 type="number"
                 value={amount}
-                onChange={e => setAmount(e.target.value)}
+                onChange={e => {
+                  setAmount(e.target.value);
+                  setFieldErrors(prev => ({ ...prev, amount: '' }));
+                }}
+                onBlur={() => {
+                  setTouched(prev => ({ ...prev, amount: true }));
+                  const amt = Number(amount);
+                  setFieldErrors(prev => ({ ...prev, amount: Number.isFinite(amt) && amt > 0 ? '' : 'Enter a valid amount.' }));
+                }}
                 step="any"
                 min="0"
                 placeholder="0.00"
-                className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white font-mono outline-none focus:border-gold/50 transition-colors"
+                className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white font-mono outline-none focus:border-gold/50 transition-colors ${
+                  (submitAttempted || touched.amount) && fieldErrors.amount ? 'border-red-500/50' : 'border-surface-border'
+                }`}
               />
+              {(submitAttempted || touched.amount) && fieldErrors.amount && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium">{fieldErrors.amount}</p>
+              )}
             </div>
 
             <div>
@@ -718,12 +743,29 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
                 <input
                   type="text"
                   value={totp}
-                  onChange={e => setTotp(e.target.value)}
+                  onChange={e => {
+                    setTotp(e.target.value);
+                    setFieldErrors(prev => ({ ...prev, totp: '' }));
+                  }}
+                  onBlur={() => {
+                    setTouched(prev => ({ ...prev, totp: true }));
+                    setFieldErrors(prev => ({
+                      ...prev,
+                      totp: twofa.enabled && !totp.trim()
+                        ? 'Enter the code from your authenticator app (or a backup code).'
+                        : '',
+                    }));
+                  }}
                   autoComplete="one-time-code"
                   inputMode="text"
                   placeholder="123 456 or backup code"
-                  className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white font-mono tracking-widest outline-none focus:border-gold/50 transition-colors"
+                  className={`w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white font-mono tracking-widest outline-none focus:border-gold/50 transition-colors ${
+                    (submitAttempted || touched.totp) && fieldErrors.totp ? 'border-red-500/50' : 'border-surface-border'
+                  }`}
                 />
+                {(submitAttempted || touched.totp) && fieldErrors.totp && (
+                  <p className="text-xs text-red-400 mt-1.5 font-medium">{fieldErrors.totp}</p>
+                )}
               </div>
             )}
             {!twofa.enabled && twofa.required_for_withdrawal && (
@@ -1019,6 +1061,236 @@ function HistoryTab() {
   );
 }
 
+const LEDGER_TYPES = [
+  '', 'deposit', 'withdraw', 'trade', 'fee', 'adjustment',
+  'lock', 'unlock', 'seed', 'opening_balance',
+];
+
+// ── Ledger tab (Phase 2 — ``GET /api/wallet/transactions`` / wallet_txns) ────
+
+function LedgerTab() {
+  const { fetchWalletTransactions } = useAuth();
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [skip, setSkip] = useState(0);
+  const [limit] = useState(40);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [asset, setAsset] = useState('');
+  const [type, setType] = useState('');
+  const [refId, setRefId] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const params = { skip, limit };
+      if (asset.trim()) params.asset = asset.trim();
+      if (type) params.type = type;
+      if (refId.trim()) params.ref_id = refId.trim();
+      if (dateFrom) params.date_from = `${dateFrom}T00:00:00`;
+      if (dateTo) params.date_to = `${dateTo}T23:59:59`;
+      const data = await fetchWalletTransactions(params);
+      setItems(Array.isArray(data.items) ? data.items : []);
+      setTotal(Number(data.total) || 0);
+    } catch (e) {
+      setErr(e.message || 'Could not load ledger.');
+      setItems([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchWalletTransactions, skip, limit, asset, type, refId, dateFrom, dateTo]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.floor(skip / limit) + 1;
+
+  const fmtBal = (b) => {
+    if (!b || typeof b !== 'object') return '—';
+    const a = Number(b.available);
+    const l = Number(b.locked);
+    if (!Number.isFinite(a) && !Number.isFinite(l)) return '—';
+    return `${Number.isFinite(a) ? a.toFixed(6) : '0'} / ${Number.isFinite(l) ? l.toFixed(6) : '0'}`;
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+          <div>
+            <p className="text-white font-bold text-lg flex items-center gap-2">
+              <ScrollText size={18} className="text-gold-light shrink-0" /> Activity ledger
+            </p>
+            <p className="text-sm text-white/55 mt-1 max-w-2xl">
+              Every balance movement on your account (trades, fees, deposits, withdrawals, locks, and adjustments). Newest first.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setSkip(0); load(); }}
+            disabled={loading}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-surface-border text-sm font-bold text-white hover:border-gold/40 disabled:opacity-40 self-start"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-[11px] font-bold text-white/45 uppercase tracking-wider mb-1.5">Asset</label>
+            <select
+              value={asset}
+              onChange={(e) => { setSkip(0); setAsset(e.target.value); }}
+              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white focus:border-gold/50 outline-none"
+            >
+              <option value="">All assets</option>
+              {SUPPORTED_ASSETS.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-white/45 uppercase tracking-wider mb-1.5">Type</label>
+            <select
+              value={type}
+              onChange={(e) => { setSkip(0); setType(e.target.value); }}
+              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white focus:border-gold/50 outline-none"
+            >
+              {LEDGER_TYPES.map((t) => (
+                <option key={t || 'all'} value={t}>{t ? t.replace(/_/g, ' ') : 'All types'}</option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-[11px] font-bold text-white/45 uppercase tracking-wider mb-1.5">Reference ID</label>
+            <input
+              value={refId}
+              onChange={(e) => { setSkip(0); setRefId(e.target.value); }}
+              placeholder="Order id, withdrawal id, …"
+              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-white/35 focus:border-gold/50 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-white/45 uppercase tracking-wider mb-1.5">From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setSkip(0); setDateFrom(e.target.value); }}
+              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white focus:border-gold/50 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-white/45 uppercase tracking-wider mb-1.5">To</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setSkip(0); setDateTo(e.target.value); }}
+              className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white focus:border-gold/50 outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
+      {err && (
+        <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200 flex items-start gap-2">
+          <AlertCircle size={16} className="shrink-0 mt-0.5" /> {err}
+        </div>
+      )}
+
+      <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 gap-3 text-white">
+            <RefreshCw size={22} className="animate-spin" /> Loading ledger…
+          </div>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2 text-white px-4 text-center">
+            <ScrollText size={32} className="text-white/30" />
+            <p className="font-semibold">No ledger entries match</p>
+            <p className="text-xs text-white/45 max-w-md">Try widening filters or trade / move funds to generate ledger rows.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[880px]">
+              <thead>
+                <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
+                  <th className="px-5 py-3 text-left">Time</th>
+                  <th className="px-5 py-3 text-left">Asset</th>
+                  <th className="px-5 py-3 text-left">Type</th>
+                  <th className="px-5 py-3 text-left">Dir</th>
+                  <th className="px-5 py-3 text-right">Amount</th>
+                  <th className="px-5 py-3 text-right">Avail / locked after</th>
+                  <th className="px-5 py-3 text-left">Reference</th>
+                  <th className="px-5 py-3 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((row) => {
+                  const dir = String(row.direction || '').toLowerCase();
+                  const positive = dir === 'credit' || dir === 'unlock';
+                  return (
+                    <tr key={row.id} className="border-b border-surface-border/40 hover:bg-white/[.02]">
+                      <td className="px-5 py-3 text-xs text-white/70 whitespace-nowrap">
+                        {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-sm text-white font-bold">{row.asset}</td>
+                      <td className="px-5 py-3 text-xs font-mono text-white/80">{row.type}</td>
+                      <td className="px-5 py-3">
+                        <span className={`text-xs font-bold uppercase ${positive ? 'text-green-400' : 'text-amber-200'}`}>
+                          {row.direction}
+                        </span>
+                      </td>
+                      <td className={`px-5 py-3 text-right text-sm font-mono font-semibold ${positive ? 'text-green-400' : 'text-red-300'}`}>
+                        {positive ? '+' : '−'}{Number(row.amount || 0).toFixed(row.asset === 'USDT' ? 4 : 6)}
+                      </td>
+                      <td className="px-5 py-3 text-right text-xs font-mono text-white/65 whitespace-nowrap" title="available / locked">
+                        {fmtBal(row.balance_after)}
+                      </td>
+                      <td className="px-5 py-3 text-xs font-mono text-white/55 max-w-[220px] truncate" title={`${row.ref_type || ''} ${row.ref_id || ''}`.trim()}>
+                        {[row.ref_type, row.ref_id].filter(Boolean).join(' · ') || '—'}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-white/60">{row.status || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {total > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-white/55">
+          <span>{total} entries · page {page} / {pages}</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={skip <= 0 || loading}
+              onClick={() => setSkip((s) => Math.max(0, s - limit))}
+              className="px-4 py-2 rounded-xl border border-surface-border font-bold text-white disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={skip + limit >= total || loading}
+              onClick={() => setSkip((s) => s + limit)}
+              className="px-4 py-2 rounded-xl border border-surface-border font-bold text-white disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main WalletPage ───────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1026,6 +1298,7 @@ const TABS = [
   { id: 'deposit',     label: 'Deposit',     icon: ArrowDownCircle },
   { id: 'withdraw',    label: 'Withdraw',    icon: ArrowUpCircle },
   { id: 'history',     label: 'History',     icon: Clock },
+  { id: 'ledger',      label: 'Ledger',      icon: ScrollText },
 ];
 
 function tabFromSearchParams(params) {
@@ -1157,6 +1430,7 @@ export default function WalletPage() {
             {tab === 'deposit'   && <DepositTab kycBlocked={kycBlocked} kyc={kyc} />}
             {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} kycBlocked={kycBlocked} kyc={kyc} />}
             {tab === 'history'   && <HistoryTab />}
+            {tab === 'ledger'    && <LedgerTab />}
           </motion.div>
         </AnimatePresence>
       </div>

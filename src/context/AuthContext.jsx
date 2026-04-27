@@ -182,6 +182,7 @@ export function AuthProvider({ children }) {
   const [impersonatorAdminId, setImpersonatorAdminId] = useState(null);
   const [userFeaturesPaused, setUserFeaturesPaused] = useState(false);
   const [userTradingPaused, setUserTradingPaused] = useState(false);
+  const [userWithdrawalsPaused, setUserWithdrawalsPaused] = useState(false);
   const [userPauseNote, setUserPauseNote] = useState(null);
 
   const refreshSession = useCallback(async () => {
@@ -191,6 +192,7 @@ export function AuthProvider({ children }) {
       setImpersonatorAdminId(null);
       setUserFeaturesPaused(false);
       setUserTradingPaused(false);
+      setUserWithdrawalsPaused(false);
       setUserPauseNote(null);
       return;
     }
@@ -202,6 +204,7 @@ export function AuthProvider({ children }) {
       setImpersonatorAdminId(s.impersonator_admin_id ?? null);
       setUserFeaturesPaused(!!s.user_features_paused);
       setUserTradingPaused(!!s.user_trading_paused);
+      setUserWithdrawalsPaused(!!s.user_withdrawals_paused);
       setUserPauseNote(s.user_pause_note ?? null);
     } catch {
       /* ignore */
@@ -456,6 +459,7 @@ export function AuthProvider({ children }) {
     setImpersonatorAdminId(null);
     setUserFeaturesPaused(false);
     setUserTradingPaused(false);
+    setUserWithdrawalsPaused(false);
     setUserPauseNote(null);
   }, []);
 
@@ -497,7 +501,7 @@ export function AuthProvider({ children }) {
       // Auth
       login, register, logout, revokeAllSessions,
       impersonationActive, impersonatorAdminId, refreshSession,
-      userFeaturesPaused, userTradingPaused, userPauseNote,
+      userFeaturesPaused, userTradingPaused, userWithdrawalsPaused, userPauseNote,
     }}>
       {children}
     </AuthContext.Provider>

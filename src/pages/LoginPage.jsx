@@ -60,14 +60,18 @@ export default function LoginPage() {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [fieldErrors, setFieldErrors] = useState({ email: '', password: '' });
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState({ email: false, password: false });
 
   const clearApiState = () => {
     setError('');
     setFieldErrors({ email: '', password: '' });
   };
+  const showFieldError = field => Boolean(fieldErrors[field]) && (submitAttempted || touched[field]);
 
   const handleSubmit = async e => {
     e.preventDefault();
+    setSubmitAttempted(true);
     clearApiState();
     const emErr = validateAuthEmail(email);
     const pwErr = validateAuthPasswordLogin(password);
@@ -203,7 +207,7 @@ export default function LoginPage() {
                 Email Address
               </label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                fieldErrors.email ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError('email') ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Mail size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                 <input
@@ -215,6 +219,7 @@ export default function LoginPage() {
                     setError('');
                   }}
                   onBlur={() => {
+                    setTouched(t => ({ ...t, email: true }));
                     const msg = validateAuthEmail(email);
                     setFieldErrors(f => ({ ...f, email: msg || '' }));
                   }}
@@ -225,7 +230,7 @@ export default function LoginPage() {
                   className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
                 />
               </div>
-              {fieldErrors.email && (
+              {showFieldError('email') && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.email}</p>
               )}
             </div>
@@ -234,10 +239,10 @@ export default function LoginPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-semibold text-white">Password</label>
-                <a href="#" className="text-xs text-gold-light hover:underline">Forgot password?</a>
+                <Link to="/forgot-password" className="text-xs text-gold-light hover:underline">Forgot password?</Link>
               </div>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                fieldErrors.password ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError('password') ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Lock size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                 <input
@@ -249,6 +254,7 @@ export default function LoginPage() {
                     setError('');
                   }}
                   onBlur={() => {
+                    setTouched(t => ({ ...t, password: true }));
                     const msg = validateAuthPasswordLogin(password);
                     setFieldErrors(f => ({ ...f, password: msg || '' }));
                   }}
@@ -263,7 +269,7 @@ export default function LoginPage() {
                   {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
-              {fieldErrors.password && (
+              {showFieldError('password') && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.password}</p>
               )}
             </div>

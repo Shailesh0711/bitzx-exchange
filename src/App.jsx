@@ -9,12 +9,15 @@ import MarketsPage   from '@/pages/MarketsPage';
 import TradePage     from '@/pages/TradePage';
 import LoginPage     from '@/pages/LoginPage';
 import RegisterPage  from '@/pages/RegisterPage';
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
+import ResetPasswordPage  from '@/pages/ResetPasswordPage';
 import DashboardPage from '@/pages/DashboardPage';
 import WalletPage    from '@/pages/WalletPage';
 import ProfilePage      from '@/pages/ProfilePage';
 import KYCPage          from '@/pages/KYCPage';
 import QuickTradePage   from '@/pages/QuickTradePage';
 import PnLAnalyticsPage from '@/pages/PnLAnalyticsPage';
+import SupportDisputesPage from '@/pages/SupportDisputesPage';
 
 // ── Protected route — redirects to /login if not authenticated ────────────────
 function ProtectedRoute({ children }) {
@@ -69,6 +72,8 @@ export default function App() {
     <Routes>
       <Route path="/login"    element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       <Route element={<Layout />}>
         <Route path="/"              element={<LandingPage />} />
@@ -91,6 +96,9 @@ export default function App() {
         } />
         <Route path="/kyc" element={
           <ProtectedRoute><KYCPage /></ProtectedRoute>
+        } />
+        <Route path="/support-disputes" element={
+          <ProtectedRoute><SupportDisputesPage /></ProtectedRoute>
         } />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

@@ -107,6 +107,11 @@ export default function TradeFillDetailModal({ trade, onClose }) {
               {Number(trade.fee).toLocaleString(undefined, { maximumFractionDigits: 8 })} {trade.fee_asset}
             </span>
           </Row>
+          <Row label="Liquidity Source">
+            <span className="inline-flex text-xs font-extrabold uppercase px-2.5 py-1 rounded-md bg-blue-500/15 text-blue-300">
+              {String(trade.liquidity_source || 'USER')}
+            </span>
+          </Row>
           <Row label="Realized P&amp;L (USDT)">
             {showPnl ? (
               <span className={`font-mono font-bold ${rp >= 0 ? 'text-green-400' : 'text-red-400'}`}>

@@ -54,11 +54,21 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState(emptyRegisterFieldErrors);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState({
+    name: false,
+    email: false,
+    password: false,
+    confirm: false,
+    terms: false,
+  });
+  const showFieldError = key => Boolean(fieldErrors[key]) && (submitAttempted || touched[key]);
 
   const strengthMeta = getPasswordStrengthMeta(password);
 
   const handleSubmit = async e => {
     e.preventDefault();
+    setSubmitAttempted(true);
     setError('');
     setFieldErrors(emptyRegisterFieldErrors());
     const nm = name.trim();
@@ -228,7 +238,7 @@ export default function RegisterPage() {
               <div>
                 <label className="block text-sm font-semibold text-white mb-2">Full Name</label>
                 <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                  fieldErrors.name ? 'border-red-500/50' : 'border-surface-border'
+                  showFieldError('name') ? 'border-red-500/50' : 'border-surface-border'
                 }`}>
                   <User size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                   <input
@@ -240,6 +250,7 @@ export default function RegisterPage() {
                       setError('');
                     }}
                     onBlur={() => {
+                      setTouched(t => ({ ...t, name: true }));
                       if (!name.trim()) {
                         setFieldErrors(f => ({ ...f, name: '' }));
                         return;
@@ -253,14 +264,14 @@ export default function RegisterPage() {
                     className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
                   />
                 </div>
-                {fieldErrors.name && (
+                {showFieldError('name') && (
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.name}</p>
                 )}
               </div>
               <div>
                 <label className="block text-sm font-semibold text-white mb-2">Email</label>
                 <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                  fieldErrors.email ? 'border-red-500/50' : 'border-surface-border'
+                  showFieldError('email') ? 'border-red-500/50' : 'border-surface-border'
                 }`}>
                   <Mail size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                   <input
@@ -272,6 +283,7 @@ export default function RegisterPage() {
                       setError('');
                     }}
                     onBlur={() => {
+                      setTouched(t => ({ ...t, email: true }));
                       const msg = validateAuthEmail(email);
                       setFieldErrors(f => ({ ...f, email: msg || '' }));
                     }}
@@ -281,7 +293,7 @@ export default function RegisterPage() {
                     className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
                   />
                 </div>
-                {fieldErrors.email && (
+                {showFieldError('email') && (
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.email}</p>
                 )}
               </div>
@@ -291,7 +303,7 @@ export default function RegisterPage() {
             <div>
               <label className="block text-sm font-semibold text-white mb-2">Password</label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                fieldErrors.password ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError('password') ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Lock size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
                 <input
@@ -303,6 +315,7 @@ export default function RegisterPage() {
                     setError('');
                   }}
                   onBlur={() => {
+                    setTouched(t => ({ ...t, password: true }));
                     if (!password) {
                       setFieldErrors(f => ({ ...f, password: '' }));
                       return;
@@ -338,7 +351,7 @@ export default function RegisterPage() {
                   </p>
                 </div>
               )}
-              {fieldErrors.password && (
+              {showFieldError('password') && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.password}</p>
               )}
             </div>
@@ -348,7 +361,7 @@ export default function RegisterPage() {
               <label className="block text-sm font-semibold text-white mb-2">Confirm Password</label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5
                 focus-within:border-gold/50 transition-colors ${
-                fieldErrors.confirm || (confirm && confirm !== password) ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError('confirm') ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Lock size={16} className="text-white mr-3" />
                 <input
@@ -360,6 +373,7 @@ export default function RegisterPage() {
                     setError('');
                   }}
                   onBlur={() => {
+                    setTouched(t => ({ ...t, confirm: true }));
                     const msg = validateRegisterConfirm(password, confirm);
                     setFieldErrors(f => ({ ...f, confirm: msg || '' }));
                   }}
@@ -372,7 +386,7 @@ export default function RegisterPage() {
                   <CheckCircle size={16} className="text-green-400 ml-2" />
                 )}
               </div>
-              {fieldErrors.confirm && (
+              {showFieldError('confirm') && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.confirm}</p>
               )}
             </div>
@@ -388,6 +402,7 @@ export default function RegisterPage() {
                     setFieldErrors(f => ({ ...f, terms: '' }));
                     setError('');
                   }}
+                  onBlur={() => setTouched(t => ({ ...t, terms: true }))}
                   className="w-4 h-4 rounded border-surface-border accent-gold cursor-pointer"
                 />
               </div>
@@ -399,7 +414,7 @@ export default function RegisterPage() {
                 This is a demo platform for educational purposes.
               </span>
             </label>
-            {fieldErrors.terms && (
+            {showFieldError('terms') && (
               <p className="text-xs text-red-400 font-medium -mt-2" role="alert">{fieldErrors.terms}</p>
             )}
 

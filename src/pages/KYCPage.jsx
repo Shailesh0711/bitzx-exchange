@@ -133,7 +133,7 @@ function FormInput({ label, required, error, ...props }) {
 }
 
 // ─── Step 1: Personal Info ────────────────────────────────────────────────────
-function Step1({ data, onChange, showField, postalMaxLen = KYC_POSTAL_CATALOG_MAX }) {
+function Step1({ data, onChange, onBlurField, showField, postalMaxLen = KYC_POSTAL_CATALOG_MAX }) {
   const ctrySuggest = useMemo(() => suggestCountries(data.country || ''), [data.country]);
   const citySuggest = useMemo(
     () => suggestCities(data.country || '', data.city || ''),
@@ -144,15 +144,15 @@ function Step1({ data, onChange, showField, postalMaxLen = KYC_POSTAL_CATALOG_MA
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
       <div className="sm:col-span-2">
         <FormInput label="Full Legal Name" required error={showField('full_name')} value={data.full_name || ''} placeholder="Exactly as it appears on your ID"
-          onChange={e => onChange('full_name', e.target.value)} />
+          onChange={e => onChange('full_name', e.target.value)} onBlur={() => onBlurField('full_name')} />
       </div>
       <FormInput label="Date of Birth" required error={showField('date_of_birth')} type="date" value={data.date_of_birth || ''}
-        onChange={e => onChange('date_of_birth', e.target.value)} />
+        onChange={e => onChange('date_of_birth', e.target.value)} onBlur={() => onBlurField('date_of_birth')} />
       <FormInput label="Nationality" required error={showField('nationality')} value={data.nationality || ''} placeholder="e.g. Indian, British, American"
-        onChange={e => onChange('nationality', e.target.value)} />
+        onChange={e => onChange('nationality', e.target.value)} onBlur={() => onBlurField('nationality')} />
       <div className="sm:col-span-2">
         <FormInput label="Street Address" required error={showField('address')} value={data.address || ''} placeholder="House / flat, street, area, landmark"
-          onChange={e => onChange('address', e.target.value)} />
+          onChange={e => onChange('address', e.target.value)} onBlur={() => onBlurField('address')} />
       </div>
       <SuggestionTextField
         label="Country"
@@ -162,6 +162,7 @@ function Step1({ data, onChange, showField, postalMaxLen = KYC_POSTAL_CATALOG_MA
         placeholder="Start typing your country"
         suggestions={ctrySuggest}
         onChange={(v) => onChange('country', v)}
+        onBlur={() => onBlurField('country')}
       />
       <SuggestionTextField
         label="City"
@@ -171,6 +172,7 @@ function Step1({ data, onChange, showField, postalMaxLen = KYC_POSTAL_CATALOG_MA
         placeholder="Start typing your city"
         suggestions={citySuggest}
         onChange={(v) => onChange('city', v)}
+        onBlur={() => onBlurField('city')}
       />
       <div className="sm:col-span-2">
         <FormInput
@@ -182,6 +184,7 @@ function Step1({ data, onChange, showField, postalMaxLen = KYC_POSTAL_CATALOG_MA
           maxLength={postalMaxLen}
           inputMode="text"
           autoComplete="postal-code"
+          onBlur={() => onBlurField('postal_code')}
           onChange={(e) => {
             const v = e.target.value.replace(/[^A-Za-z0-9\s-]/g, '');
             onChange('postal_code', v.slice(0, postalMaxLen));
@@ -221,6 +224,7 @@ function Step2({
   touched = {},
   revealErrors,
   serverErrors = {},
+  onBlurField,
 }) {
   const show = (k) => {
     const msg = errors[k];
@@ -256,9 +260,13 @@ function Step2({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <FormInput label="Document Number" required error={show('document_number')} value={data.document_number || ''}
           placeholder="As printed on the document"
-          onChange={e => onChange('document_number', e.target.value)} />
+          onChange={e => onChange('document_number', e.target.value)}
+          onBlur={() => onBlurField('document_number')}
+        />
         <FormInput label="Expiry Date" required error={show('document_expiry')} type="date" value={data.document_expiry || ''}
-          onChange={e => onChange('document_expiry', e.target.value)} />
+          onChange={e => onChange('document_expiry', e.target.value)}
+          onBlur={() => onBlurField('document_expiry')}
+        />
       </div>
 
       <div className="rounded-2xl p-5 space-y-4"
@@ -431,13 +439,13 @@ export default function KYCPage() {
   const updatePersonal = (k, v) => {
     setServerPersonalErrors({});
     setPersonal(p => ({ ...p, [k]: v }));
-    setTouchedPersonal(t => ({ ...t, [k]: true }));
   };
   const updateDoc = (k, v) => {
     setServerDocumentErrors({});
     setDocInfo(d => ({ ...d, [k]: v }));
-    setTouchedDoc(t => ({ ...t, [k]: true }));
   };
+  const blurPersonalField = (k) => setTouchedPersonal((t) => ({ ...t, [k]: true }));
+  const blurDocField = (k) => setTouchedDoc((t) => ({ ...t, [k]: true }));
 
   const handlePickFront = (f) => {
     setServerDocumentErrors({});
@@ -507,7 +515,6 @@ export default function KYCPage() {
     (k) => {
       const msg = personalErrors[k];
       if (!msg) return '';
-      if (k === 'postal_code') return msg;
       if (serverPersonalErrors[k] || revealPersonalErrors || touchedPersonal[k]) return msg;
       return '';
     },
@@ -778,6 +785,7 @@ export default function KYCPage() {
                   <Step1
                     data={personal}
                     onChange={updatePersonal}
+                    onBlurField={blurPersonalField}
                     showField={showPersonalField}
                     postalMaxLen={effectivePostalMaxLen}
                   />
@@ -797,6 +805,7 @@ export default function KYCPage() {
                     touched={touchedDoc}
                     revealErrors={revealDocumentErrors}
                     serverErrors={serverDocumentErrors}
+                    onBlurField={blurDocField}
                   />
                 )}
                 {step === 2 && (

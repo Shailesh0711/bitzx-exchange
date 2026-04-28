@@ -37,6 +37,7 @@ const STATUS_STYLES = {
   reorg_review:     { color: 'text-red-300',    bg: 'bg-red-400/10 border-red-400/20',        icon: AlertCircle, label: 'Reorg review' },
   // Phase 6 — withdrawal request statuses.
   pending_approval: { color: 'text-yellow-400', bg: 'bg-yellow-400/10 border-yellow-400/20',  icon: Clock,       label: 'Awaiting approval' },
+  awaiting_treasury: { color: 'text-amber-300', bg: 'bg-amber-500/10 border-amber-500/25',     icon: AlertCircle, label: 'Awaiting treasury' },
   broadcasting:     { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'Broadcasting' },
   broadcasted:      { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'In mempool' },
   confirmed:        { color: 'text-green-400',  bg: 'bg-green-400/10 border-green-400/20',    icon: CheckCircle, label: 'Confirmed' },
@@ -338,7 +339,8 @@ function DepositTab({ kycBlocked, kyc }) {
         <h3 className="text-lg font-bold text-white mb-1">Your Deposit Address</h3>
         <p className="text-white text-sm mb-6">
           Send funds to your personal address below. Deposits are detected on-chain and credited
-          automatically once the network confirms the transaction.
+          after enough confirmations (and KYC rules). Use <strong className="text-white">Wallet → History → Deposits</strong> to
+          see progress, tx hash, and when your balance is credited.
         </p>
 
         {kycBlocked && (

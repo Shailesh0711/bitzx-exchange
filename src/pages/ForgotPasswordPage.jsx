@@ -14,9 +14,13 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const showFieldError = Boolean(fieldError) && (submitAttempted || touched);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitAttempted(true);
     setError('');
     const emErr = validateAuthEmail(email);
     if (emErr) {
@@ -79,20 +83,25 @@ export default function ForgotPasswordPage() {
             <div>
               <label className="block text-sm font-semibold text-white mb-2">Email</label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 ${
-                fieldError ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Mail size={17} className="text-white/70 mr-3" />
                 <input
                   type="email"
                   value={email}
                   onChange={(ev) => { setEmail(ev.target.value); setFieldError(''); setError(''); }}
+                  onBlur={() => {
+                    setTouched(true);
+                    const emErr = validateAuthEmail(email);
+                    setFieldError(emErr || '');
+                  }}
                   required
                   autoComplete="email"
                   placeholder="you@email.com"
                   className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
                 />
               </div>
-              {fieldError ? <p className="text-xs text-red-400 mt-1.5">{fieldError}</p> : null}
+              {showFieldError ? <p className="text-xs text-red-400 mt-1.5">{fieldError}</p> : null}
             </div>
             <button
               type="submit"

@@ -25,9 +25,13 @@ export default function ResetPasswordPage() {
   const [fieldErrors, setFieldErrors] = useState({ password: '', password2: '' });
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState({ password: false, password2: false });
+  const showFieldError = (field) => Boolean(fieldErrors[field]) && (submitAttempted || touched[field]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitAttempted(true);
     setError('');
     const fe = {};
     const p1 = validateStrongPassword(password);
@@ -109,13 +113,18 @@ export default function ResetPasswordPage() {
             <div>
               <label className="block text-sm font-semibold text-white mb-2">New password</label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 ${
-                fieldErrors.password ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError('password') ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Lock size={17} className="text-white/70 mr-3" />
                 <input
                   type={showPw ? 'text' : 'password'}
                   value={password}
                   onChange={(ev) => { setPassword(ev.target.value); setFieldErrors((f) => ({ ...f, password: '' })); setError(''); }}
+                  onBlur={() => {
+                    setTouched((t) => ({ ...t, password: true }));
+                    const msg = validateStrongPassword(password);
+                    setFieldErrors((f) => ({ ...f, password: msg || '' }));
+                  }}
                   autoComplete="new-password"
                   className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
                   placeholder="Strong password"
@@ -124,24 +133,31 @@ export default function ResetPasswordPage() {
                   {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
               </div>
-              {fieldErrors.password ? <p className="text-xs text-red-400 mt-1">{fieldErrors.password}</p> : null}
+              {showFieldError('password') ? <p className="text-xs text-red-400 mt-1">{fieldErrors.password}</p> : null}
             </div>
             <div>
               <label className="block text-sm font-semibold text-white mb-2">Confirm password</label>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 ${
-                fieldErrors.password2 ? 'border-red-500/50' : 'border-surface-border'
+                showFieldError('password2') ? 'border-red-500/50' : 'border-surface-border'
               }`}>
                 <Lock size={17} className="text-white/70 mr-3" />
                 <input
                   type={showPw ? 'text' : 'password'}
                   value={password2}
                   onChange={(ev) => { setPassword2(ev.target.value); setFieldErrors((f) => ({ ...f, password2: '' })); setError(''); }}
+                  onBlur={() => {
+                    setTouched((t) => ({ ...t, password2: true }));
+                    setFieldErrors((f) => ({
+                      ...f,
+                      password2: password !== password2 ? 'Passwords do not match.' : '',
+                    }));
+                  }}
                   autoComplete="new-password"
                   className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
                   placeholder="Repeat password"
                 />
               </div>
-              {fieldErrors.password2 ? <p className="text-xs text-red-400 mt-1">{fieldErrors.password2}</p> : null}
+              {showFieldError('password2') ? <p className="text-xs text-red-400 mt-1">{fieldErrors.password2}</p> : null}
             </div>
             <button
               type="submit"

@@ -292,10 +292,7 @@ export function AuthProvider({ children }) {
   // ── Live account stream (wallet + orders + fills + spot positions); auto-reconnect like market WS ─
   useEffect(() => {
     if (!user) return undefined;
-    const token = store.getToken();
-    if (!token) return undefined;
-
-    const url = exchangeWsPath(`/api/ws/exchange/account?token=${encodeURIComponent(token)}`);
+    if (!store.getToken()) return undefined;
     let closed = false;
     let reconnectTimer = null;
     let ws = null;
@@ -316,6 +313,9 @@ export function AuthProvider({ children }) {
 
     const connect = () => {
       if (closed) return;
+      const liveToken = store.getToken();
+      if (!liveToken) return;
+      const url = exchangeWsPath(`/api/ws/exchange/account?token=${encodeURIComponent(liveToken)}`);
       try {
         ws = new WebSocket(url);
       } catch {
@@ -330,7 +330,7 @@ export function AuthProvider({ children }) {
       };
       ws.onclose = () => {
         ws = null;
-        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+        if (!closed && store.getToken()) reconnectTimer = window.setTimeout(connect, 3000);
       };
     };
 

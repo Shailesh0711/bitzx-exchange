@@ -857,25 +857,38 @@ function HistoryTab() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const issues = [];
     try {
       const [dRes, wRes] = await Promise.all([
         authFetch(`${API}/api/wallet/deposit-events?limit=200`),
         authFetch(`${API}/api/wallet/withdrawals?limit=200`),
       ]);
-      if (!dRes.ok) {
+
+      if (dRes.ok) {
+        const dData = await dRes.json().catch(() => ({}));
+        setEvents(Array.isArray(dData.items) ? dData.items : []);
+      } else {
         const j = await dRes.json().catch(() => ({}));
-        throw new Error(j?.detail || `Could not load deposits (HTTP ${dRes.status}).`);
+        setEvents([]);
+        issues.push(j?.detail || `deposits (HTTP ${dRes.status})`);
       }
-      if (!wRes.ok) {
+
+      if (wRes.ok) {
+        const wData = await wRes.json().catch(() => ({}));
+        setWds(Array.isArray(wData.items) ? wData.items : []);
+      } else {
         const j = await wRes.json().catch(() => ({}));
-        throw new Error(j?.detail || `Could not load withdrawals (HTTP ${wRes.status}).`);
+        setWds([]);
+        issues.push(j?.detail || `withdrawals (HTTP ${wRes.status})`);
       }
-      const dData = await dRes.json();
-      const wData = await wRes.json();
-      setEvents(Array.isArray(dData.items) ? dData.items : []);
-      setWds(Array.isArray(wData.items) ? wData.items : []);
+
+      if (issues.length) {
+        setError(`Partial history load issue: ${issues.join(' | ')}`);
+      }
     } catch (e) {
       setError(e.message || 'Could not load history.');
+      setEvents([]);
+      setWds([]);
     } finally {
       setLoading(false);
     }

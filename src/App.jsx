@@ -18,6 +18,7 @@ import KYCPage          from '@/pages/KYCPage';
 import QuickTradePage   from '@/pages/QuickTradePage';
 import PnLAnalyticsPage from '@/pages/PnLAnalyticsPage';
 import SupportDisputesPage from '@/pages/SupportDisputesPage';
+import FuturesTradePage from '@/pages/FuturesTradePage';
 
 // ── Protected route — redirects to /login if not authenticated ────────────────
 function ProtectedRoute({ children }) {
@@ -37,7 +38,7 @@ function ProtectedRoute({ children }) {
 // ── Main layout (Navbar + optional Footer) ───────────────────────────────────
 function Layout() {
   const { pathname } = useLocation();
-  const isTrade  = pathname.startsWith('/trade');
+  const isTrade  = pathname.startsWith('/trade') || pathname.startsWith('/futures');
   const isHome   = pathname === '/';
 
   return (
@@ -81,6 +82,8 @@ export default function App() {
         <Route path="/quick-trade"   element={<QuickTradePage />} />
         <Route path="/trade"         element={<TradePage />} />
         <Route path="/trade/:symbol" element={<TradePage />} />
+        <Route path="/futures"           element={<FuturesTradePage />} />
+        <Route path="/futures/:symbol"   element={<FuturesTradePage />} />
 
         <Route path="/dashboard" element={
           <ProtectedRoute><DashboardPage /></ProtectedRoute>

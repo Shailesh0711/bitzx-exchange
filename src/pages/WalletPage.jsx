@@ -4,13 +4,14 @@ import QrImagePreview from '@/components/ui/QrImagePreview';
 import {
   Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
   CheckCircle, XCircle, AlertCircle, ChevronDown, Copy, Check,
-  ExternalLink, Info, Shield, ScrollText,
+  ExternalLink, Info, Shield, ScrollText, TrendingUp,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 import { MIN_WALLET_NOTIONAL_USDT } from '@/lib/walletValidation';
+import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
@@ -1309,7 +1310,8 @@ function LedgerTab() {
 // ── Main WalletPage ───────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'balances',    label: 'Balances',    icon: Wallet },
+  { id: 'balances',    label: 'Spot balances', icon: Wallet },
+  { id: 'futures',     label: 'Futures',     icon: TrendingUp },
   { id: 'deposit',     label: 'Deposit',     icon: ArrowDownCircle },
   { id: 'withdraw',    label: 'Withdraw',    icon: ArrowUpCircle },
   { id: 'history',     label: 'History',     icon: Clock },
@@ -1442,6 +1444,7 @@ export default function WalletPage() {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
             {tab === 'balances'  && <BalancesTab walletAssets={walletAssets} walletLoading={walletLoading} fetchWallet={fetchWallet} priceByAsset={priceByAsset} />}
+            {tab === 'futures'   && <FuturesWalletTab />}
             {tab === 'deposit'   && <DepositTab kycBlocked={kycBlocked} kyc={kyc} />}
             {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} kycBlocked={kycBlocked} kyc={kyc} />}
             {tab === 'history'   && <HistoryTab />}

@@ -26,6 +26,7 @@ const USER_MENU_EDGE_GAP = 8;
 const NAV_LINKS = [
   { label: 'Markets', to: '/markets' },
   { label: 'Trade',   to: '/trade/BZXUSDT' },
+  { label: 'Futures', to: '/futures/BTCUSDT-PERP' },
   { label: 'Wallet',  to: '/wallet' },
   { label: 'P&L',     to: '/portfolio' },
 ];

@@ -1,3 +1,4 @@
+import React from 'react';
 import { Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import Navbar        from '@/components/layout/Navbar';
@@ -19,6 +20,34 @@ import QuickTradePage   from '@/pages/QuickTradePage';
 import PnLAnalyticsPage from '@/pages/PnLAnalyticsPage';
 import SupportDisputesPage from '@/pages/SupportDisputesPage';
 import FuturesTradePage from '@/pages/FuturesTradePage';
+import OptionsTradePage from '@/pages/OptionsTradePage';
+
+/** Surfaces render/import errors instead of a blank screen on the options route. */
+class OptionsRouteErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { err: null };
+  }
+
+  static getDerivedStateFromError(err) {
+    return { err };
+  }
+
+  render() {
+    if (this.state.err) {
+      return (
+        <div className="min-h-[50vh] flex flex-col items-center justify-center gap-4 px-6 bg-[#0a0b0d] text-zinc-200">
+          <p className="text-lg font-bold text-rose-300">Options page failed to load</p>
+          <pre className="max-w-2xl w-full text-xs text-left whitespace-pre-wrap break-words bg-black/40 border border-white/10 rounded-lg p-4 text-rose-200/90">
+            {String(this.state.err?.message || this.state.err)}
+          </pre>
+          <a href="/markets" className="text-amber-300 font-semibold underline">Back to markets</a>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ── Protected route — redirects to /login if not authenticated ────────────────
 function ProtectedRoute({ children }) {
@@ -38,7 +67,7 @@ function ProtectedRoute({ children }) {
 // ── Main layout (Navbar + optional Footer) ───────────────────────────────────
 function Layout() {
   const { pathname } = useLocation();
-  const isTrade  = pathname.startsWith('/trade') || pathname.startsWith('/futures');
+  const isTrade  = pathname.startsWith('/trade') || pathname.startsWith('/futures') || pathname.startsWith('/options');
   const isHome   = pathname === '/';
 
   return (
@@ -58,7 +87,15 @@ function Layout() {
         <Navbar />
         <ImpersonationBanner />
         <FeaturesPausedBanner />
-        <main className="flex-1 flex flex-col">
+        {/* Trade pages: let main grow with content so the window scrolls (same feel as Spot/Futures).
+            Non-trade keeps min-h-0 + overflow for dashboard-style inner scroll. */}
+        <main
+          className={`flex w-full min-w-0 flex-col flex-1 ${
+            isTrade
+              ? 'shrink-0 overflow-x-hidden'
+              : 'min-h-0 overflow-y-auto'
+          }`}
+        >
           <Outlet />
         </main>
         {!isTrade && <Footer />}
@@ -84,6 +121,15 @@ export default function App() {
         <Route path="/trade/:symbol" element={<TradePage />} />
         <Route path="/futures"           element={<FuturesTradePage />} />
         <Route path="/futures/:symbol"   element={<FuturesTradePage />} />
+        <Route path="/options"           element={<Navigate to="/options/BTCUSDT" replace />} />
+        <Route
+          path="/options/:underlying"
+          element={
+            <OptionsRouteErrorBoundary>
+              <OptionsTradePage />
+            </OptionsRouteErrorBoundary>
+          }
+        />
 
         <Route path="/dashboard" element={
           <ProtectedRoute><DashboardPage /></ProtectedRoute>

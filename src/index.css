@@ -12,6 +12,11 @@
     max-width: 100vw;
     -webkit-text-size-adjust: 100%;
   }
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
   body {
     background: #0a0b0d;
     color: #f4f4f5;
@@ -97,6 +102,63 @@
     width: 0;
     height: 0;
   }
+
+  /* Option chain: outer = vertical list of expiries; inner = horizontal table scroll. */
+  .options-chain-scroll-v {
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(235, 211, 141, 0.35) rgba(0, 0, 0, 0.25);
+  }
+  .options-chain-scroll-v::-webkit-scrollbar {
+    height: 0;
+    width: 10px;
+  }
+  .options-chain-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(235, 211, 141, 0.35) rgba(0, 0, 0, 0.25);
+  }
+  .options-chain-scroll::-webkit-scrollbar {
+    height: 10px;
+    width: 0;
+  }
+
+  /* Chain top bar: horizontal scroll + visible vertical overflow (no clipped descenders). */
+  .options-chain-toolbar {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(235, 211, 141, 0.35) rgba(0, 0, 0, 0.25);
+  }
+  .options-chain-toolbar::-webkit-scrollbar {
+    height: 10px;
+    width: 0;
+  }
+  .options-chain-toolbar::-webkit-scrollbar-thumb,
+  .options-chain-scroll::-webkit-scrollbar-thumb,
+  .options-chain-scroll-v::-webkit-scrollbar-thumb {
+    background: rgba(235, 211, 141, 0.35);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .options-chain-toolbar::-webkit-scrollbar-track,
+  .options-chain-scroll::-webkit-scrollbar-track,
+  .options-chain-scroll-v::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+  }
+
   /* No contain:paint — it clips stacked depth bars and can hide price text (Chrome/Edge). */
   .order-book-row {
     -webkit-tap-highlight-color: transparent;

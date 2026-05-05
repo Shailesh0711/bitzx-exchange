@@ -6,7 +6,9 @@ import {
   Activity, Flame, Snowflake, LayoutGrid, Table2, ChevronRight,
   Layers, Sparkles, Clock,
 } from 'lucide-react';
-import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
+import { COIN_ICONS, exchangeWsPath, normalizeMarketsList, marketApi } from '@/services/marketApi';
+import { futuresApi, openMarketsWs } from '@/services/futuresApi';
+import { optionsApi } from '@/services/optionsApi';
 
 const fmtP = (v, base) => {
   const n = parseFloat(v);
@@ -79,8 +81,8 @@ const MAJOR_BASES = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP']);
 
 const MARKET_MODES = [
   { id: 'spot', label: 'Spot', desc: 'USDT pairs' },
-  { id: 'futures', label: 'Futures', desc: 'Coming soon', soon: true },
-  { id: 'options', label: 'Options', desc: 'Coming soon', soon: true },
+  { id: 'futures', label: 'Futures', desc: 'USDT perpetuals' },
+  { id: 'options', label: 'Options', desc: 'USDT · v1 long-only' },
 ];
 
 const CATEGORY_TABS = [
@@ -93,6 +95,23 @@ const CATEGORY_TABS = [
   { id: 'losers', label: '24h Losers', short: '▼' },
   { id: 'topVolume', label: 'By volume', short: 'Vol' },
 ];
+
+/** Futures tab: categories (underlying spot stats drive 24h / vol / heatmap) */
+const FUTURES_CATEGORY_TABS = [
+  { id: 'all', label: 'All contracts', short: 'All' },
+  { id: 'major', label: 'Major', short: 'Major' },
+  { id: 'alt', label: 'Alts', short: 'Alts' },
+  { id: 'favorites', label: 'Watchlist', short: '★', icon: Star },
+  { id: 'gainers', label: '24h Gainers', short: '▲' },
+  { id: 'losers', label: '24h Losers', short: '▼' },
+  { id: 'topVolume', label: 'By volume', short: 'Vol' },
+];
+
+const fmtFunding8h = (rate) => {
+  if (rate == null || !Number.isFinite(Number(rate))) return '—';
+  const r = Number(rate);
+  return `${(r * 100).toFixed(4)}%`;
+};
 
 export default function MarketsPage() {
   const navigate = useNavigate();
@@ -108,6 +127,315 @@ export default function MarketsPage() {
   const [sortDir, setSortDir] = useState(-1);
   /** split = heatmap + table; table = list only; heatmap = map only */
   const [viewMode, setViewMode] = useState('split');
+
+  const [futuresCatalog, setFuturesCatalog] = useState([]);
+  const [futuresMarks, setFuturesMarks] = useState({});
+  const [futuresLoading, setFuturesLoading] = useState(false);
+  const [futuresSearch, setFuturesSearch] = useState('');
+  const [underlyingMarkets, setUnderlyingMarkets] = useState({});
+  const [futuresFunding, setFuturesFunding] = useState({});
+  const [futuresCategory, setFuturesCategory] = useState('all');
+  const [futuresSortKey, setFuturesSortKey] = useState('quoteVolume');
+  const [futuresSortDir, setFuturesSortDir] = useState(-1);
+  const [futuresViewMode, setFuturesViewMode] = useState('split');
+  const [futuresFavorites, setFuturesFavorites] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('bitzxex_favs_perp') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [optionsUnderlyings, setOptionsUnderlyings] = useState([]);
+  const [optionsUnderlyingsLoading, setOptionsUnderlyingsLoading] = useState(false);
+
+  useEffect(() => {
+    if (marketMode !== 'options') return undefined;
+    let cancelled = false;
+    setOptionsUnderlyingsLoading(true);
+    optionsApi
+      .listUnderlyings({ listed_only: true })
+      .then((d) => {
+        if (!cancelled) setOptionsUnderlyings(Array.isArray(d?.underlyings) ? d.underlyings : []);
+      })
+      .catch(() => {
+        if (!cancelled) setOptionsUnderlyings([]);
+      })
+      .finally(() => {
+        if (!cancelled) setOptionsUnderlyingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [marketMode]);
+
+  useEffect(() => {
+    if (marketMode !== 'futures') return undefined;
+    let cancelled = false;
+    setFuturesLoading(true);
+    futuresApi
+      .listSymbols()
+      .then((d) => {
+        if (!cancelled) setFuturesCatalog(Array.isArray(d?.symbols) ? d.symbols : []);
+      })
+      .catch(() => {
+        if (!cancelled) setFuturesCatalog([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFuturesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [marketMode]);
+
+  useEffect(() => {
+    if (marketMode !== 'futures') return undefined;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const list = await marketApi.getMarkets();
+        if (cancelled) return;
+        const map = Object.fromEntries(list.filter((m) => m?.symbol).map((m) => [m.symbol, m]));
+        setUnderlyingMarkets(map);
+      } catch {
+        if (!cancelled) setUnderlyingMarkets({});
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [marketMode]);
+
+  useEffect(() => {
+    if (marketMode !== 'futures' || !futuresCatalog.length) return undefined;
+    let cancelled = false;
+    const loadFunding = () => {
+      Promise.all(
+        futuresCatalog.map((s) =>
+          futuresApi
+            .fundingRate(s.symbol)
+            .then((d) => [s.symbol, d?.rate])
+            .catch(() => [s.symbol, null]),
+        ),
+      ).then((pairs) => {
+        if (cancelled) return;
+        setFuturesFunding((prev) => {
+          const next = { ...prev };
+          for (const [sym, r] of pairs) {
+            if (r != null && Number.isFinite(Number(r))) next[sym] = Number(r);
+          }
+          return next;
+        });
+      });
+    };
+    loadFunding();
+    const iv = window.setInterval(loadFunding, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(iv);
+    };
+  }, [futuresCatalog, marketMode]);
+
+  useEffect(() => {
+    if (marketMode !== 'futures') return undefined;
+    let closed = false;
+    let ws = null;
+    let reconnectTimer = null;
+    const connect = () => {
+      if (closed) return;
+      ws = openMarketsWs((msg) => {
+        if (msg?.type !== 'futures_markets' || !Array.isArray(msg.markets)) return;
+        const next = {};
+        for (const m of msg.markets) {
+          if (m?.symbol) next[m.symbol] = m;
+        }
+        setFuturesMarks((prev) => ({ ...prev, ...next }));
+      });
+      ws.onclose = () => {
+        ws = null;
+        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      try {
+        ws?.close();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [marketMode]);
+
+  const futuresRowsMerged = useMemo(() => {
+    return futuresCatalog.map((s) => {
+      const bin = s.binance_symbol || '';
+      const spot = bin ? underlyingMarkets[bin] : null;
+      const mark = futuresMarks[s.symbol];
+      const mp = mark?.mark_price != null ? parseFloat(mark.mark_price) : NaN;
+      const ixRaw = mark?.index_price != null ? parseFloat(mark.index_price) : NaN;
+      const ix = Number.isFinite(ixRaw) ? ixRaw : (Number.isFinite(mp) ? mp : NaN);
+      const fr = futuresFunding[s.symbol];
+      return {
+        ...s,
+        spot,
+        markPrice: Number.isFinite(mp) ? mp : null,
+        indexPrice: Number.isFinite(ix) ? ix : null,
+        fundingRate: Number.isFinite(Number(fr)) ? Number(fr) : null,
+      };
+    });
+  }, [futuresCatalog, underlyingMarkets, futuresMarks, futuresFunding]);
+
+  const futuresStats = useMemo(() => {
+    const withSpot = futuresRowsMerged.filter((r) => r.spot);
+    const pcts = withSpot.map((r) => num(r.spot.priceChangePercent));
+    const minP = pcts.length ? Math.min(...pcts) : 0;
+    const maxP = pcts.length ? Math.max(...pcts) : 0;
+    const sorted = [...withSpot].sort((a, b) => num(b.spot.priceChangePercent) - num(a.spot.priceChangePercent));
+    const gain = sorted.filter((r) => num(r.spot.priceChangePercent) > 0).slice(0, 6);
+    const lose = [...withSpot]
+      .sort((a, b) => num(a.spot.priceChangePercent) - num(b.spot.priceChangePercent))
+      .filter((r) => num(r.spot.priceChangePercent) < 0)
+      .slice(0, 6);
+    const tqv = withSpot.reduce((s, r) => s + num(r.spot.quoteVolume), 0);
+    const up = withSpot.filter((r) => num(r.spot.priceChangePercent) > 0).length;
+    const down = withSpot.filter((r) => num(r.spot.priceChangePercent) < 0).length;
+    return {
+      minPct: minP,
+      maxPct: maxP,
+      futuresGainers: gain,
+      futuresLosers: lose,
+      futuresTotalQuoteVol: tqv,
+      futuresUpCount: up,
+      futuresDownCount: down,
+      listed: futuresRowsMerged.length,
+    };
+  }, [futuresRowsMerged]);
+
+  const futuresList = useMemo(() => {
+    const q = futuresSearch.trim().toLowerCase();
+    let list = futuresRowsMerged.filter((row) => {
+      const base = row.base || '';
+      if (q && !(row.symbol?.toLowerCase().includes(q) || String(base).toLowerCase().includes(q))) return false;
+      if (futuresCategory === 'favorites') return futuresFavorites.includes(row.symbol);
+      if (futuresCategory === 'major') return MAJOR_BASES.has(base);
+      if (futuresCategory === 'alt') return !MAJOR_BASES.has(base);
+      if (futuresCategory === 'gainers') return num(row.spot?.priceChangePercent) > 0;
+      if (futuresCategory === 'losers') return num(row.spot?.priceChangePercent) < 0;
+      return true;
+    });
+    const sk = futuresSortKey;
+    const sd = futuresSortDir;
+    if (sk === 'spread') {
+      list = [...list].sort((a, b) => {
+        const sa = num(a.spot?.askPrice) - num(a.spot?.bidPrice);
+        const sb = num(b.spot?.askPrice) - num(b.spot?.bidPrice);
+        return (sa - sb) * sd;
+      });
+    } else if (sk === 'markBasis') {
+      list = [...list].sort((a, b) => {
+        const lastA = num(a.spot?.price);
+        const lastB = num(b.spot?.price);
+        const basisA =
+          lastA > 0 && a.markPrice != null ? ((a.markPrice - lastA) / lastA) * 10000 : -1e9;
+        const basisB =
+          lastB > 0 && b.markPrice != null ? ((b.markPrice - lastB) / lastB) * 10000 : -1e9;
+        return (basisA - basisB) * sd;
+      });
+    } else {
+      list = [...list].sort((a, b) => {
+        let va = 0;
+        let vb = 0;
+        if (sk === 'markPrice') {
+          va = a.markPrice ?? 0;
+          vb = b.markPrice ?? 0;
+        } else if (sk === 'fundingRate') {
+          va = a.fundingRate ?? -1e9;
+          vb = b.fundingRate ?? -1e9;
+        } else if (sk === 'max_leverage') {
+          va = num(a.max_leverage);
+          vb = num(b.max_leverage);
+        } else {
+          va = num(a.spot?.[sk]);
+          vb = num(b.spot?.[sk]);
+        }
+        return (va - vb) * sd;
+      });
+    }
+    return list;
+  }, [
+    futuresRowsMerged,
+    futuresSearch,
+    futuresCategory,
+    futuresFavorites,
+    futuresSortKey,
+    futuresSortDir,
+  ]);
+
+  const handleFuturesSort = (k) => {
+    if (futuresSortKey === k) setFuturesSortDir((d) => -d);
+    else {
+      setFuturesSortKey(k);
+      if (k === 'spread') setFuturesSortDir(1);
+      else {
+        setFuturesSortDir(
+          k === 'priceChangePercent' || k === 'quoteVolume' || k === 'volume' || k === 'count' || k === 'markBasis'
+            ? -1
+            : 1,
+        );
+      }
+    }
+  };
+
+  const FuturesSortTh = ({ label, field, className = '' }) => (
+    <th
+      onClick={() => handleFuturesSort(field)}
+      className={`px-2 md:px-3 py-2.5 md:py-3.5 text-left text-[10px] md:text-xs font-semibold text-white uppercase tracking-wide md:tracking-wider cursor-pointer hover:text-gold-light/90 select-none whitespace-nowrap ${className}`}
+    >
+      {label}{' '}
+      {futuresSortKey === field && <span className="text-gold-light">{futuresSortDir > 0 ? '↑' : '↓'}</span>}
+    </th>
+  );
+
+  const selectFuturesCategory = (id) => {
+    setFuturesCategory(id);
+    if (id === 'topVolume') {
+      setFuturesSortKey('quoteVolume');
+      setFuturesSortDir(-1);
+    }
+  };
+
+  const toggleFuturesFav = (sym) => {
+    const next = futuresFavorites.includes(sym) ? futuresFavorites.filter((f) => f !== sym) : [...futuresFavorites, sym];
+    setFuturesFavorites(next);
+    localStorage.setItem('bitzxex_favs_perp', JSON.stringify(next));
+  };
+
+  const refreshFuturesPage = async () => {
+    setFuturesLoading(true);
+    try {
+      const [d, spotList] = await Promise.all([futuresApi.listSymbols(), marketApi.getMarkets()]);
+      setFuturesCatalog(Array.isArray(d?.symbols) ? d.symbols : []);
+      const map = Object.fromEntries(spotList.filter((m) => m?.symbol).map((m) => [m.symbol, m]));
+      setUnderlyingMarkets(map);
+    } catch {
+      /* ignore */
+    } finally {
+      setFuturesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (marketMode !== 'futures') {
+      setFuturesSearch('');
+      setFuturesCategory('all');
+    }
+  }, [marketMode]);
+
   useEffect(() => {
     setLoading(true);
     const url = exchangeWsPath('/api/ws/exchange/markets');
@@ -235,7 +563,24 @@ export default function MarketsPage() {
           </div>
           <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-2">Markets</h1>
           <p className="text-sm sm:text-base text-white/80 max-w-3xl">
-            Spot markets with last price, 24h OHLC, weighted average, best bid/ask, spread, volumes, and trade count — refreshed every 5s.
+            {marketMode === 'futures' && (
+              <>
+                USDT-margined perpetuals: live mark and index from the BITZX futures engine, plus full 24h OHLC, volume, and
+                bid–ask for each underlying spot pair (same data as the Spot tab). Open any row to trade with leverage and margin
+                controls on the futures terminal.
+              </>
+            )}
+            {marketMode === 'options' && (
+              <>
+                Listed underlyings use the same USDT symbols as spot. v1 is long-only: limit premium trading, buys open longs, and sells are reduce-only to
+                close. Open the terminal for the full chain (expiry × strike × call/put), spot→options transfers, and orders.
+              </>
+            )}
+            {marketMode === 'spot' && (
+              <>
+                Spot markets with last price, 24h OHLC, weighted average, best bid/ask, spread, volumes, and trade count — refreshed every 5s.
+              </>
+            )}
           </p>
         </motion.div>
 
@@ -257,33 +602,686 @@ export default function MarketsPage() {
                 <span className="block text-xs sm:text-sm font-extrabold truncate">{label}</span>
                 <span className="block text-[9px] sm:text-[10px] text-white/45 font-medium truncate">{desc}</span>
               </span>
-              {soon && (
+              {soon ? (
                 <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider text-gold-light/90 bg-gold/10 px-1.5 py-0.5 rounded">
                   Soon
                 </span>
-              )}
+              ) : null}
             </button>
           ))}
         </div>
 
-        {marketMode !== 'spot' && (
-          <div
-            className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-6 py-16 mb-10 text-center"
-          >
-            <Sparkles className="mx-auto mb-3 text-gold-light/80" size={28} />
-            <p className="text-lg font-extrabold text-white mb-2">
-              {marketMode === 'futures' ? 'Futures markets' : 'Options markets'} — not available yet
+        {marketMode === 'options' && (
+          <div className="rounded-2xl border border-surface-border bg-white/[0.02] px-5 py-8 sm:px-8 sm:py-10 mb-10">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-lg font-extrabold text-white mb-1 flex items-center gap-2">
+                  <Sparkles className="text-gold-light" size={22} /> Options terminal
+                </h2>
+                <p className="text-sm text-white/60 max-w-xl">
+                  USDT-margined European options: v1 is long-only (no short opens). Buys open or add longs; sells are reduce-only to close. Cash settlement at
+                  expiry is operator-controlled. Pick a listed underlying below.
+                </p>
+              </div>
+              <Link
+                to="/options/BTCUSDT"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gold px-5 py-2.5 text-sm font-extrabold text-surface-dark shrink-0"
+              >
+                Open options <ArrowRight size={16} />
+              </Link>
+            </div>
+            {optionsUnderlyingsLoading ? (
+              <p className="text-sm text-white/45">Loading underlyings…</p>
+            ) : optionsUnderlyings.length ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                {optionsUnderlyings.map((u) => {
+                  const sym = u.symbol || '';
+                  const base = sym.replace(/USDT$/i, '') || sym;
+                  const ic = COIN_ICONS[base];
+                  return (
+                    <Link
+                      key={u.id || sym}
+                      to={`/options/${encodeURIComponent(sym)}`}
+                      className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 hover:border-gold/40 hover:bg-gold/5 transition-colors"
+                    >
+                      {ic && <img src={ic} alt="" className="w-7 h-7 rounded-full" />}
+                      <span className="font-bold text-sm text-white">{base}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-white/50">
+                No listed option underlyings yet. Ask an admin to create underlyings and contracts, then refresh this page.
+              </p>
+            )}
+            <div className="mt-6 pt-6 border-t border-white/10 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setMarketMode('spot')}
+                className="text-sm font-bold text-white/50 hover:text-white underline-offset-2 hover:underline"
+              >
+                Spot markets
+              </button>
+              <button
+                type="button"
+                onClick={() => setMarketMode('futures')}
+                className="text-sm font-bold text-white/50 hover:text-white underline-offset-2 hover:underline"
+              >
+                Futures
+              </button>
+            </div>
+          </div>
+        )}
+
+        {marketMode === 'futures' && (
+          <div className="mb-10 space-y-6 sm:space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+              <div
+                className="rounded-2xl border border-surface-border p-4 sm:p-5"
+                style={{ background: 'rgba(255,255,255,0.03)' }}
+              >
+                <h2 className="text-sm font-extrabold text-white mb-2 flex items-center gap-2">
+                  <Layers size={16} className="text-gold-light" /> What you are viewing
+                </h2>
+                <ul className="text-[12px] sm:text-sm text-white/70 space-y-2 list-disc pl-4 marker:text-gold-light/80">
+                  <li>
+                    <span className="text-white/90 font-semibold">Mark</span> and <span className="text-white/90 font-semibold">index</span>{' '}
+                    update from the BITZX futures feed (local book + external reference).
+                  </li>
+                  <li>
+                    <span className="text-white/90 font-semibold">Last, 24h %, OHLC, volumes, bid/ask, spread, trades</span> use the
+                    underlying spot pair (e.g. BTCUSDT for BTCUSDT-PERP), refreshed on the same cadence as Spot markets.
+                  </li>
+                  <li>
+                    <span className="text-white/90 font-semibold">Funding (8h)</span> is the latest settled rate for the perpetual when
+                    available.
+                  </li>
+                </ul>
+              </div>
+              <div
+                className="rounded-2xl border border-surface-border p-4 sm:p-5"
+                style={{ background: 'rgba(235,211,141,0.06)' }}
+              >
+                <h2 className="text-sm font-extrabold text-white mb-2 flex items-center gap-2">
+                  <Sparkles size={16} className="text-gold-light" /> Quick actions
+                </h2>
+                <p className="text-[12px] sm:text-sm text-white/70 mb-3">
+                  Use categories and column headers like Spot. Perp watchlist is stored separately from spot favorites.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    to="/futures/BTCUSDT-PERP"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-gold/15 border border-gold/30 px-3 py-2 text-xs font-bold text-gold-light"
+                  >
+                    Open futures terminal <ArrowRight size={14} />
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setMarketMode('spot')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/[0.06]"
+                  >
+                    Compare on Spot
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
+              {[
+                {
+                  label: 'Perps listed',
+                  value: String(futuresStats.listed),
+                  sub: 'USDT linear',
+                  icon: Activity,
+                },
+                {
+                  label: '24h vol (underlying)',
+                  value: `$${fmtVol(futuresStats.futuresTotalQuoteVol)}`,
+                  sub: 'Spot quote volume',
+                  icon: BarChart2,
+                },
+                {
+                  label: 'Gainers',
+                  value: String(futuresStats.futuresUpCount),
+                  sub: 'Underlying 24h ▲',
+                  icon: Flame,
+                  accent: 'text-green-400',
+                },
+                {
+                  label: 'Losers',
+                  value: String(futuresStats.futuresDownCount),
+                  sub: 'Underlying 24h ▼',
+                  icon: Snowflake,
+                  accent: 'text-red-400',
+                },
+              ].map(({ label, value, sub, icon: Icon, accent }) => (
+                <div
+                  key={label}
+                  className="bitzx-hover-lift bitzx-hover-glow rounded-2xl border border-surface-border px-4 py-4 sm:py-5"
+                  style={{ background: 'rgba(255,255,255,0.03)' }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-white/55">{label}</p>
+                      <p className={`text-xl sm:text-2xl font-extrabold mt-1 tabular-nums ${accent || 'text-white'}`}>
+                        {futuresLoading && futuresStats.listed === 0 ? '—' : value}
+                      </p>
+                      <p className="text-[11px] text-white/45 mt-0.5">{sub}</p>
+                    </div>
+                    <Icon size={20} className={accent || 'text-gold-light/80'} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bitzx-hover-lift bitzx-hover-border rounded-2xl border border-surface-border overflow-hidden" style={{ background: 'rgba(34,197,94,0.04)' }}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-green-500/10">
+                  <span className="text-sm font-extrabold text-green-400 flex items-center gap-2">
+                    <Flame size={16} /> Top gainers (underlying 24h)
+                  </span>
+                </div>
+                <div className="divide-y divide-white/[0.06]">
+                  {futuresStats.futuresGainers.length === 0 ? (
+                    <div className="py-8 text-center text-white/50 text-sm">No data yet — check spot feed.</div>
+                  ) : (
+                    futuresStats.futuresGainers.map((row, i) => {
+                      const base = row.base || row.symbol?.replace(/USDT-PERP/i, '')?.replace('USDT', '');
+                      const pct = num(row.spot?.priceChangePercent);
+                      const icon = COIN_ICONS[base];
+                      return (
+                        <button
+                          key={row.symbol}
+                          type="button"
+                          onClick={() => navigate(`/futures/${encodeURIComponent(row.symbol)}`)}
+                          className="group/row w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.055]"
+                        >
+                          <span className="text-xs font-mono text-white/40 w-5">{i + 1}</span>
+                          {icon ? (
+                            <img src={icon} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-gold/20 text-[10px] font-bold flex items-center justify-center text-gold-light">
+                              {base?.slice(0, 2)}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <span className="font-bold text-white">{base}</span>
+                            <span className="text-white/45 text-xs font-mono ml-1">PERP</span>
+                          </div>
+                          <span className="text-green-400 font-extrabold tabular-nums">+{pct.toFixed(2)}%</span>
+                          <ChevronRight size={16} className="text-white/30" />
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+              <div className="bitzx-hover-lift bitzx-hover-border rounded-2xl border border-surface-border overflow-hidden" style={{ background: 'rgba(239,68,68,0.04)' }}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-red-500/10">
+                  <span className="text-sm font-extrabold text-red-400 flex items-center gap-2">
+                    <Snowflake size={16} /> Top losers (underlying 24h)
+                  </span>
+                </div>
+                <div className="divide-y divide-white/[0.06]">
+                  {futuresStats.futuresLosers.length === 0 ? (
+                    <div className="py-8 text-center text-white/50 text-sm">No data yet — check spot feed.</div>
+                  ) : (
+                    futuresStats.futuresLosers.map((row, i) => {
+                      const base = row.base || row.symbol?.replace(/USDT-PERP/i, '')?.replace('USDT', '');
+                      const pct = num(row.spot?.priceChangePercent);
+                      const icon = COIN_ICONS[base];
+                      return (
+                        <button
+                          key={row.symbol}
+                          type="button"
+                          onClick={() => navigate(`/futures/${encodeURIComponent(row.symbol)}`)}
+                          className="group/row w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.055]"
+                        >
+                          <span className="text-xs font-mono text-white/40 w-5">{i + 1}</span>
+                          {icon ? (
+                            <img src={icon} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-gold/20 text-[10px] font-bold flex items-center justify-center text-gold-light">
+                              {base?.slice(0, 2)}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <span className="font-bold text-white">{base}</span>
+                            <span className="text-white/45 text-xs font-mono ml-1">PERP</span>
+                          </div>
+                          <span className="text-red-400 font-extrabold tabular-nums">{pct.toFixed(2)}%</span>
+                          <ChevronRight size={16} className="text-white/30" />
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {futuresViewMode !== 'table' && (
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+                    <LayoutGrid size={18} className="text-gold-light" /> Underlying 24h % (heatmap)
+                  </h2>
+                  <span className="text-[10px] text-white/45 hidden sm:inline">Same coloring as Spot · click to open perp</span>
+                </div>
+                <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-2.5">
+                  {futuresRowsMerged.map((row) => {
+                    const pct = num(row.spot?.priceChangePercent);
+                    const base = row.base || row.symbol?.replace(/USDT-PERP/i, '')?.replace('USDT', '');
+                    const bg = heatBg(pct, futuresStats.minPct, futuresStats.maxPct);
+                    return (
+                      <Link
+                        key={row.symbol}
+                        to={`/futures/${encodeURIComponent(row.symbol)}`}
+                        className="bitzx-hover-lift rounded-xl border border-white/10 p-3 flex flex-col items-center justify-center min-h-[88px]"
+                        style={{ background: bg }}
+                      >
+                        <span className="text-sm font-extrabold text-white">{base}</span>
+                        <span className="text-[10px] text-white/50 font-mono">PERP</span>
+                        <span className={`text-xs font-bold mt-1 ${pct >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                          {pct >= 0 ? '+' : ''}
+                          {pct.toFixed(2)}%
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between min-w-0">
+              <div className="space-y-2 w-full min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
+                  <Clock size={12} /> Categories
+                </p>
+                <div className="-mx-3 px-3 sm:mx-0 sm:px-0 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:thin]">
+                  <div className="flex flex-nowrap gap-2 pb-1.5 sm:flex-wrap sm:pb-0">
+                    {FUTURES_CATEGORY_TABS.map(({ id, label, short, icon: Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => selectFuturesCategory(id)}
+                        className={`bitzx-hover-border inline-flex flex-shrink-0 items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-[11px] sm:text-sm font-bold whitespace-nowrap snap-start ${
+                          futuresCategory === id
+                            ? 'bg-gold text-surface-dark'
+                            : 'bg-white/[0.05] text-white border border-surface-border hover:border-gold/30'
+                        }`}
+                      >
+                        {Icon && <Icon size={12} className={futuresCategory === id ? 'text-surface-dark' : 'text-gold-light/80'} />}
+                        <span className="min-[400px]:hidden">{short}</span>
+                        <span className="hidden min-[400px]:inline">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full lg:w-auto min-w-0">
+                <div
+                  className="flex items-center gap-2 rounded-xl border border-surface-border px-3 py-2.5 flex-1 min-w-0"
+                  style={{ background: 'rgba(255,255,255,0.04)' }}
+                >
+                  <Search size={16} className="text-white/60 flex-shrink-0" />
+                  <input
+                    value={futuresSearch}
+                    onChange={(e) => setFuturesSearch(e.target.value)}
+                    placeholder="Search contract or base…"
+                    className="bg-transparent text-sm text-white outline-none flex-1 min-w-0 placeholder:text-white/40"
+                  />
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFuturesViewMode((v) => (v === 'split' ? 'table' : v === 'table' ? 'heatmap' : 'split'))
+                    }
+                    className="flex-1 sm:flex-none px-2.5 sm:px-3 py-2.5 rounded-xl border border-surface-border text-white text-[11px] sm:text-xs font-bold hover:bg-white/[0.06] flex items-center justify-center gap-1.5"
+                  >
+                    {futuresViewMode === 'split' && (
+                      <>
+                        <Table2 size={14} /> <span className="truncate">Table</span>
+                      </>
+                    )}
+                    {futuresViewMode === 'table' && (
+                      <>
+                        <LayoutGrid size={14} /> <span className="truncate">Heatmap</span>
+                      </>
+                    )}
+                    {futuresViewMode === 'heatmap' && (
+                      <>
+                        <BarChart2 size={14} /> <span className="truncate">Full</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => refreshFuturesPage()}
+                    className="p-2.5 rounded-xl border border-surface-border text-white hover:bg-white/[0.06]"
+                    aria-label="Refresh futures data"
+                  >
+                    <RefreshCw size={17} className={futuresLoading ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-white/45">
+              Showing {futuresList.length} of {futuresRowsMerged.length} contract{futuresRowsMerged.length === 1 ? '' : 's'}
+              {futuresSearch ? ' (search)' : ''}.
             </p>
-            <p className="text-sm text-white/55 max-w-md mx-auto mb-6">
-              We&apos;re building pro-grade derivatives listings. Spot USDT pairs below stay live — switch to Spot to browse full data.
+
+            {futuresViewMode !== 'heatmap' && (
+              <div className="hidden md:block w-full min-w-0 rounded-2xl border border-surface-border bg-[#0d0f14] overflow-hidden">
+                <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:thin]">
+                  <table className="w-full min-w-[900px] lg:min-w-[1100px] xl:min-w-[1280px] text-left text-xs md:text-sm">
+                    <thead className="border-b border-surface-border bg-white/[0.02]">
+                      <tr>
+                        <th className="px-1.5 py-2.5 w-10 lg:sticky lg:left-0 lg:z-[2] lg:bg-[#12141a] lg:border-r lg:border-white/[0.06]" />
+                        <th className="px-2 py-2.5 text-[10px] font-semibold text-white uppercase lg:sticky lg:left-10 lg:z-[2] lg:bg-[#12141a] lg:border-r lg:border-white/[0.06] min-w-[100px]">
+                          Pair
+                        </th>
+                        <th className="px-2 py-2.5 text-[10px] font-semibold text-white uppercase text-white/55 hidden sm:table-cell">
+                          Index pair
+                        </th>
+                        <FuturesSortTh label="Last" field="price" />
+                        <FuturesSortTh label="Mark" field="markPrice" />
+                        <th className="px-2 py-2.5 text-[10px] font-semibold text-white uppercase hidden lg:table-cell">Index</th>
+                        <FuturesSortTh label="24h %" field="priceChangePercent" />
+                        <th className="px-1 py-2.5 text-[10px] font-semibold text-white uppercase hidden md:table-cell">Range</th>
+                        <FuturesSortTh label="High" field="highPrice" className="hidden md:table-cell" />
+                        <FuturesSortTh label="Low" field="lowPrice" className="hidden md:table-cell" />
+                        <FuturesSortTh label="Open" field="openPrice" className="hidden xl:table-cell" />
+                        <FuturesSortTh label="Wtd avg" field="weightedAvgPrice" className="hidden xl:table-cell" />
+                        <FuturesSortTh label="Bid" field="bidPrice" className="hidden 2xl:table-cell" />
+                        <FuturesSortTh label="Ask" field="askPrice" className="hidden 2xl:table-cell" />
+                        <FuturesSortTh label="Spread" field="spread" className="hidden 2xl:table-cell" />
+                        <FuturesSortTh label="Vol" field="volume" />
+                        <FuturesSortTh label="Vol USDT" field="quoteVolume" className="hidden md:table-cell" />
+                        <FuturesSortTh label="Trades" field="count" className="hidden lg:table-cell" />
+                        <FuturesSortTh label="Max lev" field="max_leverage" />
+                        <FuturesSortTh label="Fund 8h" field="fundingRate" />
+                        <FuturesSortTh label="Basis" field="markBasis" className="hidden xl:table-cell" />
+                        <th className="px-2 py-2.5 text-right text-[10px] font-semibold text-white uppercase lg:sticky lg:right-0 lg:z-[2] lg:bg-[#12141a] lg:border-l lg:border-white/[0.06]">
+                          Trade
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {futuresLoading && futuresList.length === 0 ? (
+                        <tr>
+                          <td colSpan={22} className="py-20 text-center">
+                            <div className="w-10 h-10 border-2 border-gold border-t-transparent rounded-full animate-spin mx-auto" />
+                          </td>
+                        </tr>
+                      ) : futuresList.length === 0 ? (
+                        <tr>
+                          <td colSpan={22} className="py-16 text-center text-white/55">
+                            No contracts match your filters.
+                          </td>
+                        </tr>
+                      ) : (
+                        futuresList.map((row, i) => {
+                          const spot = row.spot;
+                          const base = row.base || row.symbol?.replace(/USDT-PERP/i, '')?.replace('USDT', '');
+                          const icon = COIN_ICONS[base];
+                          const pct = num(spot?.priceChangePercent);
+                          const isUp = pct >= 0;
+                          const mp = row.markPrice;
+                          const ix = row.indexPrice;
+                          const last = num(spot?.price);
+                          const fav = futuresFavorites.includes(row.symbol);
+                          const spread = fmtSpread(spot?.bidPrice, spot?.askPrice, base);
+                          const pc = num(spot?.priceChange);
+                          const chLabel = (() => {
+                            if (!Number.isFinite(pc) || Math.abs(pc) < 1e-12) return null;
+                            const abs = Math.abs(pc);
+                            const s = abs >= 1 ? abs.toFixed(2) : abs.toFixed(6);
+                            return `${pc >= 0 ? '+' : '-'} $${s}`;
+                          })();
+                          const basisBps =
+                            last > 0 && mp != null ? ((mp - last) / last) * 10000 : null;
+                          return (
+                            <motion.tr
+                              key={row.symbol}
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: Math.min(i * 0.02, 0.35) }}
+                              className="border-b border-surface-border/50 group"
+                            >
+                              <td className="px-1.5 py-3 lg:sticky lg:left-0 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-r border-transparent lg:border-white/[0.06]">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleFuturesFav(row.symbol)}
+                                  className="p-1"
+                                  aria-label={fav ? 'Remove from perp watchlist' : 'Add to perp watchlist'}
+                                >
+                                  <Star size={15} className={fav ? 'text-gold fill-gold' : 'text-white/25 group-hover:text-white/50'} />
+                                </button>
+                              </td>
+                              <td className="px-2 py-3 lg:sticky lg:left-10 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-r border-transparent lg:border-white/[0.06]">
+                                <div className="flex items-center gap-2">
+                                  {icon ? (
+                                    <img src={icon} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-full bg-gold/20 text-[10px] font-bold flex items-center justify-center text-gold-light">
+                                      {base?.slice(0, 2)}
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <div className="font-bold text-white text-xs md:text-sm">{base}</div>
+                                    <div className="text-[10px] text-white/45 font-mono truncate">{row.symbol}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-2 py-3 text-white/50 font-mono text-[10px] hidden sm:table-cell">
+                                {row.binance_symbol || '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white font-mono text-xs tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtP(spot.price, base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white font-mono text-xs tabular-nums whitespace-nowrap">
+                                {mp != null && mp > 0 ? `$${fmtP(String(mp), base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/85 font-mono text-[11px] tabular-nums whitespace-nowrap hidden lg:table-cell">
+                                {ix != null && ix > 0 ? `$${fmtP(String(ix), base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3">
+                                {spot ? (
+                                  <div className="flex flex-col gap-0.5 min-w-[4rem]">
+                                    <span
+                                      className={`font-bold text-xs ${isUp ? 'text-green-400' : 'text-red-400'} flex items-center gap-0.5`}
+                                    >
+                                      {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                                      {isUp ? '+' : ''}
+                                      {pct.toFixed(2)}%
+                                    </span>
+                                    {chLabel && (
+                                      <span className="text-[9px] text-white/45 font-mono hidden sm:block">{chLabel} 24h</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td className="px-1 py-3 hidden md:table-cell">
+                                {spot ? <RangeBar low={spot.lowPrice} high={spot.highPrice} price={spot.price} /> : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/90 font-mono text-[11px] hidden md:table-cell tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtP(spot.highPrice, base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/90 font-mono text-[11px] hidden md:table-cell tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtP(spot.lowPrice, base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/85 font-mono text-[11px] hidden xl:table-cell tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtP(spot.openPrice, base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/85 font-mono text-[11px] hidden xl:table-cell tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtP(spot.weightedAvgPrice, base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-emerald-300/90 font-mono text-[11px] hidden 2xl:table-cell tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtP(spot.bidPrice, base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-rose-300/90 font-mono text-[11px] hidden 2xl:table-cell tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtP(spot.askPrice, base)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 hidden 2xl:table-cell">
+                                {spot ? (
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-white/90 font-mono text-[11px]">{spread.abs}</span>
+                                    {spread.bps && <span className="text-[9px] text-white/40 font-mono">{spread.bps}</span>}
+                                  </div>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td className="px-2 py-3 text-white/90 font-mono text-[11px] tabular-nums whitespace-nowrap">
+                                {spot ? fmtVol(spot.volume) : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/90 font-mono text-[11px] hidden md:table-cell tabular-nums whitespace-nowrap">
+                                {spot ? `$${fmtVol(spot.quoteVolume)}` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/80 text-[11px] hidden lg:table-cell tabular-nums whitespace-nowrap">
+                                {spot?.count != null ? parseInt(spot.count, 10).toLocaleString() : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/90 font-mono text-[11px] tabular-nums">
+                                {row.max_leverage != null ? `${row.max_leverage}×` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-white/85 font-mono text-[11px] tabular-nums whitespace-nowrap">
+                                {fmtFunding8h(row.fundingRate)}
+                              </td>
+                              <td className="px-2 py-3 text-white/70 font-mono text-[11px] hidden xl:table-cell tabular-nums whitespace-nowrap">
+                                {basisBps != null && Number.isFinite(basisBps) ? `${basisBps.toFixed(2)} bps` : '—'}
+                              </td>
+                              <td className="px-2 py-3 text-right lg:sticky lg:right-0 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-l border-transparent lg:border-white/[0.06]">
+                                <Link
+                                  to={`/futures/${encodeURIComponent(row.symbol)}`}
+                                  className="inline-flex items-center gap-0.5 bg-gold/10 hover:bg-gold/25 text-gold-light border border-gold/25 text-[10px] md:text-xs font-bold px-2 md:px-3 py-1 md:py-1.5 rounded-lg whitespace-nowrap"
+                                >
+                                  Trade <ArrowRight size={11} />
+                                </Link>
+                              </td>
+                            </motion.tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {futuresViewMode !== 'heatmap' && (
+              <div className="md:hidden space-y-3 w-full min-w-0">
+                {futuresLoading && futuresList.length === 0 ? (
+                  <div className="py-16 flex justify-center">
+                    <div className="w-10 h-10 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : futuresList.length === 0 ? (
+                  <p className="text-center text-white/55 py-12">No contracts match your filters.</p>
+                ) : (
+                  futuresList.map((row) => {
+                    const spot = row.spot;
+                    const base = row.base || row.symbol?.replace(/USDT-PERP/i, '')?.replace('USDT', '');
+                    const icon = COIN_ICONS[base];
+                    const pct = num(spot?.priceChangePercent);
+                    const isUp = pct >= 0;
+                    const mp = row.markPrice;
+                    const ix = row.indexPrice;
+                    const fav = futuresFavorites.includes(row.symbol);
+                    return (
+                      <div
+                        key={row.symbol}
+                        className="rounded-2xl border border-surface-border p-4 space-y-3 max-w-full overflow-hidden"
+                        style={{ background: 'rgba(255,255,255,0.03)' }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <button type="button" onClick={() => toggleFuturesFav(row.symbol)} className="flex-shrink-0 pt-0.5">
+                              <Star size={15} className={fav ? 'text-gold fill-gold' : 'text-white/25'} />
+                            </button>
+                            {icon ? (
+                              <img src={icon} alt="" className="w-10 h-10 rounded-full flex-shrink-0" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-xs font-bold">
+                                {base?.slice(0, 2)}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-extrabold text-white truncate">{base} perpetual</p>
+                              <p className="text-[11px] text-white/50 font-mono truncate">{row.symbol}</p>
+                              {row.binance_symbol && (
+                                <p className="text-[10px] text-white/40 font-mono">Index: {row.binance_symbol}</p>
+                              )}
+                            </div>
+                          </div>
+                          {spot && (
+                            <div className={`text-right font-extrabold text-sm tabular-nums flex-shrink-0 ${isUp ? 'text-green-400' : 'text-red-400'}`}>
+                              {isUp ? '+' : ''}
+                              {pct.toFixed(2)}%
+                            </div>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
+                          <div>
+                            <p className="text-white/45 uppercase tracking-wider font-bold text-[10px]">Last</p>
+                            <p className="text-white font-mono">{spot ? `$${fmtP(spot.price, base)}` : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-white/45 uppercase tracking-wider font-bold text-[10px]">Mark</p>
+                            <p className="text-white font-mono">{mp != null && mp > 0 ? `$${fmtP(String(mp), base)}` : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-white/45 uppercase tracking-wider font-bold text-[10px]">Index</p>
+                            <p className="text-white font-mono">{ix != null && ix > 0 ? `$${fmtP(String(ix), base)}` : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-white/45 uppercase tracking-wider font-bold text-[10px]">Fund 8h</p>
+                            <p className="text-white font-mono">{fmtFunding8h(row.fundingRate)}</p>
+                          </div>
+                          <div>
+                            <p className="text-white/45 uppercase tracking-wider font-bold text-[10px]">Max lev</p>
+                            <p className="text-white font-mono">{row.max_leverage != null ? `${row.max_leverage}×` : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-white/45 uppercase tracking-wider font-bold text-[10px]">Vol USDT</p>
+                            <p className="text-white font-mono">{spot ? `$${fmtVol(spot.quoteVolume)}` : '—'}</p>
+                          </div>
+                        </div>
+                        {spot && (
+                          <>
+                            <RangeBar low={spot.lowPrice} high={spot.highPrice} price={spot.price} />
+                            <div className="grid grid-cols-2 gap-2 text-[10px]">
+                              <div>
+                                <span className="text-white/45">High</span>{' '}
+                                <span className="text-white font-mono">${fmtP(spot.highPrice, base)}</span>
+                              </div>
+                              <div>
+                                <span className="text-white/45">Low</span>{' '}
+                                <span className="text-white font-mono">${fmtP(spot.lowPrice, base)}</span>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        <Link
+                          to={`/futures/${encodeURIComponent(row.symbol)}`}
+                          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-gold/15 border border-gold/30 text-gold-light font-bold text-sm"
+                        >
+                          Open futures <ArrowRight size={14} />
+                        </Link>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            <p className="text-[11px] text-white/40 text-center px-2">
+              Mark / index: BITZX futures engine. 24h OHLC, volume, order book: underlying spot (Binance / BITZX public data). Funding:
+              last settled rate from futures API. Not financial advice.
             </p>
-            <button
-              type="button"
-              onClick={() => setMarketMode('spot')}
-              className="inline-flex items-center gap-2 rounded-xl bg-gold px-5 py-2.5 text-sm font-extrabold text-surface-dark"
-            >
-              Go to Spot markets <ArrowRight size={16} />
-            </button>
           </div>
         )}
 

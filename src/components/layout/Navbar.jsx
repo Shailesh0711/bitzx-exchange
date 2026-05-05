@@ -27,6 +27,7 @@ const NAV_LINKS = [
   { label: 'Markets', to: '/markets' },
   { label: 'Trade',   to: '/trade/BZXUSDT' },
   { label: 'Futures', to: '/futures/BTCUSDT-PERP' },
+  { label: 'Options', to: '/options/BTCUSDT' },
   { label: 'Wallet',  to: '/wallet' },
   { label: 'P&L',     to: '/portfolio' },
 ];
@@ -117,7 +118,10 @@ export default function Navbar() {
   const userTriggerRef = useRef(null);
   const userMenuPanelRef = useRef(null);
 
-  const isTrade = location.pathname.startsWith('/trade');
+  const isTrade =
+    location.pathname.startsWith('/trade')
+    || location.pathname.startsWith('/futures')
+    || location.pathname.startsWith('/options');
   const isHome = location.pathname === '/';
 
   useEffect(() => {

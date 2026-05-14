@@ -21,6 +21,7 @@ import PnLAnalyticsPage from '@/pages/PnLAnalyticsPage';
 import SupportDisputesPage from '@/pages/SupportDisputesPage';
 import FuturesTradePage from '@/pages/FuturesTradePage';
 import OptionsTradePage from '@/pages/OptionsTradePage';
+import SettingsPage          from '@/pages/SettingsPage';
 import P2PMarketplacePage    from '@/pages/p2p/P2PMarketplacePage';
 import P2PAdDetailPage       from '@/pages/p2p/P2PAdDetailPage';
 import P2POrderDetailPage    from '@/pages/p2p/P2POrderDetailPage';
@@ -155,6 +156,9 @@ export default function App() {
         } />
         <Route path="/support-disputes" element={
           <ProtectedRoute><SupportDisputesPage /></ProtectedRoute>
+        } />
+        <Route path="/settings" element={
+          <ProtectedRoute><SettingsPage /></ProtectedRoute>
         } />
 
         {/* ── P2P Trading ──────────────────────────────────────────────── */}

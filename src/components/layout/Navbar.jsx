@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart, HelpCircle } from 'lucide-react';
+import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart, HelpCircle, Settings } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { exchangeApiOrigin } from '@/lib/apiBase';
@@ -323,6 +323,10 @@ export default function Navbar() {
                       className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
                       <HelpCircle size={16} /> Support & Disputes
                     </Link>
+                    <Link to="/settings" onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      <Settings size={16} /> Security & Settings
+                    </Link>
                     <div className="border-t border-surface-border my-1" />
                     <button type="button" onClick={handleLogout}
                       className="w-full flex items-center gap-2.5 px-4 py-3 text-base text-red-400 hover:bg-surface-hover transition-colors">
@@ -397,6 +401,10 @@ export default function Navbar() {
                     <Link to="/support-disputes" onClick={() => setMenuOpen(false)}
                       className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
                       <HelpCircle size={15} /> Support & Disputes
+                    </Link>
+                    <Link to="/settings" onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
+                      <Settings size={15} /> Security & Settings
                     </Link>
                   </>
                 )}

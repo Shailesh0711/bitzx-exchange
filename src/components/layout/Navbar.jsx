@@ -28,6 +28,7 @@ const NAV_LINKS = [
   { label: 'Trade',   to: '/trade/BZXUSDT' },
   { label: 'Futures', to: '/futures/BTCUSDT-PERP' },
   { label: 'Options', to: '/options/BTCUSDT' },
+  { label: 'P2P',     to: '/p2p' },
   { label: 'Wallet',  to: '/wallet' },
   { label: 'P&L',     to: '/portfolio' },
 ];

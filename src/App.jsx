@@ -21,6 +21,13 @@ import PnLAnalyticsPage from '@/pages/PnLAnalyticsPage';
 import SupportDisputesPage from '@/pages/SupportDisputesPage';
 import FuturesTradePage from '@/pages/FuturesTradePage';
 import OptionsTradePage from '@/pages/OptionsTradePage';
+import P2PMarketplacePage    from '@/pages/p2p/P2PMarketplacePage';
+import P2PAdDetailPage       from '@/pages/p2p/P2PAdDetailPage';
+import P2POrderDetailPage    from '@/pages/p2p/P2POrderDetailPage';
+import P2POrdersPage         from '@/pages/p2p/P2POrdersPage';
+import P2PMyAdsPage          from '@/pages/p2p/P2PMyAdsPage';
+import P2PPaymentMethodsPage from '@/pages/p2p/P2PPaymentMethodsPage';
+import P2PMerchantPage       from '@/pages/p2p/P2PMerchantPage';
 
 /** Surfaces render/import errors instead of a blank screen on the options route. */
 class OptionsRouteErrorBoundary extends React.Component {
@@ -149,6 +156,16 @@ export default function App() {
         <Route path="/support-disputes" element={
           <ProtectedRoute><SupportDisputesPage /></ProtectedRoute>
         } />
+
+        {/* ── P2P Trading ──────────────────────────────────────────────── */}
+        <Route path="/p2p"                  element={<P2PMarketplacePage />} />
+        <Route path="/p2p/ads/:adId"        element={<P2PAdDetailPage />} />
+        <Route path="/p2p/orders"           element={<ProtectedRoute><P2POrdersPage /></ProtectedRoute>} />
+        <Route path="/p2p/orders/:orderId"  element={<ProtectedRoute><P2POrderDetailPage /></ProtectedRoute>} />
+        <Route path="/p2p/my-ads"           element={<ProtectedRoute><P2PMyAdsPage /></ProtectedRoute>} />
+        <Route path="/p2p/payment-methods"  element={<ProtectedRoute><P2PPaymentMethodsPage /></ProtectedRoute>} />
+        <Route path="/p2p/merchant"         element={<ProtectedRoute><P2PMerchantPage /></ProtectedRoute>} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

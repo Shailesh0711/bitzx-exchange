@@ -34,6 +34,7 @@ export const futuresApi = {
   wallet:        ()        => authFetch(`${API}/wallet`).then(jsonOrThrow),
   walletTxns:    (q = {})  => authFetch(`${API}/wallet/txns?limit=${q.limit ?? 50}&skip=${q.skip ?? 0}`).then(jsonOrThrow),
   transfer:      (body)    => authFetch(`${API}/wallet/transfer`, { method: 'POST', body }).then(jsonOrThrow),
+  syncLocked:    ()        => authFetch(`${API}/wallet/sync-locked`, { method: 'POST' }).then(jsonOrThrow),
   settings:      (symbol)  => authFetch(`${API}/settings?symbol=${encodeURIComponent(symbol)}`).then(jsonOrThrow),
   setLeverage:   (body)    => authFetch(`${API}/leverage`,    { method: 'POST', body }).then(jsonOrThrow),
   setMarginMode: (body)    => authFetch(`${API}/margin-mode`, { method: 'POST', body }).then(jsonOrThrow),

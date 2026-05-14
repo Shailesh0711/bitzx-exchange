@@ -12,6 +12,8 @@ import {
   parseMarketReferencePrice,
   parseAmount,
 } from '@/lib/tradeRules';
+import { displayBaseForApiSymbol } from '@/services/marketApi';
+import { useToast, friendlyError } from '@/context/ToastContext';
 
 const API  = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const PCTS = [25, 50, 75, 100];
@@ -40,7 +42,9 @@ function trimDecimalString(s, maxDecimals) {
 export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', initialSide }) {
   const { user, balance, fetchWallet, fetchOrders, fetchLiveSpotPositions, kyc } = useAuth();
   const navigate = useNavigate();
-  const base = symbol.replace('USDT', '');
+  const toast = useToast();
+  const apiBase = symbol.replace('USDT', '');
+  const displayBase = displayBaseForApiSymbol(symbol);
 
   const [side,    setSide]    = useState(
     initialSide === 'sell' ? 'sell' : initialSide === 'buy' ? 'buy' : 'buy',
@@ -52,23 +56,27 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   const [type,    setType]    = useState('limit');
   const [price,   setPrice]   = useState('');
   const [amount,  setAmount]  = useState('');
+  // Market buy convenience: user can type quote spend (USDT) and see base qty.
+  const [marketSpendUsdt, setMarketSpendUsdt] = useState('');
   /** Limit order: quote (USDT) notional — synced with amount × limit price in real time. */
   const [totalUsdt, setTotalUsdt] = useState('');
   const limitSizeSourceRef = useRef('amount'); // 'amount' | 'total' — which field user last edited for limit sizing
+  const marketBuySizeSourceRef = useRef('amount'); // 'amount' | 'spend'
   const amountRef = useRef(amount);
   const totalUsdtRef = useRef(totalUsdt);
   const limitPriceSyncKeyRef = useRef('');
   amountRef.current = amount;
   totalUsdtRef.current = totalUsdt;
   const [placing, setPlacing] = useState(false);
-  const [result,  setResult]  = useState(null);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [touched, setTouched] = useState({});
 
   useEffect(() => {
     setAmount('');
+    setMarketSpendUsdt('');
     setTotalUsdt('');
     limitSizeSourceRef.current = 'amount';
+    marketBuySizeSourceRef.current = 'amount';
     limitPriceSyncKeyRef.current = '';
   }, [symbol]);
 
@@ -83,6 +91,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
     if (type === 'market') {
       setTotalUsdt('');
       limitPriceSyncKeyRef.current = '';
+    } else {
+      setMarketSpendUsdt('');
+      marketBuySizeSourceRef.current = 'amount';
     }
   }, [type]);
 
@@ -111,7 +122,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   const limitPx  = parseLimitPrice(price);
   const effPrice = isMarket ? (markPx ?? 0) : (limitPx ?? 0);
   const notionalUsdt = effPrice * amtNum;
-  const avail    = isBuy ? (balance?.USDT || 0) : (balance?.[base] || 0);
+  const avail    = isBuy ? (balance?.USDT || 0) : (balance?.[apiBase] || 0);
 
   const limitRestsOnBook =
     !isMarket && markPx != null && limitPx != null
@@ -138,11 +149,11 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
         priceStr: price,
         currentPrice: lastPrice,
         balanceUSDT: balance?.USDT ?? 0,
-        balanceBase: balance?.[base] ?? 0,
-        baseAsset: base,
+        balanceBase: balance?.[apiBase] ?? 0,
+        baseAsset: apiBase,
         userLoggedIn: !!user,
       }),
-    [symbol, side, type, amount, price, lastPrice, balance, base, user],
+    [symbol, side, type, amount, price, lastPrice, balance, apiBase, user],
   );
 
   const setPct = pct => {
@@ -162,7 +173,18 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   const onAmountInputChange = e => {
     const v = e.target.value;
     setAmount(v);
-    if (!isMarket) {
+    if (isMarket) {
+      if (isBuy) {
+        marketBuySizeSourceRef.current = 'amount';
+        const px = parseMarketReferencePrice(lastPrice);
+        const a = parseAmount(v);
+        if (px != null && px > 0 && a != null && a > 0) {
+          setMarketSpendUsdt(trimDecimalString(String(a * px), 6));
+        } else if (!String(v).trim()) {
+          setMarketSpendUsdt('');
+        }
+      }
+    } else {
       limitSizeSourceRef.current = 'amount';
       const px = parseLimitPrice(price);
       const a = parseAmount(v);
@@ -171,6 +193,19 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
       } else if (!String(v).trim()) {
         setTotalUsdt('');
       }
+    }
+  };
+
+  const onMarketSpendUsdtChange = e => {
+    const v = e.target.value;
+    setMarketSpendUsdt(v);
+    marketBuySizeSourceRef.current = 'spend';
+    const px = parseMarketReferencePrice(lastPrice);
+    const spend = parseAmount(v);
+    if (px != null && px > 0 && spend != null && spend > 0) {
+      setAmount(trimDecimalString(String(spend / px), 8));
+    } else if (!String(v).trim()) {
+      setAmount('');
     }
   };
 
@@ -189,26 +224,35 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
     }
   };
 
+  // Market buy sync on live ticker updates: if user is sizing by USDT spend,
+  // keep estimated quantity fresh with each price tick.
+  useEffect(() => {
+    if (!isMarket || !isBuy) return;
+    if (marketBuySizeSourceRef.current !== 'spend') return;
+    const px = parseMarketReferencePrice(lastPrice);
+    const spend = parseAmount(marketSpendUsdt);
+    if (px != null && px > 0 && spend != null && spend > 0) {
+      setAmount(trimDecimalString(String(spend / px), 8));
+    }
+  }, [isMarket, isBuy, lastPrice, marketSpendUsdt]);
+
   const handleSubmit = async e => {
     e.preventDefault();
     setSubmitAttempted(true);
     if (!user) {
       if (!spotCheck.ok && spotCheck.message) {
-        setResult({ ok: false, error: spotCheck.message });
-        setTimeout(() => setResult(null), 7000);
+        toast.error('Cannot place order', spotCheck.message);
         return;
       }
       navigate('/login');
       return;
     }
     if (!spotCheck.ok) {
-      setResult({ ok: false, error: spotCheck.message || 'Check your order details.' });
-      setTimeout(() => setResult(null), 7000);
+      toast.error('Cannot place order', spotCheck.message || 'Please check your order details and try again.');
       return;
     }
 
     setPlacing(true);
-    setResult(null);
     try {
       const body = {
         symbol, side, type,
@@ -218,17 +262,36 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
       const res  = await authFetch(`${API}/api/orders`, { method: 'POST', body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Order placement failed');
-      setResult({ ok: true, order: data });
+
+      // Build a human-friendly success message
+      const isBuyOrd = data.side === 'buy';
+      const amtStr = `${Number(data.amount).toFixed(6).replace(/\.?0+$/, '')} ${displayBase}`;
+      let title, desc;
+      if (data.status === 'filled') {
+        const avgStr = data.avg_price > 0 ? ` @ avg $${Number(data.avg_price).toFixed(2)}` : '';
+        title = isBuyOrd ? `Bought ${amtStr}` : `Sold ${amtStr}`;
+        desc = `Market order filled${avgStr}.${data.total_fee > 0 ? ` Fee: ${data.total_fee.toFixed(6)} ${data.total_fee_asset}` : ''}`;
+      } else if (data.status === 'partially_filled') {
+        const filledStr = `${Number(data.filled || 0).toFixed(6).replace(/\.?0+$/, '')} ${displayBase}`;
+        title = isBuyOrd ? `Partial buy filled` : `Partial sell filled`;
+        desc = `${filledStr} filled — remainder is resting on the order book.`;
+      } else {
+        const priceStr = data.price ? ` @ $${Number(data.price).toLocaleString(undefined, { maximumFractionDigits: 8 })}` : '';
+        title = isBuyOrd ? `Limit buy placed` : `Limit sell placed`;
+        desc = `${amtStr}${priceStr} — order is now on the book.`;
+      }
+      toast.success(title, desc);
+
       setAmount('');
       setTotalUsdt('');
       limitSizeSourceRef.current = 'amount';
       limitPriceSyncKeyRef.current = '';
       if (!isMarket) setPrice('');
+      setSubmitAttempted(false);
+      setTouched({});
       await Promise.all([fetchWallet(), fetchOrders(), fetchLiveSpotPositions()]);
-      setTimeout(() => setResult(null), 5500);
     } catch (err) {
-      setResult({ ok: false, error: err.message });
-      setTimeout(() => setResult(null), 7000);
+      toast.error('Order failed', friendlyError(err.message));
     } finally {
       setPlacing(false);
     }
@@ -251,7 +314,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                   : 'border-red-400 text-red-400 bg-red-500/[.07]'
                 : 'border-transparent text-white hover:text-white'
             }`}>
-            {s === 'buy' ? `▲ Buy ${base}` : `▼ Sell ${base}`}
+            {s === 'buy' ? `▲ Buy ${displayBase}` : `▼ Sell ${displayBase}`}
           </button>
         ))}
       </div>
@@ -269,7 +332,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
         </div>
         <p className="text-[11px] text-white/55 px-0.5 leading-relaxed -mt-2">
           {isMarket
-            ? 'Fills at the best available prices now. Size is in ' + base + ' (same as API). Totals below track the last price in real time.'
+            ? `Fills at the best available prices now. Size is in ${displayBase}. Totals below track the last price in real time.`
             : 'Sets a firm price: your order rests on the book until the market reaches this price or better.'}
         </p>
 
@@ -282,7 +345,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
             <span className="text-white font-mono font-bold text-base tabular-nums">
               {isBuy
                 ? `${avail.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT`
-                : `${avail.toFixed(6)} ${base}`}
+                : `${avail.toFixed(6)} ${displayBase}`}
             </span>
             <Link
               to="/wallet?tab=deposit"
@@ -304,7 +367,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 Limit price
               </label>
               <p className="text-[10px] text-white/55 mb-2 px-0.5">
-                USDT you pay per 1 {base} (quote per base).
+                USDT you pay per 1 {displayBase} (quote per base).
               </p>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
                 shouldShowError('price') ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
@@ -347,15 +410,17 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
           {/* Amount input */}
           <div>
             <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
-              {isMarket ? 'Amount (size)' : 'Amount'}
+              {isMarket && isBuy ? 'Total Quantity' : isMarket ? 'Amount' : 'Amount'}
             </label>
-            <p className="text-[10px] text-white/70 px-0.5 mb-2 leading-relaxed">
-              Order size in <span className="text-white font-semibold">{base}</span>
-              {' '}· Min {MIN_BASE_AMOUNT} {base} · Min notional ${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT
-              {isMarket && isBuy && (
-                <> · Buy locks ≈ {((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% above last for slippage</>
-              )}
-            </p>
+            {!(isMarket && isBuy) && (
+              <p className="text-[10px] text-white/70 px-0.5 mb-2 leading-relaxed">
+                Order size in <span className="text-white font-semibold">{displayBase}</span>
+                {' '}· Min {MIN_BASE_AMOUNT} {displayBase} · Min notional ${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT
+                {isMarket && isBuy && (
+                  <> · Buy locks ≈ {((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% above last for slippage</>
+                )}
+              </p>
+            )}
             <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
               (spotCheck.errors.amount || spotCheck.errors.balance)
               && (submitAttempted || touched.amount || touched.balance)
@@ -370,7 +435,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 placeholder="0.0000"
                 className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
               />
-              <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{base}</span>
+              <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{displayBase}</span>
             </div>
             {shouldShowError('amount') && (
               <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.amount}</p>
@@ -383,6 +448,27 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
             )}
           </div>
 
+          {isMarket && isBuy && (
+            <div>
+              <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
+                Amount of USDT
+              </label>
+              <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 transition-colors focus-within:border-gold/60">
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={marketSpendUsdt}
+                  onChange={onMarketSpendUsdtChange}
+                  placeholder="0.00"
+                  className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
+                  aria-label="Market buy spend in USDT"
+                />
+                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
+              </div>
+            </div>
+          )}
+
           {!isMarket && (
             <div>
               <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
@@ -390,7 +476,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
               </label>
               <p className="text-[10px] text-white/70 px-0.5 mb-2 leading-relaxed">
                 Order value in <span className="text-white font-semibold">USDT</span>
-                {' '}(updates live with limit price and {base} size). Edit total to size by quote; edit {base} to size by base.
+                {' '}(updates live with limit price and {displayBase} size). Edit total to size by quote; edit {displayBase} to size by base.
               </p>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
                 shouldShowError('total') ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
@@ -411,6 +497,28 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
               {shouldShowError('total') && (
                 <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.total}</p>
               )}
+            </div>
+          )}
+
+          {!isMarket && (
+            <div>
+              <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
+                Total Quantity
+              </label>
+              <p className="text-[10px] text-white/70 px-0.5 mb-2 leading-relaxed">
+                Final quantity in <span className="text-white font-semibold">{displayBase}</span> based on your amount/total inputs.
+              </p>
+              <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3.5">
+                <input
+                  type="text"
+                  value={amtNum > 0 ? amtNum.toLocaleString(undefined, { maximumFractionDigits: 8 }) : ''}
+                  placeholder="0.0000"
+                  readOnly
+                  className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
+                  aria-label={`Total quantity in ${displayBase}`}
+                />
+                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{displayBase}</span>
+              </div>
             </div>
           )}
 
@@ -451,7 +559,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
             <div className="flex items-center justify-between text-sm">
               <span className="text-white/80 font-semibold">Size</span>
               <span className="text-white font-mono font-bold tabular-nums">
-                {amtNum > 0 ? `${amtNum.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${base}` : '—'}
+                {amtNum > 0 ? `${amtNum.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${displayBase}` : '—'}
               </span>
             </div>
 
@@ -481,7 +589,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
 
             {!isBuy && amtNum > 0 && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-white/80 font-semibold">{base} locked</span>
+                <span className="text-white/80 font-semibold">{displayBase} locked</span>
                 <span className="text-white font-mono font-bold tabular-nums">
                   {amtNum.toLocaleString(undefined, { maximumFractionDigits: 8 })}
                 </span>
@@ -493,7 +601,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 <span className="font-semibold">Est. fee ({(FEE_RATE * 100).toFixed(1)}%)</span>
                 <span className="font-mono font-bold text-white">
                   {isBuy
-                    ? `${estFeeBuyBase.toFixed(6)} ${base}`
+                    ? `${estFeeBuyBase.toFixed(6)} ${displayBase}`
                     : `${estFeeSellUsdt.toFixed(4)} USDT`}
                 </span>
               </div>
@@ -586,54 +694,11 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 Placing Order…
               </span>
             ) : isBuy
-              ? `Buy ${base}`
-              : `Sell ${base}`}
+              ? `Buy ${displayBase}`
+              : `Sell ${displayBase}`}
           </button>
         </form>
 
-        {/* Result toast */}
-        {result && (
-          <div className={`rounded-xl p-4 space-y-2 ${
-            result.ok
-              ? 'bg-green-500/10 border border-green-500/30'
-              : 'bg-red-500/10 border border-red-500/30'
-          }`}>
-            {result.ok ? (
-              <>
-                <p className="text-sm text-green-400 font-extrabold flex items-center gap-2">
-                  <CheckCircle size={15} />
-                  {result.order.status === 'filled'
-                    ? 'Order filled'
-                    : result.order.status === 'open'
-                      ? 'Limit order placed — see Open orders'
-                      : result.order.status === 'partially_filled'
-                        ? 'Partially filled — remainder in Open orders'
-                        : `Order: ${result.order.status}`}
-                </p>
-                <p className="text-sm text-white font-mono">
-                  {result.order.side.toUpperCase()}{' '}
-                  {result.order.type === 'limit' && result.order.price
-                    ? `@ $${Number(result.order.price).toLocaleString(undefined, { maximumFractionDigits: 8 })} · `
-                    : ''}
-                  rem {Number(result.order.remaining ?? result.order.amount).toFixed(6)} /{' '}
-                  {Number(result.order.amount).toFixed(6)} {base}
-                  {result.order.avg_price > 0 && result.order.filled > 0 && (
-                    <span>{` · avg $${Number(result.order.avg_price).toFixed(4)}`}</span>
-                  )}
-                </p>
-                {result.order.total_fee > 0 && (
-                  <p className="text-xs text-white font-mono">
-                    Fee: {result.order.total_fee.toFixed(6)} {result.order.total_fee_asset}
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-red-400 flex items-center gap-2 font-semibold">
-                <AlertCircle size={15} /> {result.error}
-              </p>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

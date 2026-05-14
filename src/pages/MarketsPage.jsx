@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Search, Star, TrendingUp, TrendingDown, ArrowRight, RefreshCw, BarChart2,
@@ -9,6 +9,8 @@ import {
 import { COIN_ICONS, exchangeWsPath, normalizeMarketsList, marketApi } from '@/services/marketApi';
 import { futuresApi, openMarketsWs } from '@/services/futuresApi';
 import { optionsApi } from '@/services/optionsApi';
+import { useAuth } from '@/context/AuthContext';
+import GetVerifiedModal from '@/components/GetVerifiedModal';
 
 const fmtP = (v, base) => {
   const n = parseFloat(v);
@@ -89,7 +91,7 @@ const CATEGORY_TABS = [
   { id: 'all', label: 'All markets', short: 'All' },
   { id: 'major', label: 'Major', short: 'Major' },
   { id: 'alt', label: 'Altcoins', short: 'Alts' },
-  { id: 'bzx', label: 'BITZX', short: 'BZX' },
+  { id: 'vsn', label: 'Vision', short: 'VSN' },
   { id: 'favorites', label: 'Watchlist', short: '★', icon: Star },
   { id: 'gainers', label: '24h Gainers', short: '▲' },
   { id: 'losers', label: '24h Losers', short: '▼' },
@@ -113,15 +115,20 @@ const fmtFunding8h = (rate) => {
   return `${(r * 100).toFixed(4)}%`;
 };
 
+const VERIFY_DISMISSED_KEY = 'maxbyteex_get_verified_dismissed';
+
 export default function MarketsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+  const [showVerify, setShowVerify] = useState(false);
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [marketMode, setMarketMode] = useState('spot');
   const [category, setCategory] = useState('all');
   const [favorites, setFavorites] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bitzxex_favs') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem('maxbyteex_favs') || '[]'); } catch { return []; }
   });
   const [sortKey, setSortKey] = useState('quoteVolume');
   const [sortDir, setSortDir] = useState(-1);
@@ -140,13 +147,31 @@ export default function MarketsPage() {
   const [futuresViewMode, setFuturesViewMode] = useState('split');
   const [futuresFavorites, setFuturesFavorites] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('bitzxex_favs_perp') || '[]');
+      return JSON.parse(localStorage.getItem('maxbyteex_favs_perp') || '[]');
     } catch {
       return [];
     }
   });
   const [optionsUnderlyings, setOptionsUnderlyings] = useState([]);
   const [optionsUnderlyingsLoading, setOptionsUnderlyingsLoading] = useState(false);
+
+  // Show GetVerifiedModal after registration or for unverified users
+  useEffect(() => {
+    if (location.state?.justRegistered) {
+      setShowVerify(true);
+      window.history.replaceState({}, '', location.pathname);
+      return;
+    }
+    if (user && user.kyc_status !== 'approved') {
+      const dismissed = sessionStorage.getItem(VERIFY_DISMISSED_KEY);
+      if (!dismissed) setShowVerify(true);
+    }
+  }, [user?.uid, location.state?.justRegistered]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dismissVerify = () => {
+    sessionStorage.setItem(VERIFY_DISMISSED_KEY, '1');
+    setShowVerify(false);
+  };
 
   useEffect(() => {
     if (marketMode !== 'options') return undefined;
@@ -412,7 +437,7 @@ export default function MarketsPage() {
   const toggleFuturesFav = (sym) => {
     const next = futuresFavorites.includes(sym) ? futuresFavorites.filter((f) => f !== sym) : [...futuresFavorites, sym];
     setFuturesFavorites(next);
-    localStorage.setItem('bitzxex_favs_perp', JSON.stringify(next));
+    localStorage.setItem('maxbyteex_favs_perp', JSON.stringify(next));
   };
 
   const refreshFuturesPage = async () => {
@@ -478,7 +503,7 @@ export default function MarketsPage() {
   const toggleFav = sym => {
     const next = favorites.includes(sym) ? favorites.filter(f => f !== sym) : [...favorites, sym];
     setFavorites(next);
-    localStorage.setItem('bitzxex_favs', JSON.stringify(next));
+    localStorage.setItem('maxbyteex_favs', JSON.stringify(next));
   };
 
   const handleSort = k => {
@@ -516,9 +541,9 @@ export default function MarketsPage() {
     let list = markets.filter(m => {
       const base = m.base || m.symbol?.replace('USDT', '');
       if (category === 'favorites') return favorites.includes(m.symbol);
-      if (category === 'bzx') return base === 'BZX';
+      if (category === 'vsn') return base === 'VSN';
       if (category === 'major') return MAJOR_BASES.has(base);
-      if (category === 'alt') return !MAJOR_BASES.has(base) && base !== 'BZX';
+      if (category === 'alt') return !MAJOR_BASES.has(base) && base !== 'VSN';
       if (category === 'gainers') return num(m.priceChangePercent) > 0;
       if (category === 'losers') return num(m.priceChangePercent) < 0;
       return true;
@@ -554,6 +579,8 @@ export default function MarketsPage() {
 
   return (
     <div className="min-h-screen bg-surface-dark w-full min-w-0 overflow-x-hidden">
+      {showVerify && <GetVerifiedModal onClose={dismissVerify} />}
+
       <div className="w-full max-w-[100vw] min-w-0 px-3 sm:px-5 md:px-6 lg:px-8 xl:px-10 2xl:px-12 py-4 sm:py-8 md:py-10 pb-10 sm:pb-14">
 
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
@@ -565,7 +592,7 @@ export default function MarketsPage() {
           <p className="text-sm sm:text-base text-white/80 max-w-3xl">
             {marketMode === 'futures' && (
               <>
-                USDT-margined perpetuals: live mark and index from the BITZX futures engine, plus full 24h OHLC, volume, and
+                USDT-margined perpetuals: live mark and index from the MaxByte futures engine, plus full 24h OHLC, volume, and
                 bid–ask for each underlying spot pair (same data as the Spot tab). Open any row to trade with leverage and margin
                 controls on the futures terminal.
               </>
@@ -687,7 +714,7 @@ export default function MarketsPage() {
                 <ul className="text-[12px] sm:text-sm text-white/70 space-y-2 list-disc pl-4 marker:text-gold-light/80">
                   <li>
                     <span className="text-white/90 font-semibold">Mark</span> and <span className="text-white/90 font-semibold">index</span>{' '}
-                    update from the BITZX futures feed (local book + external reference).
+                    update from the MaxByte futures feed (local book + external reference).
                   </li>
                   <li>
                     <span className="text-white/90 font-semibold">Last, 24h %, OHLC, volumes, bid/ask, spread, trades</span> use the
@@ -1279,7 +1306,7 @@ export default function MarketsPage() {
             )}
 
             <p className="text-[11px] text-white/40 text-center px-2">
-              Mark / index: BITZX futures engine. 24h OHLC, volume, order book: underlying spot (Binance / BITZX public data). Funding:
+              Mark / index: MaxByte futures engine. 24h OHLC, volume, order book: underlying spot (Binance / MaxByte public data). Funding:
               last settled rate from futures API. Not financial advice.
             </p>
           </div>
@@ -1572,7 +1599,7 @@ export default function MarketsPage() {
                                 <div className="flex items-center gap-1 flex-wrap">
                                   <span className="text-white font-bold text-xs md:text-sm">{base}</span>
                                   <span className="text-white/50 text-[11px] md:text-sm">/USDT</span>
-                                  {base === 'BZX' && (
+                                  {base === 'VSN' && (
                                     <span className="text-[9px] bg-gold/20 text-gold-light px-1 py-0.5 rounded font-bold">BZX</span>
                                   )}
                                 </div>
@@ -1738,7 +1765,7 @@ export default function MarketsPage() {
         )}
 
         <p className="text-white/45 text-xs sm:text-sm text-center mt-8 px-2">
-          BZX from BITZX API · Other pairs from Binance public 24h ticker · Not financial advice
+          VSN from MaxByte API · Other pairs from Binance public 24h ticker · Not financial advice
         </p>
       </div>
     </div>

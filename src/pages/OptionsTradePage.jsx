@@ -7,11 +7,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  RefreshCw, Wallet, ArrowLeftRight, Layers, AlertCircle, ChevronDown, Globe,
+  RefreshCw, Wallet, ArrowLeftRight, Layers, AlertCircle, ChevronDown, Globe, X, Shield, Clock,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { optionsApi, openOptionsAccountWs, openOptionsDepthWs } from '@/services/optionsApi';
+import { optionsApi, openOptionsAccountWs, openOptionsDepthWs, openOptionsChainWs } from '@/services/optionsApi';
 import { COIN_ICONS } from '@/services/marketApi';
+import { useToast, friendlyError } from '@/context/ToastContext';
 
 const DEFAULT_UNDERLYING = 'BTCUSDT';
 
@@ -132,8 +133,8 @@ function computeAtmStrike(rows, referencePrice) {
 /** Per-expiry divider bar (Calls / price / vol | centered date | time to expiry). */
 function ExpirySectionHeader({ underlying, referenceIndex, expiry }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-[#0c0e12] border-b border-white/[0.09] text-[11px] sm:text-xs leading-normal">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-400 min-w-[min(100%,16rem)]">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-[#0c0e12] border-b border-white/[0.09] text-[11px] sm:text-xs leading-normal">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-zinc-400">
         <span className="font-bold text-white">Calls</span>
         <span className="font-mono font-semibold text-zinc-100">{underlying}</span>
         <span className="whitespace-nowrap">
@@ -149,10 +150,10 @@ function ExpirySectionHeader({ underlying, referenceIndex, expiry }) {
           ATM Vol: <span className="font-mono text-zinc-200">—</span>
         </span>
       </div>
-      <div className="shrink-0 font-bold text-white font-mono text-sm sm:text-base tracking-tight text-center px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/[0.08]">
+      <div className="justify-self-center font-bold text-white font-mono text-sm sm:text-base tracking-tight text-center px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/[0.08]">
         {formatExpiryTabLabel(expiry)}
       </div>
-      <div className="shrink-0 text-left sm:text-right text-zinc-400 min-w-0">
+      <div className="justify-self-end text-right text-zinc-400 min-w-0">
         <span className="hidden sm:inline text-zinc-500">Time to Expiry: </span>
         <span className="sm:hidden">TTM: </span>
         <span className="font-mono text-zinc-100 tabular-nums whitespace-nowrap">{timeToExpiryDetail(expiry)}</span>
@@ -270,7 +271,6 @@ function formatExpiryTabLabel(iso) {
  * Binance-style chain arm — mirrored columns (reference layout).
  * Calls outer→strike: Ask sz · Bid sz · Open (USDT) · Delta · Ask/IV · Mark/IV · Bid/IV · Pos
  * Puts strike→outer: Pos · Bid/IV · Mark/IV · Ask/IV · Delta · Open · Bid sz · Ask sz
- * IV row shows — until backend exposes implied volatility.
  */
 function ChainArm({
   contract,
@@ -281,8 +281,8 @@ function ChainArm({
   onPick,
 }) {
   const empty = (
-    <td colSpan={8} className="border-b border-white/[0.08] bg-black/40 text-center text-[10px] sm:text-[11px] text-zinc-500 py-2 align-middle">
-      —
+    <td colSpan={8} className="border-b border-white/[0.06] bg-[#06070a] text-center text-[11px] text-zinc-700 py-3 align-middle font-mono tracking-wider">
+      — — — — — — — —
     </td>
   );
   if (!contract) return empty;
@@ -290,126 +290,123 @@ function ChainArm({
   const isSel = selectedId === contract.id;
   const strike = Number(contract.strike);
   const refOk = referencePrice != null && Number.isFinite(referencePrice) && Number.isFinite(strike);
-  const itm =
-    refOk && (side === 'call' ? referencePrice > strike : referencePrice < strike);
-  const bg = itm
-    ? side === 'call'
-      ? 'bg-emerald-950/40'
-      : 'bg-rose-950/40'
-    : 'bg-[#07080c]';
+  const itm = refOk && (side === 'call' ? referencePrice > strike : referencePrice < strike);
+
+  // Richer ITM shading so in-the-money rows are obviously distinct
+  const rowBg = isSel
+    ? side === 'call' ? 'bg-emerald-900/25' : 'bg-rose-900/25'
+    : itm
+      ? side === 'call' ? 'bg-emerald-950/55' : 'bg-rose-950/55'
+      : 'bg-[#07080c]';
 
   const m = contract.market || {};
-  const pick = (e) => {
-    e.stopPropagation();
-    onPick(contract.id);
-  };
+  const pick = (e) => { e.stopPropagation(); onPick(contract.id); };
 
-  const pxMain = 'text-[11px] sm:text-[12px] font-semibold tabular-nums leading-snug whitespace-nowrap';
-  const pxSub = 'text-[9px] sm:text-[10px] leading-tight text-zinc-500';
-  const ivLine = 'text-zinc-500';
+  const ivStr = m.iv != null && Number.isFinite(Number(m.iv))
+    ? `${(Number(m.iv) * 100).toFixed(1)}%`
+    : '—';
+  const deltaVal = m.delta != null && Number.isFinite(Number(m.delta))
+    ? fmtNum(Number(m.delta), 3)
+    : '—';
+  const hasDelta = m.delta != null && Number.isFinite(Number(m.delta));
+  const posLabel = positionQtyLabel(contract.id, positions);
+  const hasPos = posLabel !== '—';
 
-  const sub = (node) => <span className="hidden sm:block">{node}</span>;
-
-  const Cell = ({ children, className = '' }) => (
-    <div
-      className={`px-1 py-1 sm:px-1.5 sm:py-1.5 text-center flex flex-col justify-center gap-0.5 min-h-[32px] sm:min-h-[38px] min-w-0 border-white/[0.04] font-mono ${className}`}
-    >
+  // Shared cell wrapper: taller, clear padding, vertically centered
+  const Cell = ({ children, accent = false, className = '' }) => (
+    <div className={`flex flex-col items-center justify-center gap-[2px] px-1.5 py-2 min-h-[44px] sm:min-h-[48px] min-w-0 font-mono text-center ${accent ? 'bg-white/[0.015]' : ''} ${className}`}>
       {children}
     </div>
   );
 
-  const askSz = (
+  // Main price/number — large, bold, clearly legible
+  const Num = ({ v, cls = 'text-zinc-200' }) => (
+    <span className={`text-[12px] sm:text-[13px] font-bold tabular-nums leading-none whitespace-nowrap ${cls}`}>{v}</span>
+  );
+  // Secondary label under a number — dim, tiny
+  const Lbl = ({ v }) => (
+    <span className="hidden sm:block text-[9px] font-semibold uppercase tracking-[0.06em] text-zinc-600 leading-none mt-0.5">{v}</span>
+  );
+  // IV sub-line — shown only on sm+
+  const IvSub = () => (
+    <span className={`hidden sm:block text-[9px] leading-none mt-px font-mono ${ivStr === '—' ? 'text-zinc-700' : 'text-sky-400/70'}`}>
+      IV {ivStr}
+    </span>
+  );
+
+  const askSzCell = (
     <Cell>
-      <span className={`${pxMain} text-rose-300/95`}>{m.ask_qty != null ? fmtNum(m.ask_qty, 4) : '—'}</span>
-      {sub(<span className={`${pxSub} text-zinc-500 uppercase tracking-wide`}>ask sz</span>)}
+      <Num v={m.ask_qty != null ? fmtNum(m.ask_qty, 2) : '—'} cls="text-rose-400/90" />
+      <Lbl v="ask sz" />
     </Cell>
   );
-  const bidSz = (
+  const bidSzCell = (
     <Cell>
-      <span className={`${pxMain} text-emerald-300/95`}>{m.bid_qty != null ? fmtNum(m.bid_qty, 4) : '—'}</span>
-      {sub(<span className={`${pxSub} text-zinc-500 uppercase tracking-wide`}>bid sz</span>)}
+      <Num v={m.bid_qty != null ? fmtNum(m.bid_qty, 2) : '—'} cls="text-emerald-400/90" />
+      <Lbl v="bid sz" />
     </Cell>
   );
-  const openUsdt = (
+  const openCell = (
     <Cell>
-      <span className={`${pxMain} text-amber-200/95`}>{fmtOpenUsdtNotional(m.open_interest, m.mid)}</span>
-      {sub(<span className={`${pxSub} text-zinc-500`}>open</span>)}
+      <Num v={fmtOpenUsdtNotional(m.open_interest, m.mid)} cls="text-amber-300/85" />
+      <Lbl v="OI" />
     </Cell>
   );
   const deltaCell = (
-    <Cell>
-      <span className={`${pxMain} text-zinc-400`}>—</span>
-      {sub(<span className={`${pxSub} text-zinc-500`}>δ</span>)}
+    <Cell accent>
+      <Num v={deltaVal} cls={hasDelta ? 'text-sky-300/90' : 'text-zinc-600'} />
+      <Lbl v="delta" />
     </Cell>
   );
-  const askIv = (
-    <Cell>
-      <span className={`${pxMain} text-rose-300`}>{fmtMarketPx(m.best_ask)}</span>
-      {sub(<span className={`${pxSub} ${ivLine}`}>IV —</span>)}
+  const askCell = (
+    <Cell accent>
+      <Num v={fmtMarketPx(m.best_ask)} cls={m.best_ask != null ? 'text-rose-300 font-extrabold' : 'text-zinc-600'} />
+      <IvSub />
     </Cell>
   );
-  const markIv = (
-    <Cell>
-      <span className={`${pxMain} text-white`}>{fmtMarketPx(m.mid)}</span>
-      {sub(<span className={`${pxSub} ${ivLine}`}>IV —</span>)}
+  const markCell = (
+    <Cell accent>
+      <Num v={fmtMarketPx(m.mid)} cls={m.mid != null ? 'text-white font-extrabold' : 'text-zinc-600'} />
+      <IvSub />
     </Cell>
   );
-  const bidIv = (
-    <Cell>
-      <span className={`${pxMain} text-emerald-300`}>{fmtMarketPx(m.best_bid)}</span>
-      {sub(<span className={`${pxSub} ${ivLine}`}>IV —</span>)}
+  const bidCell = (
+    <Cell accent>
+      <Num v={fmtMarketPx(m.best_bid)} cls={m.best_bid != null ? 'text-emerald-300 font-extrabold' : 'text-zinc-600'} />
+      <IvSub />
     </Cell>
   );
-  const posCol = (
+  const posCell = (
     <Cell>
-      <span className={`${pxMain} text-gold-light`}>{positionQtyLabel(contract.id, positions)}</span>
-      {sub(<span className={`${pxSub} text-zinc-500 uppercase tracking-wide`}>pos</span>)}
+      <Num v={posLabel} cls={hasPos ? 'text-gold-light font-extrabold' : 'text-zinc-700'} />
+      <Lbl v="pos" />
     </Cell>
   );
 
-  const armGrid =
-    'grid h-full min-w-0 divide-x divide-white/[0.05] [grid-template-columns:repeat(8,minmax(3.25rem,1fr))]';
+  const armGrid = 'grid h-full min-w-0 divide-x divide-white/[0.06] [grid-template-columns:repeat(8,minmax(3.5rem,1fr))]';
 
-  const inner =
-    side === 'call' ? (
-      <div className={armGrid}>
-        {askSz}
-        {bidSz}
-        {openUsdt}
-        {deltaCell}
-        {askIv}
-        {markIv}
-        {bidIv}
-        {posCol}
-      </div>
-    ) : (
-      <div className={armGrid}>
-        {posCol}
-        {bidIv}
-        {markIv}
-        {askIv}
-        {deltaCell}
-        {openUsdt}
-        {bidSz}
-        {askSz}
-      </div>
-    );
+  const inner = side === 'call' ? (
+    <div className={armGrid}>
+      {askSzCell}{bidSzCell}{openCell}{deltaCell}{askCell}{markCell}{bidCell}{posCell}
+    </div>
+  ) : (
+    <div className={armGrid}>
+      {posCell}{bidCell}{markCell}{askCell}{deltaCell}{openCell}{bidSzCell}{askSzCell}
+    </div>
+  );
 
   return (
     <td
       colSpan={8}
       role="button"
       tabIndex={0}
-      title={`${contractStateTitle(contract)}\nSelect ${side} · ${contract.id}`}
+      title={`${contractStateTitle(contract)}\nClick to select ${side} option`}
       onClick={pick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onPick(contract.id);
-        }
-      }}
-      className={`border-b border-white/[0.06] p-0 align-stretch ${bg} ${
-        isSel ? 'ring-2 ring-inset ring-gold-light/70 z-[1] relative' : 'cursor-pointer hover:brightness-[1.04] active:brightness-110'
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(contract.id); } }}
+      className={`border-b border-white/[0.06] p-0 align-stretch transition-colors ${rowBg} ${
+        isSel
+          ? 'ring-2 ring-inset ring-gold-light/80 z-[1] relative shadow-[inset_0_0_0_1px_rgba(235,211,141,0.12)]'
+          : 'cursor-pointer hover:brightness-[1.08] active:brightness-125'
       }`}
     >
       {inner}
@@ -438,7 +435,8 @@ function StatChip({ label, value, mono }) {
 export default function OptionsTradePage() {
   const { underlying: rawUnderlying } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, kyc } = useAuth();
+  const toast = useToast();
 
   const underlying = (rawUnderlying || DEFAULT_UNDERLYING).toUpperCase().replace(/[^A-Z0-9]/g, '') || DEFAULT_UNDERLYING;
 
@@ -474,6 +472,7 @@ export default function OptionsTradePage() {
   const dropRef = useRef(null);
   const [mobilePanelTab, setMobilePanelTab] = useState('chain'); // trade | book | chain — land on chain until a strike is picked
   const [selectedExpiry, setSelectedExpiry] = useState(null);
+  const [liveIndexPrice, setLiveIndexPrice] = useState(null);
 
   const selected = useMemo(
     () => contracts.find((c) => c.id === selectedId) || null,
@@ -506,6 +505,7 @@ export default function OptionsTradePage() {
   );
 
   const referenceIndex = useMemo(() => {
+    if (liveIndexPrice != null && Number.isFinite(liveIndexPrice)) return liveIndexPrice;
     if (demoIndexPrice != null && Number.isFinite(Number(demoIndexPrice))) return Number(demoIndexPrice);
     const mids = contracts
       .map((x) => x.market?.mid)
@@ -520,7 +520,7 @@ export default function OptionsTradePage() {
     ].sort((a, b) => a - b);
     if (strikes.length) return strikes[Math.floor(strikes.length / 2)];
     return null;
-  }, [contracts, demoIndexPrice]);
+  }, [contracts, demoIndexPrice, liveIndexPrice]);
 
   const loadPublic = useCallback(async () => {
     setLoading(true);
@@ -565,7 +565,7 @@ export default function OptionsTradePage() {
       }
     }
     if (!list.length && chainErr) {
-      setError(chainErr);
+      setError('Could not load option contracts. Please refresh the page or try again in a moment.');
     }
     setUsingDemoChain(demo);
     setDemoIndexPrice(idx);
@@ -634,34 +634,18 @@ export default function OptionsTradePage() {
     }
     setDepth(undefined);
     setRecentTape([]);
-    const ws = openOptionsDepthWs(selectedId, 16, (msg) => {
+    const handle = openOptionsDepthWs(selectedId, 16, (msg) => {
       if (msg?.type !== 'options_depth') return;
       if (msg.contract_id !== depthContractRef.current) return;
-      setDepth({
-        contract_id: msg.contract_id,
-        bids: msg.bids || [],
-        asks: msg.asks || [],
-      });
+      setDepth({ contract_id: msg.contract_id, bids: msg.bids || [], asks: msg.asks || [] });
       if (Array.isArray(msg.recent_trades)) setRecentTape(msg.recent_trades);
     });
-    const onErr = () => {
-      setDepth(null);
-      setRecentTape([]);
-    };
-    ws.addEventListener('error', onErr);
-    return () => {
-      try {
-        ws.removeEventListener('error', onErr);
-        ws.close();
-      } catch {
-        /* ignore */
-      }
-    };
+    return () => handle?.close();
   }, [selectedId, usingDemoChain]);
 
   useEffect(() => {
     if (!user) return undefined;
-    const ws = openOptionsAccountWs((msg) => {
+    const handle = openOptionsAccountWs((msg) => {
       if (msg?.type !== 'options_account') return;
       if (msg.wallet) setWallet(msg.wallet);
       if (Array.isArray(msg.positions)) setPositions(msg.positions);
@@ -669,14 +653,30 @@ export default function OptionsTradePage() {
       if (Array.isArray(msg.order_history)) setOrderHist(msg.order_history);
       if (Array.isArray(msg.user_trades)) setMyTrades(msg.user_trades);
     });
-    return () => {
-      try {
-        ws?.close();
-      } catch {
-        /* ignore */
-      }
-    };
+    return () => handle?.close();
   }, [user]);
+
+  useEffect(() => {
+    if (usingDemoChain) return undefined;
+    const handle = openOptionsChainWs(underlying, (msg) => {
+      if (msg?.type !== 'options_chain') return;
+      if (msg.underlying_symbol !== underlying) return;
+      if (msg.index_price != null && Number.isFinite(Number(msg.index_price))) {
+        setLiveIndexPrice(Number(msg.index_price));
+      }
+      if (Array.isArray(msg.contracts) && msg.contracts.length) {
+        const updates = new Map(msg.contracts.map((c) => [c.id, c]));
+        setContracts((prev) =>
+          prev.map((c) => {
+            const u = updates.get(c.id);
+            if (!u) return c;
+            return { ...c, market: { ...(c.market || {}), ...u } };
+          }),
+        );
+      }
+    });
+    return () => handle?.close();
+  }, [underlying, usingDemoChain]);
 
   const selectContractFromChain = useCallback((id) => {
     if (!id) return;
@@ -709,26 +709,32 @@ export default function OptionsTradePage() {
 
   const submitOrder = async () => {
     if (usingDemoChain) {
-      setError('These listings are not on the live order book yet. Ask your operator to publish tradable contracts.');
+      toast.warning(
+        'Preview contracts only',
+        'These contracts are not on the live order book yet. An operator must publish tradable contracts first.',
+      );
       return;
     }
     if (!user) {
       navigate('/login');
       return;
     }
+    if (kyc?.status !== 'approved') {
+      toast.error('KYC required', 'Complete identity verification before trading options.');
+      return;
+    }
     if (!selected) return;
     const p = parseFloat(price);
     const q = parseFloat(qty);
     if (!Number.isFinite(p) || p <= 0) {
-      setError('Enter a valid limit premium (USDT per contract).');
+      toast.error('Invalid price', 'Enter the limit premium — the price per contract in USDT.');
       return;
     }
     if (!Number.isFinite(q) || q <= 0) {
-      setError('Enter a valid quantity.');
+      toast.error('Invalid quantity', 'Enter how many contracts you want to trade (must be greater than 0).');
       return;
     }
     setBusy(true);
-    setError(null);
     try {
       await optionsApi.placeOrder({
         contract_id: selected.id,
@@ -739,10 +745,23 @@ export default function OptionsTradePage() {
         reduce_only: side === 'sell',
       });
       setQty('');
+      const optType = (selected.option_type || '').toUpperCase();
+      const strike = fmtNum(selected.strike, 2);
+      if (side === 'buy') {
+        toast.success(
+          'Buy order placed',
+          `${optType} · Strike ${strike} — ${q} contract${q !== 1 ? 's' : ''} @ ${fmtNum(p, 4)} USDT`,
+        );
+      } else {
+        toast.success(
+          'Sell order placed',
+          `${optType} · Strike ${strike} — closing ${q} contract${q !== 1 ? 's' : ''} @ ${fmtNum(p, 4)} USDT`,
+        );
+      }
       await loadPrivate();
       await loadPublic();
     } catch (e) {
-      setError(e.message || 'Order failed');
+      toast.error('Order failed', friendlyError(e.message));
     } finally {
       setBusy(false);
     }
@@ -753,9 +772,10 @@ export default function OptionsTradePage() {
     setBusy(true);
     try {
       await optionsApi.cancelOrder(id);
+      toast.success('Order cancelled', 'Your open order has been removed from the book.');
       await loadPrivate();
     } catch (e) {
-      setError(e.message || 'Cancel failed');
+      toast.error('Could not cancel order', friendlyError(e.message));
     } finally {
       setBusy(false);
     }
@@ -768,18 +788,24 @@ export default function OptionsTradePage() {
     }
     const a = parseFloat(xferAmt);
     if (!Number.isFinite(a) || a <= 0) {
-      setError('Enter a valid transfer amount.');
+      toast.error('Invalid amount', 'Enter a positive USDT amount to transfer.');
       return;
     }
     setBusy(true);
-    setError(null);
     try {
       await optionsApi.transfer({ direction: xferDir, asset: 'USDT', amount: a });
+      const isIn = xferDir === 'spot_to_options';
+      toast.success(
+        'Transfer complete',
+        isIn
+          ? `${fmtNum(a, 2)} USDT moved to your Options wallet — ready to trade.`
+          : `${fmtNum(a, 2)} USDT returned to your Spot wallet.`,
+      );
       setXferAmt('');
       setXferOpen(false);
       await loadPrivate();
     } catch (e) {
-      setError(e.message || 'Transfer failed');
+      toast.error('Transfer failed', friendlyError(e.message));
     } finally {
       setBusy(false);
     }
@@ -981,67 +1007,61 @@ export default function OptionsTradePage() {
 
   const chainTableShell = (expiryKey, rows) => {
     const atm = computeAtmStrike(rows, referenceIndex);
+
+    // Shared header cell style for sub-column labels
+    const Th = ({ children, cls = '', title: tip = '' }) => (
+      <th title={tip} className={`px-1 py-2 text-center text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.07em] border-r border-white/[0.05] last:border-r-0 ${cls}`}>
+        {children}
+      </th>
+    );
+
     return (
-      <table className="w-full min-w-[940px] sm:min-w-[1000px] md:min-w-[1080px] lg:min-w-[1180px] xl:min-w-[1240px] border-collapse text-[10px] sm:text-xs">
-        <thead className="sticky top-0 z-20 bg-[#0f1118] shadow-[0_3px_12px_rgba(0,0,0,0.5)]">
-          <tr className="text-[9px] sm:text-[10px] md:text-[11px] font-extrabold uppercase tracking-[0.08em]">
-            <th colSpan={8} className="border-b border-r border-emerald-500/25 px-1 sm:px-2 py-2 text-center text-emerald-400">
-              Calls (USDT)
+      <table className="w-full min-w-[900px] sm:min-w-[980px] md:min-w-[1060px] lg:min-w-[1160px] border-collapse">
+        <thead className="sticky top-0 z-20">
+          {/* Zone row: Calls | Strike | Puts */}
+          <tr>
+            <th colSpan={8} className="py-2 px-3 text-center text-[11px] font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-950/60 border-b border-r border-emerald-500/30">
+              ▲ Calls
             </th>
-            <th className="min-w-[4.75rem] sm:min-w-[5.25rem] md:min-w-[5.75rem] bg-[#14161c] px-1 sm:px-2 py-2 text-center text-[10px] sm:text-[11px] md:text-[12px] text-gold-light font-extrabold border-b border-x border-gold/25">
+            <th className="py-2 px-2 text-center text-[11px] font-extrabold uppercase tracking-widest text-gold-light bg-[#131520] border-b border-x border-gold/30 min-w-[5.5rem] sm:min-w-[6.25rem]">
               Strike
             </th>
-            <th colSpan={8} className="border-b border-l border-rose-500/25 px-1 sm:px-2 py-2 text-center text-rose-400">
-              Puts (USDT)
+            <th colSpan={8} className="py-2 px-3 text-center text-[11px] font-extrabold uppercase tracking-widest text-rose-400 bg-rose-950/60 border-b border-l border-rose-500/30">
+              ▼ Puts
             </th>
           </tr>
-          <tr className="border-b border-white/[0.08] text-[9px] sm:text-[10px] md:text-[11px] font-bold uppercase tracking-wide text-zinc-400 bg-[#0f1118]">
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center text-rose-300/90" title="Ask size">
-              Ask sz
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center text-emerald-300/90" title="Bid size">
-              Bid sz
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center" title="Open interest notional (OI × mark)">
-              Open
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center">
-              Delta
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center text-rose-300/80">
-              Ask / IV
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center">Mark / IV</th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center text-emerald-300/80">
-              Bid / IV
-            </th>
-            <th className="border-r border-emerald-500/15 px-0.5 py-1.5 text-center text-gold-light/90">Pos</th>
-            <th className="bg-[#14161c] border-x border-gold/25 p-0 min-w-[4.75rem] sm:min-w-[5.25rem]" />
-            <th className="border-l border-rose-500/15 px-0.5 py-1.5 text-center text-gold-light/90">Pos</th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center text-emerald-300/80">
-              Bid / IV
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center">Mark / IV</th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center text-rose-300/80">
-              Ask / IV
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center">
-              Delta
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center" title="Open interest notional">
-              Open
-            </th>
-            <th className="border-r border-white/[0.06] px-0.5 py-1.5 text-center text-emerald-300/90">
-              Bid sz
-            </th>
-            <th className="px-0.5 py-1.5 text-center text-rose-300/90">Ask sz</th>
+          {/* Column-label row */}
+          <tr className="bg-[#0d0f16] border-b-2 border-white/[0.10] text-zinc-500">
+            <Th cls="text-rose-400/80"  title="Ask size (contracts available to sell)">Ask sz</Th>
+            <Th cls="text-emerald-400/80" title="Bid size (contracts available to buy)">Bid sz</Th>
+            <Th title="Open interest (OI × mark, USDT)">OI</Th>
+            <Th cls="text-sky-400/80"  title="Delta: sensitivity to spot price change">Δ Delta</Th>
+            <Th cls="text-rose-300/90" title="Best ask price + implied volatility">Ask · IV</Th>
+            <Th cls="text-white/80"    title="Mid (mark) price + implied volatility">Mark · IV</Th>
+            <Th cls="text-emerald-300/90" title="Best bid price + implied volatility">Bid · IV</Th>
+            <Th cls="text-gold-light/80 border-r-emerald-500/20" title="Your open position in this contract">Pos</Th>
+            {/* Strike column sub-header */}
+            <th className="bg-[#131520] border-x border-gold/25 p-0 min-w-[5.5rem] sm:min-w-[6.25rem]" />
+            {/* Puts columns (mirrored) */}
+            <Th cls="text-gold-light/80 border-l-rose-500/20" title="Your open position in this contract">Pos</Th>
+            <Th cls="text-emerald-300/90" title="Best bid price + implied volatility">Bid · IV</Th>
+            <Th cls="text-white/80"    title="Mid (mark) price + implied volatility">Mark · IV</Th>
+            <Th cls="text-rose-300/90" title="Best ask price + implied volatility">Ask · IV</Th>
+            <Th cls="text-sky-400/80"  title="Delta">Δ Delta</Th>
+            <Th title="Open interest">OI</Th>
+            <Th cls="text-emerald-400/80" title="Bid size">Bid sz</Th>
+            <Th cls="text-rose-400/80"  title="Ask size">Ask sz</Th>
           </tr>
         </thead>
-        <tbody className="[&_td]:align-top font-mono text-zinc-200">
+        <tbody className="[&_td]:align-middle font-mono">
           {rows.map((row) => {
             const isAtm = atm != null && row.strike === atm;
+            const strikeNum = Number(row.strike);
+            const strikeIsItm = referenceIndex != null && Number.isFinite(referenceIndex);
+            const callItm = strikeIsItm && referenceIndex > strikeNum;
+            const putItm  = strikeIsItm && referenceIndex < strikeNum;
             return (
-              <tr key={`${expiryKey}-${row.strike}`} className="transition-colors hover:bg-white/[0.02]">
+              <tr key={`${expiryKey}-${row.strike}`} className="group transition-colors hover:bg-white/[0.03]">
                 <ChainArm
                   contract={row.call}
                   side="call"
@@ -1050,22 +1070,39 @@ export default function OptionsTradePage() {
                   positions={positions}
                   onPick={selectContractFromChain}
                 />
-                <td
-                  className={`border-x border-gold/30 border-b border-white/[0.06] min-w-[4.75rem] sm:min-w-[5.25rem] px-1 sm:px-2 py-1.5 text-center align-middle leading-tight bg-[#12141a] ${
-                    isAtm ? 'ring-2 ring-inset ring-gold/50 shadow-[inset_0_0_0_1px_rgba(235,211,141,0.15)]' : ''
-                  }`}
-                >
-                  <div className="flex flex-col items-center justify-center gap-1">
+
+                {/* ── Strike cell ─────────────────────────────────────── */}
+                <td className={`border-x border-gold/25 border-b border-white/[0.06] min-w-[5.5rem] sm:min-w-[6.25rem] px-1 py-0 text-center align-middle bg-[#0f1118] ${
+                  isAtm ? 'ring-2 ring-inset ring-gold/60 bg-[#16180f]' : ''
+                }`}>
+                  <div className="flex flex-col items-center justify-center gap-1 py-2 min-h-[44px] sm:min-h-[48px]">
+                    {/* ATM badge — live index price */}
                     {isAtm && referenceIndex != null && (
-                      <span className="rounded-md px-2 py-0.5 text-[9px] sm:text-[10px] font-bold bg-gold/15 text-gold-light border border-gold/35 tabular-nums whitespace-nowrap">
+                      <span className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-extrabold bg-gold/20 text-gold-light border border-gold/40 tabular-nums whitespace-nowrap shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-gold-light animate-pulse shrink-0" />
                         {fmtNum(referenceIndex, 2)}
                       </span>
                     )}
-                    <span className="text-[13px] sm:text-[14px] md:text-[15px] font-extrabold tabular-nums text-white tracking-tight whitespace-nowrap">
-                      {fmtNum(row.strike, 8)}
+                    {/* Strike value */}
+                    <span className={`font-extrabold tabular-nums tracking-tight whitespace-nowrap leading-none ${
+                      isAtm
+                        ? 'text-[15px] sm:text-[16px] text-gold-light'
+                        : 'text-[13px] sm:text-[14px] text-zinc-200'
+                    }`}>
+                      {fmtNum(strikeNum, 0)}
                     </span>
+                    {/* ITM label */}
+                    {!isAtm && (callItm || putItm) && (
+                      <span className={`text-[8px] sm:text-[9px] font-bold uppercase tracking-wider ${
+                        callItm ? 'text-emerald-500/70' : 'text-rose-500/70'
+                      }`}>ITM</span>
+                    )}
+                    {!isAtm && !callItm && !putItm && referenceIndex != null && (
+                      <span className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-zinc-700">OTM</span>
+                    )}
                   </div>
                 </td>
+
                 <ChainArm
                   contract={row.put}
                   side="put"
@@ -1251,9 +1288,6 @@ export default function OptionsTradePage() {
                 );
               })()}
             </div>
-            <div className="mt-1 font-mono text-[10px] sm:text-[11px] text-white break-all leading-snug" title={selected.id}>
-              {selected.id}
-            </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-white/65">
               <span className="rounded-md bg-white/5 px-2 py-0.5 font-bold text-white">{String(selected.option_type || '').toUpperCase()}</span>
               <span>K {fmtNum(selected.strike, 2)}</span>
@@ -1370,9 +1404,40 @@ export default function OptionsTradePage() {
             />
           </div>
 
+          {user && kyc?.status !== 'approved' && (
+            <div className={`rounded-xl p-4 border ${
+              kyc?.status === 'pending'
+                ? 'bg-amber-500/8 border-amber-500/25'
+                : 'bg-red-500/8 border-red-500/25'
+            }`}>
+              <p className={`font-extrabold flex items-center gap-2 mb-2 text-sm ${
+                kyc?.status === 'pending' ? 'text-amber-300' : 'text-red-300'}`}>
+                {kyc?.status === 'pending'
+                  ? <><Clock size={14} /> KYC Under Review</>
+                  : <><Shield size={14} /> KYC Verification Required</>}
+              </p>
+              <p className="text-white text-xs mb-3 leading-relaxed">
+                {kyc?.status === 'pending'
+                  ? 'Your documents are being reviewed. Trading will be enabled once approved.'
+                  : kyc?.status === 'rejected'
+                  ? 'Your KYC was rejected. Please resubmit with valid documents.'
+                  : 'Complete identity verification to start trading on BITZX Exchange.'}
+              </p>
+              <Link to="/kyc"
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold ${
+                  kyc?.status === 'pending'
+                    ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                    : 'bg-gold/20 text-gold-light hover:bg-gold/30'
+                } transition-colors`}>
+                <Shield size={13} />
+                {kyc?.status === 'pending' ? 'Check Status' : kyc?.status === 'rejected' ? 'Resubmit KYC' : 'Verify Now →'}
+              </Link>
+            </div>
+          )}
+
           <button
             type="button"
-            disabled={busy || !user || usingDemoChain}
+            disabled={busy || !user || usingDemoChain || kyc?.status !== 'approved'}
             onClick={submitOrder}
             className={`w-full rounded-xl py-3.5 text-sm font-extrabold tracking-wide shadow-lg transition-opacity disabled:opacity-40 ${
               side === 'buy'
@@ -1384,6 +1449,8 @@ export default function OptionsTradePage() {
               ? 'Submit unavailable'
               : !user
                 ? 'Sign in to trade'
+                : kyc?.status !== 'approved'
+                  ? 'KYC required to trade'
                 : side === 'buy'
                   ? 'Buy / Long'
                   : 'Sell / Close'}
@@ -1429,6 +1496,7 @@ export default function OptionsTradePage() {
     cancelOrder,
     fmtNum,
     shortContractId,
+    contracts,
   });
 
   return (
@@ -1454,7 +1522,9 @@ export default function OptionsTradePage() {
 
         {error && (
           <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
-            <AlertCircle size={16} /> {error}
+            <AlertCircle size={16} className="shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button type="button" onClick={() => setError(null)} className="shrink-0 text-rose-300/60 hover:text-rose-200"><X size={14} /></button>
           </div>
         )}
 
@@ -1486,6 +1556,19 @@ export default function OptionsTradePage() {
               </button>
             );
           })}
+          {selected && (
+            <button
+              type="button"
+              title="Close book & ticket — back to chain"
+              onClick={() => {
+                setSelectedId(null);
+                setMobilePanelTab('chain');
+              }}
+              className="shrink-0 px-3 py-2.5 text-white/40 hover:text-white border-b-2 border-transparent hover:bg-white/[0.05] transition-colors"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
         {/* flex-1 fills space between tabs and bottom tables so the chain can show more strike rows */}
@@ -1586,7 +1669,9 @@ export default function OptionsTradePage() {
 
         {error && (
           <div className="px-4 py-2 border-b border-rose-500/25 bg-rose-500/10 text-sm text-rose-200 flex items-center gap-2 shrink-0">
-            <AlertCircle size={16} /> {error}
+            <AlertCircle size={16} className="shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button type="button" onClick={() => setError(null)} className="shrink-0 text-rose-300/60 hover:text-rose-200"><X size={14} /></button>
           </div>
         )}
 
@@ -1603,6 +1688,20 @@ export default function OptionsTradePage() {
             <>
               {desktopBookColumn}
               <div className="flex w-[300px] lg:w-[360px] xl:w-[420px] shrink-0 flex-col overflow-hidden bg-[#0c0d12] min-w-0">
+                {/* Close bar — collapses both the book column and this ticket */}
+                <div className="flex items-center justify-between gap-2 shrink-0 px-3 py-2 border-b border-white/[0.07] bg-black/30">
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-gold-light truncate">
+                    {String(selected.option_type || '').toUpperCase()} · K {fmtNum(selected.strike, 2)} · {selected.expiry?.slice(0, 10) || '—'}
+                  </span>
+                  <button
+                    type="button"
+                    title="Close order book & ticket"
+                    onClick={() => setSelectedId(null)}
+                    className="shrink-0 rounded-md p-1.5 text-white/45 hover:text-white hover:bg-white/[0.08] transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
                 <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide">
                   {orderForm}
                   <Link
@@ -1671,30 +1770,108 @@ function bottomTablesFor({
   cancelOrder,
   fmtNum,
   shortContractId,
+  contracts,
 }) {
+  const byId = new Map((contracts || []).map((c) => [c.id, c]));
+  const midByContract = new Map(
+    (contracts || [])
+      .filter((c) => c.market?.mid != null)
+      .map((c) => [c.id, Number(c.market.mid)]),
+  );
+
+  const parsedFromId = (contractId) => {
+    const m = String(contractId || '').match(/^optc_([A-Z0-9]+)_(\d{8})_([0-9.]+)_([CP])$/i);
+    if (!m) return null;
+    const [, ul, ymd, strike, cp] = m;
+    const base = String(ul).replace(/USDT$/i, '');
+    const y = Number(ymd.slice(0, 4));
+    const mo = Number(ymd.slice(4, 6));
+    const d = Number(ymd.slice(6, 8));
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    const expiry = Number.isFinite(dt.getTime())
+      ? dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+      : ymd;
+    return {
+      base,
+      strike: Number(strike),
+      type: String(cp).toUpperCase() === 'C' ? 'Call' : 'Put',
+      expiry,
+    };
+  };
+
+  const contractLabel = (contractId) => {
+    const c = byId.get(contractId);
+    if (c) {
+      const base = baseFromUsdt(c.underlying_symbol || '');
+      const t = String(c.option_type || '').toUpperCase() === 'CALL' ? 'Call' : 'Put';
+      const strike = fmtNum(c.strike, 0);
+      return {
+        main: `${base} ${t} · K ${strike}`,
+        sub: `${formatExpiryDateUtc(c.expiry)} · ${formatExpiryTimeUtc(c.expiry)}`,
+      };
+    }
+    const p = parsedFromId(contractId);
+    if (p) {
+      return {
+        main: `${p.base} ${p.type} · K ${fmtNum(p.strike, 0)}`,
+        sub: `${p.expiry} · 00:00 UTC`,
+      };
+    }
+    return { main: shortContractId(contractId), sub: 'Contract' };
+  };
+
   if (bottomTab === 'positions') {
     return (
-      <table className="w-full text-left text-xs min-w-[480px]">
+      <table className="w-full text-left text-xs min-w-[860px]">
         <thead className="text-white/45 uppercase text-[10px] tracking-wider font-extrabold border-b border-white/[0.06]">
           <tr>
             <th className="py-2 pr-3">Contract</th>
             <th className="py-2 pr-3">Qty</th>
-            <th className="py-2">Avg premium</th>
+            <th className="py-2 pr-3">Avg premium</th>
+            <th className="py-2 pr-3">Mark price</th>
+            <th className="py-2 pr-3">Position value</th>
+            <th className="py-2">Unrealized P&amp;L</th>
+            <th className="py-2">P&amp;L %</th>
           </tr>
         </thead>
         <tbody>
-          {positions.map((p) => (
-            <tr key={p.id} className="border-b border-white/[0.04] font-mono hover:bg-white/[0.02]">
-              <td className="py-2.5 pr-3 break-all text-gold-light/85 max-w-[200px]" title={p.contract_id}>
-                {shortContractId(p.contract_id)}
-              </td>
-              <td className="py-2.5 pr-3">{fmtNum(p.qty, 4)}</td>
-              <td className="py-2.5">{fmtNum(p.avg_premium, 6)}</td>
-            </tr>
-          ))}
+          {positions.map((p) => {
+            const mid = midByContract.get(p.contract_id);
+            const qty = Number(p.qty || 0);
+            const avg = Number(p.avg_premium || 0);
+            const cost = avg * qty;
+            const pnl =
+              mid != null && p.avg_premium != null && p.qty != null
+                ? (mid - Number(p.avg_premium)) * Number(p.qty)
+                : null;
+            const pnlPct = pnl != null && Math.abs(cost) > 1e-12 ? (pnl / cost) * 100 : null;
+            const lbl = contractLabel(p.contract_id);
+            return (
+              <tr key={p.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                <td className="py-2.5 pr-3 max-w-[260px]" title={p.contract_id}>
+                  <div className="text-gold-light/90 font-semibold">{lbl.main}</div>
+                  <div className="text-[10px] text-white/40">{lbl.sub}</div>
+                </td>
+                <td className="py-2.5 pr-3 font-mono">{fmtNum(qty, 4)}</td>
+                <td className="py-2.5 pr-3 font-mono">{fmtNum(avg, 6)}</td>
+                <td className="py-2.5 pr-3 text-white/70 font-mono">{mid != null ? fmtNum(mid, 6) : '—'}</td>
+                <td className="py-2.5 pr-3 text-white/75 font-mono">{mid != null ? `${fmtNum(mid * qty, 4)} USDT` : '—'}</td>
+                <td
+                  className={`py-2.5 font-extrabold ${
+                    pnl == null ? 'text-white/40' : pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}${fmtNum(pnl, 4)} USDT`}
+                </td>
+                <td className={`py-2.5 font-extrabold ${pnlPct == null ? 'text-white/35' : pnlPct >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {pnlPct == null ? '—' : `${pnlPct >= 0 ? '+' : ''}${fmtNum(pnlPct, 2)}%`}
+                </td>
+              </tr>
+            );
+          })}
           {!positions.length && (
             <tr>
-              <td colSpan={3} className="py-10 text-white/35 text-center">
+              <td colSpan={7} className="py-10 text-white/35 text-center">
                 No open positions
               </td>
             </tr>
@@ -1705,21 +1882,44 @@ function bottomTablesFor({
   }
   if (bottomTab === 'open') {
     return (
-      <table className="w-full text-left text-xs min-w-[520px]">
+      <table className="w-full text-left text-xs min-w-[920px]">
         <thead className="text-white/45 uppercase text-[10px] tracking-wider font-extrabold border-b border-white/[0.06]">
           <tr>
+            <th className="py-2 pr-2">Contract</th>
             <th className="py-2 pr-2">Side</th>
-            <th className="py-2 pr-2">Price × Qty</th>
+            <th className="py-2 pr-2">Price</th>
+            <th className="py-2 pr-2">Qty</th>
+            <th className="py-2 pr-2">Filled %</th>
+            <th className="py-2 pr-2">Open value</th>
+            <th className="py-2 pr-2">Mark diff</th>
             <th className="py-2 pr-2">Status</th>
             <th className="py-2 text-right">Action</th>
           </tr>
         </thead>
         <tbody>
-          {openOrders.map((o) => (
+          {openOrders.map((o) => {
+            const q = Number(o.quantity || 0);
+            const fill = Number(o.filled || 0);
+            const px = Number(o.price || 0);
+            const fillPct = q > 0 ? (fill / q) * 100 : 0;
+            const mid = midByContract.get(o.contract_id);
+            const diff = mid != null ? (mid - px) * q : null;
+            const lbl = contractLabel(o.contract_id);
+            return (
             <tr key={o.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-              <td className={`py-2.5 pr-2 font-extrabold uppercase ${o.side === 'buy' ? 'text-emerald-400' : 'text-rose-400'}`}>{o.side}</td>
-              <td className="py-2.5 pr-2 font-mono">
-                {fmtNum(o.price, 4)} × {fmtNum(o.remaining ?? o.quantity, 4)}
+              <td className="py-2.5 pr-2 max-w-[250px]" title={o.contract_id}>
+                <div className="text-gold-light/85 font-semibold">{lbl.main}</div>
+                <div className="text-[10px] text-white/40">{lbl.sub}</div>
+              </td>
+              <td className={`py-2.5 pr-2 font-extrabold uppercase ${o.side === 'buy' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {o.side}
+              </td>
+              <td className="py-2.5 pr-2 font-mono">{fmtNum(px, 4)}</td>
+              <td className="py-2.5 pr-2 font-mono text-white/90">{fmtNum(q, 4)}</td>
+              <td className="py-2.5 pr-2 font-mono text-white/70">{fmtNum(fillPct, 1)}%</td>
+              <td className="py-2.5 pr-2 font-mono text-white/70">{fmtNum(px * Math.max(0, q - fill), 4)} USDT</td>
+              <td className={`py-2.5 pr-2 font-mono ${diff == null ? 'text-white/35' : diff >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                {diff == null ? '—' : `${diff >= 0 ? '+' : ''}${fmtNum(diff, 4)}`}
               </td>
               <td className="py-2.5 pr-2 text-white/55">{o.status}</td>
               <td className="py-2.5 text-right">
@@ -1733,10 +1933,10 @@ function bottomTablesFor({
                 </button>
               </td>
             </tr>
-          ))}
+          )})}
           {!openOrders.length && (
             <tr>
-              <td colSpan={4} className="py-10 text-white/35 text-center">
+              <td colSpan={9} className="py-10 text-white/35 text-center">
                 No open orders
               </td>
             </tr>
@@ -1747,27 +1947,46 @@ function bottomTablesFor({
   }
   if (bottomTab === 'hist') {
     return (
-      <table className="w-full text-left text-xs min-w-[480px]">
+      <table className="w-full text-left text-xs min-w-[920px]">
         <thead className="text-white/45 uppercase text-[10px] tracking-wider font-extrabold border-b border-white/[0.06]">
           <tr>
             <th className="py-2 pr-2">Contract</th>
             <th className="py-2 pr-2">Side</th>
+            <th className="py-2 pr-2">Price</th>
+            <th className="py-2 pr-2">Qty</th>
+            <th className="py-2 pr-2">Filled</th>
+            <th className="py-2 pr-2">Order value</th>
+            <th className="py-2 pr-2">Live mark</th>
             <th className="py-2">Status</th>
           </tr>
         </thead>
         <tbody>
-          {orderHist.map((o) => (
-            <tr key={o.id} className="border-b border-white/[0.04] font-mono hover:bg-white/[0.02]">
-              <td className="py-2.5 pr-2 break-all text-white/75 max-w-[220px]" title={o.contract_id}>
-                {shortContractId(o.contract_id)}
+          {orderHist.map((o) => {
+            const lbl = contractLabel(o.contract_id);
+            const q = Number(o.quantity || 0);
+            const fill = Number(o.filled || 0);
+            const px = Number(o.price || 0);
+            const mid = midByContract.get(o.contract_id);
+            return (
+            <tr key={o.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+              <td className="py-2.5 pr-2 max-w-[250px]" title={o.contract_id}>
+                <div className="text-gold-light/85 font-semibold">{lbl.main}</div>
+                <div className="text-[10px] text-white/40">{lbl.sub}</div>
               </td>
-              <td className="py-2.5 pr-2">{o.side}</td>
+              <td className={`py-2.5 pr-2 font-extrabold uppercase ${o.side === 'buy' ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
+                {o.side}
+              </td>
+              <td className="py-2.5 pr-2 font-mono">{fmtNum(px, 4)}</td>
+              <td className="py-2.5 pr-2 font-mono">{fmtNum(q, 4)}</td>
+              <td className="py-2.5 pr-2 font-mono text-white/70">{fmtNum(fill, 4)}</td>
+              <td className="py-2.5 pr-2 font-mono text-white/70">{fmtNum(px * q, 4)} USDT</td>
+              <td className="py-2.5 pr-2 font-mono text-white/70">{mid != null ? fmtNum(mid, 6) : '—'}</td>
               <td className="py-2.5 text-white/50">{o.status}</td>
             </tr>
-          ))}
+          )})}
           {!orderHist.length && (
             <tr>
-              <td colSpan={3} className="py-10 text-white/35 text-center">
+              <td colSpan={8} className="py-10 text-white/35 text-center">
                 No history
               </td>
             </tr>
@@ -1777,27 +1996,47 @@ function bottomTablesFor({
     );
   }
   return (
-    <table className="w-full text-left text-xs min-w-[480px]">
+    <table className="w-full text-left text-xs min-w-[920px]">
       <thead className="text-white/45 uppercase text-[10px] tracking-wider font-extrabold border-b border-white/[0.06]">
         <tr>
           <th className="py-2 pr-2">Contract</th>
+          <th className="py-2 pr-2">Side</th>
           <th className="py-2 pr-2">Premium</th>
-          <th className="py-2">Qty</th>
+          <th className="py-2 pr-2">Qty</th>
+          <th className="py-2">Total USDT</th>
+          <th className="py-2">Mark</th>
+          <th className="py-2">P&amp;L impact now</th>
         </tr>
       </thead>
       <tbody>
-        {myTrades.map((t) => (
-          <tr key={t.id} className="border-b border-white/[0.04] font-mono hover:bg-white/[0.02]">
-            <td className="py-2.5 pr-2 break-all max-w-[220px]" title={t.contract_id}>
-              {shortContractId(t.contract_id)}
+        {myTrades.map((t) => {
+          const lbl = contractLabel(t.contract_id);
+          const px = Number(t.price || 0);
+          const q = Number(t.qty || 0);
+          const sideMul = String(t.side || '').toLowerCase() === 'buy' ? 1 : -1;
+          const mid = midByContract.get(t.contract_id);
+          const impact = mid != null ? (mid - px) * q * sideMul : null;
+          return (
+          <tr key={t.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+            <td className="py-2.5 pr-2 max-w-[250px]" title={t.contract_id}>
+              <div className="text-gold-light/85 font-semibold">{lbl.main}</div>
+              <div className="text-[10px] text-white/40">{lbl.sub}</div>
             </td>
-            <td className="py-2.5 pr-2">{fmtNum(t.price, 6)}</td>
-            <td className="py-2.5">{fmtNum(t.qty, 4)}</td>
+            <td className={`py-2.5 pr-2 font-extrabold uppercase ${t.side === 'buy' ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
+              {t.side}
+            </td>
+            <td className="py-2.5 pr-2 font-mono">{fmtNum(px, 6)}</td>
+            <td className="py-2.5 pr-2 font-mono">{fmtNum(q, 4)}</td>
+            <td className="py-2.5 text-white/65 font-mono">{fmtNum(px * q, 4)}</td>
+            <td className="py-2.5 text-white/70 font-mono">{mid != null ? fmtNum(mid, 6) : '—'}</td>
+            <td className={`py-2.5 font-extrabold ${impact == null ? 'text-white/35' : impact >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+              {impact == null ? '—' : `${impact >= 0 ? '+' : ''}${fmtNum(impact, 4)} USDT`}
+            </td>
           </tr>
-        ))}
+        )})}
         {!myTrades.length && (
           <tr>
-            <td colSpan={3} className="py-10 text-white/35 text-center">
+            <td colSpan={7} className="py-10 text-white/35 text-center">
               No trades yet
             </td>
           </tr>

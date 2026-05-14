@@ -323,12 +323,12 @@ export default function FuturesOrderBook({ onPriceClick }) {
           Waiting for depth data…
         </div>
       ) : (
-        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+        <div className="flex flex-1 min-h-0 flex-col overflow-y-auto scrollbar-hide">
 
           {/* Asks (sells) — best ask closest to the spread */}
           {viewMode !== 'bids' && (
-            <div className="flex min-h-0 flex-col justify-end overflow-hidden flex-1">
-              <div className="flex flex-col min-h-0 max-h-full overflow-hidden">
+            <div className="flex min-h-0 flex-col justify-end flex-1">
+              <div className="flex flex-col min-h-0 max-h-full">
                 <div className="px-3 py-1 shrink-0">
                   <span className="text-[10px] text-rose-400/80 uppercase tracking-widest font-extrabold">
                     ▼ Asks
@@ -382,7 +382,7 @@ export default function FuturesOrderBook({ onPriceClick }) {
 
           {/* Bids (buys) */}
           {viewMode !== 'asks' && (
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0">
               <div className="px-3 py-1 shrink-0">
                 <span className="text-[10px] text-emerald-400/80 uppercase tracking-widest font-extrabold">
                   ▲ Bids

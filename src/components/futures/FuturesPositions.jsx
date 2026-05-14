@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useFutures } from '@/context/FuturesContext';
+import { useToast, friendlyError } from '@/context/ToastContext';
 
 function PnlCell({ value }) {
   const v = Number(value || 0);
@@ -10,15 +11,24 @@ function PnlCell({ value }) {
 export default function FuturesPositions() {
   const { positions, closePosition, markets } = useFutures();
   const [busyId, setBusyId] = useState(null);
-  const [err, setErr] = useState(null);
+  const toast = useToast();
 
   const close = async (p, fraction) => {
-    setBusyId(p.id); setErr(null);
+    setBusyId(p.id);
     try {
       const qty = fraction ? Math.max(0, Math.abs(p.qty) * fraction) : null;
       await closePosition({ symbol: p.symbol, quantity: qty });
-    } catch (e) { setErr(e?.detail || e?.message || 'close failed'); }
-    finally { setBusyId(null); }
+      toast.success(
+        fraction ? 'Partial close executed' : 'Position closed',
+        fraction
+          ? `Closed ${Math.round(fraction * 100)}% of your ${p.symbol} ${p.side} position.`
+          : `Your ${p.symbol} ${p.side} position has been fully closed.`,
+      );
+    } catch (e) {
+      toast.error('Could not close position', friendlyError(e?.detail || e?.message));
+    } finally {
+      setBusyId(null);
+    }
   };
 
   if (!positions.length) {
@@ -47,6 +57,7 @@ export default function FuturesPositions() {
             const mark = Number(markets[p.symbol]?.mark_price || p.mark_price || p.entry_price);
             const upnl = Number(p.unrealized_pnl || 0);
             const sideColor = p.side === 'long' ? 'text-emerald-300' : 'text-rose-300';
+            const isBusy = busyId === p.id;
             return (
               <tr key={p.id} className="border-t border-white/5 hover:bg-white/[0.02]">
                 <td className="px-3 py-2 font-medium text-white/90">{p.symbol}</td>
@@ -59,19 +70,20 @@ export default function FuturesPositions() {
                 <td className="px-3 py-2 text-right font-mono text-amber-300">{Number(p.liquidation_price || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 text-right font-mono">{p.leverage}x</td>
                 <td className="px-3 py-2 text-right pr-4 space-x-2 whitespace-nowrap">
-                  <button disabled={busyId === p.id}
+                  <button disabled={isBusy}
                     onClick={() => close(p, 0.5)}
-                    className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/80">50%</button>
-                  <button disabled={busyId === p.id}
+                    className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/80 disabled:opacity-40">50%</button>
+                  <button disabled={isBusy}
                     onClick={() => close(p, null)}
-                    className="px-2 py-1 rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 hover:bg-rose-500/30">Close</button>
+                    className="px-2 py-1 rounded bg-rose-500/20 text-rose-300 border border-rose-400/40 hover:bg-rose-500/30 disabled:opacity-40">
+                    {isBusy ? 'Closing…' : 'Close'}
+                  </button>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      {err && <div className="px-3 py-2 text-xs text-rose-400">{String(err)}</div>}
     </div>
   );
 }

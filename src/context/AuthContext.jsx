@@ -408,12 +408,14 @@ export function AuthProvider({ children }) {
     return data.user;
   }, [fetchWallet, fetchOrders, fetchUserTrades, fetchLiveSpotPositions, fetchKyc, refreshSession]);
 
-  const register = useCallback(async (name, email, password) => {
+  const register = useCallback(async (name, email, password, referralCode) => {
     const payload = {
       name: String(name ?? '').trim(),
       email: String(email ?? '').trim(),
       password: String(password ?? ''),
     };
+    const ref = referralCode != null && String(referralCode).trim();
+    if (ref) payload.referral_code = ref;
     const body = JSON.stringify(payload);
     const res = await authFetch(`${API}/api/auth/register`, {
       method: 'POST',

@@ -20,6 +20,7 @@ import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ChevronDown, TrendingUp, TrendingDown, Globe, RefreshCw } from 'lucide-react';
 import { COIN_ICONS } from '@/services/marketApi';
+import { marketApi } from '@/services/marketApi';
 import { FuturesProvider, useFutures } from '@/context/FuturesContext';
 import { futuresApi } from '@/services/futuresApi';
 import { useAuth } from '@/context/AuthContext';
@@ -42,11 +43,11 @@ const fmtPrice = (v) => {
                    : n.toFixed(6);
 };
 
-function StatItem({ label, value, color }) {
+const StatItem = /* @__PURE__ */ function StatItem({ label, value, color }) {
   return (
-    <div className="flex flex-col gap-0.5 pl-5 border-l border-white/[.06]">
-      <span className="text-[11px] uppercase tracking-widest font-bold text-white whitespace-nowrap">{label}</span>
-      <span className={`text-[15px] font-mono font-extrabold whitespace-nowrap ${color || 'text-white'}`}>{value}</span>
+    <div className="flex flex-col gap-0.5 pl-5 border-l border-white/[.06] shrink-0">
+      <span className="text-[11px] uppercase tracking-widest font-bold text-white/60 whitespace-nowrap">{label}</span>
+      <span className={`text-[14px] font-mono font-extrabold whitespace-nowrap tabular-nums transition-colors duration-150 ${color || 'text-white'}`}>{value}</span>
     </div>
   );
 }
@@ -201,50 +202,111 @@ function MarketHeader({ funding }) {
   const { activeSymbol, symbols, markets, orderbook, recentTrades } = useFutures();
   const meta = symbols.find((s) => s.symbol === activeSymbol);
   const m = markets[activeSymbol];
+  const [spotFallbackPx, setSpotFallbackPx] = useState(0);
+
+  useEffect(() => {
+    let cancel = false;
+    let timer = null;
+    const spotSymbol = String(activeSymbol || '').replace(/-PERP$/i, '');
+    if (!spotSymbol) {
+      setSpotFallbackPx(0);
+      return () => {
+        cancel = true;
+        if (timer) clearInterval(timer);
+      };
+    }
+
+    const refresh = () => {
+      marketApi.getTicker(spotSymbol)
+        .then((t) => {
+          if (cancel) return;
+          const p = Number(t?.price || 0);
+          setSpotFallbackPx(Number.isFinite(p) && p > 0 ? p : 0);
+        })
+        .catch(() => {
+          if (!cancel) setSpotFallbackPx(0);
+        });
+    };
+
+    refresh();
+    timer = setInterval(refresh, 2000);
+    return () => {
+      cancel = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [activeSymbol]);
 
   const mark    = Number(m?.mark_price  || 0);
   const idx     = Number(m?.index_price || 0);
   const bestBid = Number(orderbook?.bids?.[0]?.price || 0);
   const bestAsk = Number(orderbook?.asks?.[0]?.price || 0);
   const last    = Number(recentTrades?.[0]?.price || 0);
-  const basis   = mark && idx ? ((mark - idx) / idx) * 100 : 0;
-  const isUp    = basis >= 0;
+  // Headline always shows the live Binance index price (fed by FuturesContext
+  // miniTicker WS). Falls back through mark → book → spot only if index is
+  // not yet available (first render before WS connects).
+  const headlinePrice = idx || mark || bestAsk || bestBid || last || spotFallbackPx || 0;
+  const indexForBasis = idx || spotFallbackPx || 0;
+  const basis = headlinePrice && indexForBasis ? ((headlinePrice - indexForBasis) / indexForBasis) * 100 : null;
+  const isUp = basis == null ? null : basis >= 0;
 
   return (
     <div
       className="flex flex-col px-4 py-2 bg-[#0d0f14]"
       style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'relative', zIndex: 200, flexShrink: 0 }}
     >
-      <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide">
+      {/* Use overflow-x-hidden on the row so changing price widths never
+          cause a horizontal scroll-reflow that shifts the layout.         */}
+      <div className="flex items-center gap-3 overflow-x-hidden">
         <PairDropdown activeSymbol={activeSymbol} symbols={symbols} />
-        <div className="flex items-center gap-3 pr-5 shrink-0">
-          <span className={`font-mono font-black text-[28px] sm:text-[32px] tracking-[-0.5px] ${isUp ? 'text-emerald-300' : 'text-rose-300'}`}>
-            ${fmtPrice(mark)}
-          </span>
+
+        {/* ── Headline price block — fixed min-width so digit changes
+             don't shift the stat row to the right or left.              */}
+        <div className="flex items-center gap-3 pr-4 shrink-0 min-w-[200px] sm:min-w-[240px]">
           <span
-            className={`hidden sm:inline-flex items-center gap-1 px-3 py-1 rounded-lg text-[14px] font-extrabold ${
-              isUp ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
-            }`}
+            className={`
+              font-mono font-black text-[28px] sm:text-[32px] tracking-[-0.5px]
+              tabular-nums transition-colors duration-200
+              ${isUp == null ? 'text-white' : isUp ? 'text-emerald-300' : 'text-rose-300'}
+            `}
           >
-            {isUp ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-            {isUp ? '+' : ''}{basis.toFixed(3)}% basis
+            ${fmtPrice(headlinePrice)}
+          </span>
+          {/* Basis badge — fixed min-width prevents layout shift when the
+               percentage sign goes from positive to negative (± swap).  */}
+          <span
+            className={`
+              hidden sm:inline-flex items-center gap-1 px-3 py-1 rounded-lg
+              text-[13px] font-extrabold min-w-[100px] justify-center
+              transition-colors duration-200
+              ${isUp == null ? 'bg-white/10 text-white/60'
+                : isUp ? 'bg-emerald-500/15 text-emerald-300'
+                       : 'bg-rose-500/15 text-rose-300'}
+            `}
+          >
+            {isUp == null ? null : isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+            <span className="tabular-nums">
+              {basis == null ? '— basis' : `${isUp ? '+' : ''}${basis.toFixed(3)}%`}
+            </span>
           </span>
         </div>
-        <div className="hidden md:flex">
-          <StatItem label="Index"        value={idx ? `$${fmtPrice(idx)}` : '—'} />
-          <StatItem label="Last trade"   value={last ? `$${fmtPrice(last)}` : '—'} />
-          <StatItem label="Best bid"     value={bestBid ? `$${fmtPrice(bestBid)}` : '—'}
+
+        {/* ── Stat items — each has whitespace-nowrap via StatItem so
+             they never wrap and cause height changes on the header.     */}
+        <div className="hidden md:flex overflow-x-auto scrollbar-hide">
+          <StatItem label="Index"        value={indexForBasis ? `$${fmtPrice(indexForBasis)}` : '—'} />
+          <StatItem label="Last"         value={last ? `$${fmtPrice(last)}` : '—'} />
+          <StatItem label="Bid"          value={bestBid ? `$${fmtPrice(bestBid)}` : '—'}
                     color="text-emerald-300" />
-          <StatItem label="Best ask"     value={bestAsk ? `$${fmtPrice(bestAsk)}` : '—'}
+          <StatItem label="Ask"          value={bestAsk ? `$${fmtPrice(bestAsk)}` : '—'}
                     color="text-rose-300" />
         </div>
         <div className="hidden lg:flex">
           <StatItem label="Funding"      value={funding != null ? `${(funding * 100).toFixed(4)}%` : '—'}
                     color={funding != null ? (funding >= 0 ? 'text-amber-300' : 'text-emerald-300') : null} />
-          <StatItem label="Max leverage" value={meta ? `${meta.max_leverage}×` : '—'} />
+          <StatItem label="Max lev"      value={meta ? `${meta.max_leverage}×` : '—'} />
           <StatItem label="Tick / Lot"   value={meta ? `${meta.tick_size} / ${meta.lot_size}` : '—'} />
         </div>
-        <div className="ml-auto hidden md:flex items-center gap-2 text-[11px] text-white/50">
+        <div className="ml-auto hidden md:flex items-center gap-2 text-[11px] text-white/50 shrink-0">
           <RefreshCw size={12} /> live
         </div>
       </div>

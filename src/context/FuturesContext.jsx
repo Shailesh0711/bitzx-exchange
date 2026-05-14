@@ -82,15 +82,132 @@ export function FuturesProvider({ children }) {
     };
   }, []);
 
+  // ── Binance public miniTicker WS — live index prices ──────────────────
+  // The backend mark-price worker may lag or be unreachable.  Binance's
+  // public stream (no API key, CORS-open for WebSocket) gives us a
+  // sub-second index feed directly in the browser.
+  //
+  // Rule: always overwrite `index_price` with the Binance live price.
+  //       Only overwrite `mark_price` when the backend hasn't supplied one
+  //       yet (i.e. mark_price is 0 / absent) — the backend's blended mark
+  //       takes precedence for PnL / liquidation math once it arrives.
+  //
+  // Symbol mapping: futures "BTCUSDT-PERP" → Binance "btcusdt" (strip -PERP).
+  useEffect(() => {
+    // Build stream list from the known futures symbols.
+    const FUTURES_SYMBOLS = [
+      'BTCUSDT-PERP', 'ETHUSDT-PERP', 'BNBUSDT-PERP', 'SOLUSDT-PERP',
+      'XRPUSDT-PERP', 'DOGEUSDT-PERP', 'ADAUSDT-PERP', 'POLUSDT-PERP',
+      'AVAXUSDT-PERP', 'DOTUSDT-PERP',
+    ];
+    // binance stream name → futures symbol
+    const binToFut = {};
+    for (const sym of FUTURES_SYMBOLS) {
+      const binSym = sym.replace('-PERP', '').toLowerCase();
+      binToFut[binSym] = sym;
+    }
+    const streams = Object.keys(binToFut).map(s => `${s}@miniTicker`).join('/');
+    const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+
+    let cancelled   = false;
+    let ws          = null;
+    let timer       = null;
+    // Throttle: buffer incoming prices and flush to state max every 300 ms.
+    // This prevents every single tick (~100 ms) from triggering a React
+    // re-render and causing the header / trade-form to "jump" visually.
+    const pendingPrices = {};
+    let flushTimer = null;
+
+    const flush = () => {
+      flushTimer = null;
+      const snapshot = { ...pendingPrices };
+      for (const k in pendingPrices) delete pendingPrices[k];
+      setMarkets((prev) => {
+        const next = { ...prev };
+        for (const [sym, px] of Object.entries(snapshot)) {
+          const existing = next[sym] || {};
+          next[sym] = {
+            ...existing,
+            symbol:      sym,
+            index_price: px,
+            mark_price:  existing.mark_price > 0 ? existing.mark_price : px,
+          };
+        }
+        return next;
+      });
+    };
+
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        ws = new WebSocket(url);
+        ws.onmessage = (e) => {
+          try {
+            const msg  = JSON.parse(e.data);
+            const tick = msg?.data;
+            if (!tick?.s || !tick?.c) return;
+            const futSym = binToFut[tick.s.toLowerCase()];
+            if (!futSym) return;
+            const price = parseFloat(tick.c);
+            if (!price || price <= 0) return;
+            // Buffer and schedule a batched flush
+            pendingPrices[futSym] = price;
+            if (!flushTimer) flushTimer = setTimeout(flush, 300);
+          } catch { /* ignore parse errors */ }
+        };
+        ws.onerror = () => { try { ws.close(); } catch { /* ignore */ } };
+        ws.onclose = () => {
+          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+          if (!cancelled) timer = setTimeout(connect, 4000);
+        };
+      } catch { /* ignore — connect will retry */ }
+    };
+    connect();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (flushTimer) clearTimeout(flushTimer);
+      try { ws?.close(); } catch { /* ignore */ }
+    };
+  }, []);
+
   // ── Orderbook WS (per active symbol) ──────────────────────────────────
   useEffect(() => {
     if (!activeSymbol) return undefined;
     let cancelled = false;
     let ws = null;
     let timer = null;
+    let markTimer = null;
 
     setOrderbook({ bids: [], asks: [] });
     setRecentTrades([]);
+
+    // Seed headline/orderbook sections immediately on symbol switch so
+    // the header never stays empty while WS reconnects.
+    const refreshMark = () => {
+      futuresApi.markPrice(activeSymbol)
+        .then((snap) => {
+          if (cancelled || !snap) return;
+          setMarkets((prev) => ({ ...prev, [activeSymbol]: { ...(prev[activeSymbol] || {}), ...snap } }));
+        })
+        .catch(() => {});
+    };
+    refreshMark();
+    // Keep mark/index fresh even when WS source gets temporarily stale.
+    markTimer = setInterval(refreshMark, 2000);
+    futuresApi.marketTrades(activeSymbol, 30)
+      .then((snap) => {
+        if (cancelled) return;
+        const rows = Array.isArray(snap?.trades) ? snap.trades : [];
+        if (rows.length) setRecentTrades(rows);
+      })
+      .catch(() => {});
+    futuresApi.orderbook(activeSymbol, 25)
+      .then((snap) => {
+        if (cancelled) return;
+        if (snap?.book) setOrderbook(snap.book);
+      })
+      .catch(() => {});
 
     const connect = () => {
       if (cancelled) return;
@@ -106,6 +223,7 @@ export function FuturesProvider({ children }) {
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      if (markTimer) clearInterval(markTimer);
       try { ws?.close(); } catch { /* ignore */ }
     };
   }, [activeSymbol]);
@@ -171,18 +289,19 @@ export function FuturesProvider({ children }) {
   const cancelOrder   = useCallback((orderId) => futuresApi.cancelOrder(orderId), []);
   const closePosition = useCallback((body) => futuresApi.closePosition(body), []);
   const transfer      = useCallback((body) => futuresApi.transfer(body), []);
+  const syncLocked    = useCallback(() => futuresApi.syncLocked(), []);
 
   const value = useMemo(() => ({
     symbols, leverageOptions, activeSymbol, setActiveSymbol,
     markets, orderbook, recentTrades,
     wallet, positions, openOrders, orderHistory, userTrades,
     settings, setLeverage, setMarginMode,
-    placeOrder, cancelOrder, closePosition, transfer,
+    placeOrder, cancelOrder, closePosition, transfer, syncLocked,
     activeMark: activeSymbol ? markets[activeSymbol] : null,
   }), [
     symbols, leverageOptions, activeSymbol, markets, orderbook, recentTrades,
     wallet, positions, openOrders, orderHistory, userTrades, settings,
-    setLeverage, setMarginMode, placeOrder, cancelOrder, closePosition, transfer,
+    setLeverage, setMarginMode, placeOrder, cancelOrder, closePosition, transfer, syncLocked,
   ]);
 
   return <FuturesContext.Provider value={value}>{children}</FuturesContext.Provider>;

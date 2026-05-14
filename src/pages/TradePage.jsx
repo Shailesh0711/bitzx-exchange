@@ -25,9 +25,19 @@ import {
   RefreshCw, X, Clock, CheckCircle, AlertCircle,
   BarChart2, DollarSign,
 } from 'lucide-react';
-import { COIN_ICONS, PAIRS, exchangeWsPath } from '@/services/marketApi';
+import {
+  COIN_ICONS,
+  PAIRS,
+  exchangeWsPath,
+  apiSymbolFromRouteParam,
+  tradePathForApiSymbol,
+  displayBaseForApiSymbol,
+  displayPairSlash,
+  walletAssetLabel,
+} from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
+import { useToast, friendlyError } from '@/context/ToastContext';
 import TradingChart    from '@/components/trading/TradingChart';
 import OrderBook       from '@/components/trading/OrderBook';
 import TradeForm       from '@/components/trading/TradeForm';
@@ -176,7 +186,7 @@ function PositionsTab({ activePair }) {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 10, color: '#ffffff' }}>
       <BarChart2 size={28} />
       <span style={{ fontSize: 14 }}>Please log in to view positions</span>
-      <Link to="/login" style={{ color: '#EBD38D', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>Sign in →</Link>
+      <Link to="/login" style={{ color: '#5BB8FF', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>Sign in →</Link>
     </div>
   );
 
@@ -271,7 +281,7 @@ function PositionsTab({ activePair }) {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
           <Link
             to="/portfolio"
-            style={{ fontSize: 12, fontWeight: 800, color: '#EBD38D', textDecoration: 'none', whiteSpace: 'nowrap' }}
+            style={{ fontSize: 12, fontWeight: 800, color: '#5BB8FF', textDecoration: 'none', whiteSpace: 'nowrap' }}
             className="hover:underline"
           >
             P&amp;L analysis →
@@ -318,7 +328,7 @@ function PositionsTab({ activePair }) {
         const pnl     = hasCost ? Number(pos.unrealized_pnl ?? 0)     : 0;
         const pnlPct  = hasCost ? Number(pos.unrealized_pnl_pct ?? 0) : 0;
         const isUp    = pnl >= 0;
-        const icon    = COIN_ICONS[pos.asset];
+        const icon    = COIN_ICONS[pos.asset] ?? COIN_ICONS[walletAssetLabel(pos.asset)];
         const isActivePair = activePair && pos.symbol === String(activePair).toUpperCase();
         const source = pos.source || (hasCost ? 'bought' : 'deposit');
 
@@ -332,16 +342,16 @@ function PositionsTab({ activePair }) {
               gridTemplateColumns: 'minmax(120px,1.05fr) 0.85fr 0.9fr 0.9fr 0.9fr 0.9fr minmax(132px,1fr) 1.12fr minmax(88px,0.75fr)',
               gap: 10, padding: '14px 20px', alignItems: 'center', minWidth: 1080,
               borderBottom: '1px solid rgba(255,255,255,0.04)',
-              borderLeft: isActivePair ? '3px solid rgba(235,211,141,0.65)' : '3px solid transparent',
+              borderLeft: isActivePair ? '3px solid rgba(91,184,255,0.65)' : '3px solid transparent',
               transition: 'background 0.15s',
             }}
             className="hover:bg-white/[.03]">
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {icon && <img src={icon} alt={pos.asset} style={{ width: 28, height: 28, borderRadius: '50%' }} />}
+              {icon && <img src={icon} alt={walletAssetLabel(pos.asset)} style={{ width: 28, height: 28, borderRadius: '50%' }} />}
               <div>
                 <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {pos.asset}
+                  {walletAssetLabel(pos.asset)}
                   {source === 'deposit' && (
                     <span
                       title="Deposited from another wallet — no on-platform buy price, so P&L can't be calculated."
@@ -369,13 +379,13 @@ function PositionsTab({ activePair }) {
                     </span>
                   )}
                 </div>
-                <div style={{ color: '#ffffff', fontSize: 11, fontWeight: 600 }}>{pos.symbol?.replace('USDT', '/USDT') || `${pos.asset}/USDT`}</div>
+                <div style={{ color: '#ffffff', fontSize: 11, fontWeight: 600 }}>{pos.symbol ? displayPairSlash(pos.symbol) : `${walletAssetLabel(pos.asset)}/USDT`}</div>
               </div>
             </div>
 
             <span style={{ textAlign: 'right', color: '#ffffff', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
               {pos.amount.toLocaleString(undefined, { maximumFractionDigits: 8 })}{' '}
-              <span style={{ color: '#ffffff', fontSize: 11 }}>{pos.asset}</span>
+              <span style={{ color: '#ffffff', fontSize: 11 }}>{walletAssetLabel(pos.asset)}</span>
             </span>
 
             <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 13 }}>
@@ -468,16 +478,16 @@ function PositionsTab({ activePair }) {
                 })}
                 title={
                   canSell
-                    ? `Sell ${pos.asset} at market or set a limit`
+                    ? `Sell ${walletAssetLabel(pos.asset)} at market or set a limit`
                     : (locked > 1e-8
-                        ? `All ${pos.asset} is locked in open sell orders. Cancel them first to sell.`
-                        : `No ${pos.asset} available to sell.`)
+                        ? `All ${walletAssetLabel(pos.asset)} is locked in open sell orders. Cancel them first to sell.`
+                        : `No ${walletAssetLabel(pos.asset)} available to sell.`)
                 }
                 style={{
                   padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800,
-                  color: canSell ? '#EBD38D' : '#ffffff',
-                  background: canSell ? 'rgba(235,211,141,0.12)' : 'rgba(255,255,255,0.05)',
-                  border: `1px solid ${canSell ? 'rgba(235,211,141,0.35)' : 'rgba(255,255,255,0.10)'}`,
+                  color: canSell ? '#5BB8FF' : '#ffffff',
+                  background: canSell ? 'rgba(91,184,255,0.12)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${canSell ? 'rgba(91,184,255,0.35)' : 'rgba(255,255,255,0.10)'}`,
                   cursor: canSell ? 'pointer' : 'not-allowed',
                   opacity: canSell ? 1 : 0.5,
                 }}
@@ -534,14 +544,10 @@ function BottomPanel({ symbol }) {
     userTradesLoading,
     fetchUserTrades,
   } = useAuth();
+  const toast = useToast();
   const [tab,         setTab]         = useState('orders');
   const [orderFilter, setOrderFilter] = useState('all');
   const [cancelling, setCancelling] = useState(null);
-  const [cancelError, setCancelError] = useState(null);
-
-  useEffect(() => {
-    if (tab !== 'orders') setCancelError(null);
-  }, [tab]);
 
   useEffect(() => {
     if (tab !== 'orders') setOrderFilter('all');
@@ -561,18 +567,18 @@ function BottomPanel({ symbol }) {
   }, [orderHistory, orderPnlById]);
 
   const handleCancel = async id => {
-    if (!window.confirm('Cancel this open order? Any locked funds for this order will be returned.')) return;
-    setCancelError(null);
+    if (!window.confirm('Cancel this open order? Any funds locked by this order will be returned to your wallet.')) return;
     setCancelling(id);
     try {
       const res = await authFetch(`${API}/api/orders/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        toast.success('Order cancelled', 'Your order has been removed and funds returned.');
         await Promise.all([fetchOrders(), fetchWallet(), fetchLiveSpotPositions()]);
       } else {
-        setCancelError(await parseApiError(res));
+        toast.error('Could not cancel order', friendlyError(await parseApiError(res)));
       }
     } catch (e) {
-      setCancelError(e.message || 'Network error');
+      toast.error('Could not cancel order', friendlyError(e.message));
     } finally {
       setCancelling(null);
     }
@@ -609,15 +615,15 @@ function BottomPanel({ symbol }) {
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{
               padding: '14px 22px', fontSize: 15, fontWeight: 700,
-              borderBottom: `2px solid ${tab === t.id ? '#EBD38D' : 'transparent'}`,
-              color: tab === t.id ? '#EBD38D' : '#ffffff',
+              borderBottom: `2px solid ${tab === t.id ? '#5BB8FF' : 'transparent'}`,
+              color: tab === t.id ? '#5BB8FF' : '#ffffff',
               background: 'transparent', border: 'none',
               cursor: 'pointer', transition: 'color 0.15s, border-color 0.15s',
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
             {t.label}
             {t.badge > 0 && (
-              <span style={{ fontSize: 12, background: 'rgba(235,211,141,0.2)', color: '#EBD38D', padding: '2px 9px', borderRadius: 20, fontWeight: 800 }}>
+              <span style={{ fontSize: 12, background: 'rgba(91,184,255,0.2)', color: '#5BB8FF', padding: '2px 9px', borderRadius: 20, fontWeight: 800 }}>
                 {t.badge}
               </span>
             )}
@@ -649,20 +655,20 @@ function BottomPanel({ symbol }) {
 
       {tab === 'positions' && (
         <TabHint>
-          <strong style={{ color: '#ffffff' }}>Spot assets</strong> — coins you already own (wallet + locked in sells). This is <strong style={{ color: '#ffffff' }}>not</strong> where limit orders wait: use <strong style={{ color: '#EBD38D' }}>Working orders</strong> for anything still on the book before it executes.
+          <strong style={{ color: '#ffffff' }}>Spot assets</strong> — coins you already own (wallet + locked in sells). This is <strong style={{ color: '#ffffff' }}>not</strong> where limit orders wait: use <strong style={{ color: '#5BB8FF' }}>Working orders</strong> for anything still on the book before it executes.
           <strong style={{ color: '#ffffff' }}> Unrealized P&amp;L</strong> is vs your average buy cost at the mark price — coins you <strong style={{ color: '#7dd3fc' }}>deposited</strong> have no cost basis, so P&amp;L is shown as <strong style={{ color: '#ffffff' }}>—</strong>.
         </TabHint>
       )}
       {tab === 'orders' && (
         <TabHint>
           <strong style={{ color: '#ffffff' }}>Before execution:</strong> every <strong style={{ color: '#ffffff' }}>limit</strong> order and any <strong style={{ color: '#ffffff' }}>partially filled</strong> order lives here — not under Spot assets and not in Order history until it is <strong style={{ color: '#ffffff' }}>fully filled</strong> or <strong style={{ color: '#ffffff' }}>cancelled</strong>.
-          Use <strong style={{ color: '#EBD38D' }}>Limits only</strong> below to hide market rows. <strong style={{ color: '#ffffff' }}>Remain</strong> is what is still working on the book.
+          Use <strong style={{ color: '#5BB8FF' }}>Limits only</strong> below to hide market rows. <strong style={{ color: '#ffffff' }}>Remain</strong> is what is still working on the book.
         </TabHint>
       )}
       {tab === 'history' && (
         <TabHint>
           <strong style={{ color: '#ffffff' }}>Completed orders only</strong> — <strong style={{ color: '#ffffff' }}>filled</strong> or <strong style={{ color: '#ffffff' }}>cancelled</strong>. Nothing still working appears here.
-          <strong style={{ color: '#ffffff' }}> Realized P&amp;L</strong> (USDT) on <strong style={{ color: '#ffffff' }}>sells</strong> that executed. Per-fill detail: <Link to="/portfolio" style={{ color: '#EBD38D', fontWeight: 700 }}>P&amp;L</Link>.
+          <strong style={{ color: '#ffffff' }}> Realized P&amp;L</strong> (USDT) on <strong style={{ color: '#ffffff' }}>sells</strong> that executed. Per-fill detail: <Link to="/portfolio" style={{ color: '#5BB8FF', fontWeight: 700 }}>P&amp;L</Link>.
         </TabHint>
       )}
 
@@ -683,18 +689,6 @@ function BottomPanel({ symbol }) {
         const minW = histPnl ? 980 : 840;
         return (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'auto' }}>
-            {tab === 'orders' && cancelError && (
-              <div
-                style={{
-                  margin: '8px 16px 0', padding: '10px 14px', borderRadius: 10,
-                  background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)',
-                  color: '#fca5a5', fontSize: 13, fontWeight: 600,
-                }}
-                role="alert"
-              >
-                {cancelError}
-              </div>
-            )}
             {tab === 'orders' && user && (
               <div
                 style={{
@@ -716,9 +710,9 @@ function BottomPanel({ symbol }) {
                     onClick={() => setOrderFilter(f.id)}
                     style={{
                       padding: '6px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700,
-                      border: `1px solid ${orderFilter === f.id ? 'rgba(235,211,141,0.45)' : 'rgba(255,255,255,0.12)'}`,
-                      background: orderFilter === f.id ? 'rgba(235,211,141,0.14)' : 'rgba(255,255,255,0.04)',
-                      color: orderFilter === f.id ? '#EBD38D' : '#ffffff',
+                      border: `1px solid ${orderFilter === f.id ? 'rgba(91,184,255,0.45)' : 'rgba(255,255,255,0.12)'}`,
+                      background: orderFilter === f.id ? 'rgba(91,184,255,0.14)' : 'rgba(255,255,255,0.04)',
+                      color: orderFilter === f.id ? '#5BB8FF' : '#ffffff',
                       cursor: 'pointer',
                       transition: 'background 0.15s, border-color 0.15s',
                     }}
@@ -760,7 +754,7 @@ function BottomPanel({ symbol }) {
                 </span>
                 <span style={{ color: '#ffffff', fontSize: 12, maxWidth: 480, lineHeight: 1.45 }}>
                   Sum of the <strong style={{ color: '#ffffff' }}>Realized P&amp;L</strong> column below (only rows where you <strong style={{ color: '#ffffff' }}>sold</strong> and the order executed). Same average-cost method as major spot exchanges. Per-fill detail:{' '}
-                  <Link to="/portfolio" style={{ color: '#EBD38D', fontWeight: 700, textDecoration: 'none' }} className="hover:underline">
+                  <Link to="/portfolio" style={{ color: '#5BB8FF', fontWeight: 700, textDecoration: 'none' }} className="hover:underline">
                     P&amp;L &amp; fills
                   </Link>
                   .
@@ -803,7 +797,7 @@ function BottomPanel({ symbol }) {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 60, gap: 12, color: '#ffffff' }}>
                   <Clock size={32} />
                   <span style={{ fontSize: 16, fontWeight: 600 }}>Please log in to view orders</span>
-                  <Link to="/login" style={{ color: '#EBD38D', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>Sign in →</Link>
+                  <Link to="/login" style={{ color: '#5BB8FF', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>Sign in →</Link>
                 </div>
               ) : rows.length === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 56, gap: 10, color: '#ffffff', textAlign: 'center', maxWidth: 440, margin: '0 auto' }}>
@@ -830,7 +824,7 @@ function BottomPanel({ symbol }) {
                 const hasFill = (o.filled ?? 0) > 1e-10;
                 const rowPnl = histPnl && sellSide && hasFill ? orderPnlById.get(o.id) : null;
                 const showRowPnl = rowPnl != null && !Number.isNaN(Number(rowPnl));
-                const baseSym = o.symbol?.replace('USDT', '') || '';
+                const baseSym = o.symbol ? displayBaseForApiSymbol(o.symbol) : '';
                 const avgFill = hasFill && (o.avg_price ?? 0) > 0 ? o.avg_price : null;
                 return (
                 <div key={o.id}
@@ -843,7 +837,7 @@ function BottomPanel({ symbol }) {
                   }}
                   className="hover:bg-white/[.03]">
                   <span style={{ color: '#ffffff', fontSize: 12, fontFamily: 'monospace' }}>{ORDER_FMT(o.created_at)}</span>
-                  <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>{o.symbol.replace('USDT', '/USDT')}</span>
+                  <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>{displayPairSlash(o.symbol)}</span>
                   <span style={{ color: '#ffffff', textTransform: 'capitalize', fontSize: 13, fontWeight: 600 }}>{o.type}</span>
                   <span style={{
                     color: o.side === 'buy' ? '#22c55e' : '#ef4444',
@@ -885,7 +879,7 @@ function BottomPanel({ symbol }) {
                           </span>
                         )}
                       </span>
-                      <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: '#EBD38D', fontWeight: 700 }}>
+                      <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: '#5BB8FF', fontWeight: 700 }}>
                         {(o.remaining != null ? o.remaining : Math.max(0, o.amount - o.filled)).toFixed(6)}
                       </span>
                     </>
@@ -955,7 +949,7 @@ export default function TradePage() {
   const sideQ = searchParams.get('side');
   const formInitialSide = sideQ === 'sell' ? 'sell' : sideQ === 'buy' ? 'buy' : undefined;
 
-  const [symbol,        setSymbol]        = useState((p || 'BZXUSDT').toUpperCase());
+  const [symbol, setSymbol] = useState(() => apiSymbolFromRouteParam((p || 'VSNUSDT').toUpperCase()));
   const [ticker,        setTicker]        = useState(null);
   const [pairOpen,      setPairOpen]      = useState(false);
   const [formPrice,     setFormPrice]     = useState('');
@@ -964,8 +958,9 @@ export default function TradePage() {
   const dropRef = useRef(null);
   const [dropPos, setDropPos] = useState(null);
 
-  const base = symbol.replace('USDT', '');
-  const icon = COIN_ICONS[base];
+  const apiBase = symbol.replace('USDT', '');
+  const displayBase = displayBaseForApiSymbol(symbol);
+  const icon = COIN_ICONS[displayBase] ?? COIN_ICONS[apiBase];
 
   useEffect(() => {
     setTicker(null);
@@ -1005,15 +1000,16 @@ export default function TradePage() {
   }, [symbol]);
 
   useEffect(() => {
-    if (p) {
-      setSymbol(String(p).toUpperCase());
-      setFormPrice('');
-    }
-  }, [p]);
+    if (!p) return;
+    const upper = String(p).toUpperCase();
+    setSymbol(apiSymbolFromRouteParam(upper));
+    setFormPrice('');
+    if (upper === 'BZXUSDT') navigate('/trade/VSNUSDT', { replace: true });
+  }, [p, navigate]);
 
   const switchPair = sym => {
     setSymbol(sym);
-    navigate(`/trade/${sym}`, { replace: true });
+    navigate(`/trade/${tradePathForApiSymbol(sym)}`, { replace: true });
     setPairOpen(false); setFormPrice('');
   };
 
@@ -1043,12 +1039,12 @@ export default function TradePage() {
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '7px 12px', borderRadius: 10,
             background: '#161820',
-            border: `1px solid ${pairOpen ? 'rgba(235,211,141,0.45)' : 'rgba(255,255,255,0.07)'}`,
+            border: `1px solid ${pairOpen ? 'rgba(91,184,255,0.45)' : 'rgba(255,255,255,0.07)'}`,
             cursor: 'pointer', transition: 'border-color 0.2s', flexShrink: 0,
           }}
           className="bitzx-chip">
-          {icon && <img src={icon} alt={base} style={{ width: 24, height: 24, borderRadius: '50%' }} />}
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{base}</span>
+          {icon && <img src={icon} alt={displayBase} style={{ width: 24, height: 24, borderRadius: '50%' }} />}
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{displayBase}</span>
           <span style={{ fontSize: 13, color: '#ffffff' }}>/USDT</span>
           <ChevronDown size={13} color="#ffffff"
             style={{ transform: pairOpen ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
@@ -1065,14 +1061,14 @@ export default function TradePage() {
             zIndex: 9999, maxHeight: '65vh', overflowY: 'auto', padding: '6px 0',
           }} className="scrollbar-hide">
             {ALL_PAIRS.map(q => {
-              const b = q.replace('USDT', '');
+              const b = displayBaseForApiSymbol(q);
               return (
                 <button key={q} onClick={() => switchPair(q)}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                     padding: '11px 16px', cursor: 'pointer',
-                    background: q === symbol ? 'rgba(235,211,141,0.07)' : 'transparent',
-                    border: 'none', color: q === symbol ? '#EBD38D' : '#ffffff',
+                    background: q === symbol ? 'rgba(91,184,255,0.07)' : 'transparent',
+                    border: 'none', color: q === symbol ? '#5BB8FF' : '#ffffff',
                     transition: 'background 0.15s',
                   }}
                   className="hover:bg-white/5">
@@ -1082,7 +1078,7 @@ export default function TradePage() {
                     <div style={{ fontSize: 11, color: '#ffffff', marginTop: 1 }}>Spot</div>
                   </div>
                   {q === symbol && (
-                    <span style={{ fontSize: 10, background: 'rgba(235,211,141,0.15)', color: '#EBD38D', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
+                    <span style={{ fontSize: 10, background: 'rgba(91,184,255,0.15)', color: '#5BB8FF', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
                       ACTIVE
                     </span>
                   )}
@@ -1124,7 +1120,7 @@ export default function TradePage() {
             {ticker ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: 20, fontWeight: 900, fontFamily: 'monospace', color: isUp ? '#22c55e' : '#ef4444', letterSpacing: '-0.5px', flexShrink: 0 }}>
-                  ${fmtP(livePrice, base)}
+                  ${fmtP(livePrice, apiBase)}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 6, background: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: isUp ? '#22c55e' : '#ef4444', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
                   {isUp ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
@@ -1154,9 +1150,9 @@ export default function TradePage() {
             <button key={id} type="button" onClick={() => setMobilePanelTab(id)}
               style={{
                 flex: 1, padding: '13px 0', fontSize: 14, fontWeight: 700,
-                color: mobilePanelTab === id ? '#EBD38D' : '#ffffff',
+                color: mobilePanelTab === id ? '#5BB8FF' : '#ffffff',
                 background: 'transparent', border: 'none', cursor: 'pointer',
-                borderBottom: `2px solid ${mobilePanelTab === id ? '#EBD38D' : 'transparent'}`,
+                borderBottom: `2px solid ${mobilePanelTab === id ? '#5BB8FF' : 'transparent'}`,
                 transition: 'color 0.15s',
               }}>
               {label}
@@ -1170,7 +1166,7 @@ export default function TradePage() {
             : <div className="flex h-[520px] min-h-0 flex-col overflow-hidden" style={{ position: 'relative' }}>
                 <OrderBook
                   symbol={symbol}
-                  baseAsset={base}
+                  baseAsset={apiBase}
                   lastPrice={livePrice}
                   onPriceClick={onOrderBookPriceMobile}
                 />
@@ -1179,7 +1175,7 @@ export default function TradePage() {
         </div>
 
         {/* Mobile Zone 2 */}
-        <div style={{ borderTop: '2px solid rgba(235,211,141,0.15)' }}>
+        <div style={{ borderTop: '2px solid rgba(91,184,255,0.15)' }}>
           <BottomPanel symbol={symbol} />
         </div>
       </div>
@@ -1207,7 +1203,7 @@ export default function TradePage() {
                 className="scrollbar-hide">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 20, flexShrink: 0 }}>
                   <span style={{ fontSize: 32, fontWeight: 900, fontFamily: 'monospace', color: isUp ? '#22c55e' : '#ef4444', letterSpacing: '-0.5px' }}>
-                    ${fmtP(livePrice, base)}
+                    ${fmtP(livePrice, apiBase)}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 8, background: isUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: isUp ? '#22c55e' : '#ef4444', fontSize: 15, fontWeight: 800, flexShrink: 0 }}>
                     {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
@@ -1215,9 +1211,9 @@ export default function TradePage() {
                   </span>
                 </div>
                 <div className="hidden lg:flex">
-                  <StatItem label="24h High"   value={`$${fmtP(ticker.highPrice, base)}`}  color="text-green-300" />
-                  <StatItem label="24h Low"    value={`$${fmtP(ticker.lowPrice, base)}`}   color="text-red-300" />
-                  <StatItem label="24h Volume" value={`${fmtVol(ticker.volume)} ${base}`} />
+                  <StatItem label="24h High"   value={`$${fmtP(ticker.highPrice, apiBase)}`}  color="text-green-300" />
+                  <StatItem label="24h Low"    value={`$${fmtP(ticker.lowPrice, apiBase)}`}   color="text-red-300" />
+                  <StatItem label="24h Volume" value={`${fmtVol(ticker.volume)} ${displayBase}`} />
                   <StatItem label="Quote Vol"  value={`$${fmtVol(ticker.quoteVolume)}`} />
                 </div>
               </div>
@@ -1239,7 +1235,7 @@ export default function TradePage() {
           >
             <OrderBook
               symbol={symbol}
-              baseAsset={base}
+              baseAsset={apiBase}
               lastPrice={livePrice}
               onPriceClick={onOrderBookPrice}
             />
@@ -1253,7 +1249,7 @@ export default function TradePage() {
       </div>
 
       {/* Desktop Zone 2 */}
-      <div className="hidden md:block" style={{ borderTop: '2px solid rgba(235,211,141,0.15)' }}>
+      <div className="hidden md:block" style={{ borderTop: '2px solid rgba(91,184,255,0.15)' }}>
         <BottomPanel symbol={symbol} />
       </div>
 

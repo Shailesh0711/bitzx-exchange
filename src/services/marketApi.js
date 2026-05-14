@@ -54,6 +54,40 @@ export const COIN_ICONS = {
   LTC:  'https://assets.coingecko.com/coins/images/2/small/litecoin.png',
 };
 
+/** Backend wire symbol for the internal BZX pair. */
+export const INTERNAL_SPOT_SYMBOL = 'BZXUSDT';
+
+/** Route `/trade/BZXUSDT` → API symbol (identity for bitzx). */
+export function apiSymbolFromRouteParam(param) {
+  return String(param || '').toUpperCase();
+}
+
+/** Pretty path segment for `/trade/:symbol`. */
+export function tradePathForApiSymbol(apiSym) {
+  return String(apiSym || '').toUpperCase();
+}
+
+/** UI base ticker for an API pair symbol (e.g. BZXUSDT → BZX). */
+export function displayBaseForApiSymbol(apiSym) {
+  const row = PAIRS.find(x => x.symbol === apiSym);
+  return row?.base ?? String(apiSym || '').replace('USDT', '');
+}
+
+/** `BZXUSDT` → `BZX/USDT` for tables and order rows. */
+export function displayPairSlash(apiSymbol) {
+  const s = String(apiSymbol || '').toUpperCase();
+  return s.replace('USDT', '/USDT');
+}
+
+/** Wallet / balance row: returns the asset label (identity for bitzx). */
+export function walletAssetLabel(asset) {
+  return asset;
+}
+
+export function tradeHrefForWalletAsset(asset) {
+  return `/trade/${asset}USDT`;
+}
+
 function bzxTickerFallback() {
   return {
     symbol:             'BZXUSDT',

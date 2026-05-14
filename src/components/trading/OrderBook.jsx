@@ -6,7 +6,7 @@ import {
   memo,
 } from 'react';
 import { Columns2, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
-import { exchangeWsPath } from '@/services/marketApi';
+import { exchangeWsPath, displayBaseForApiSymbol } from '@/services/marketApi';
 
 const API_LIMIT = 100;
 const DEPTHS = [10, 14, 20];
@@ -134,7 +134,7 @@ const Row = memo(function Row({ price, qty, side, pct, cumPct, tickSize, onPrice
 );
 
 export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }) {
-  const base = baseAsset || symbol.replace('USDT', '');
+  const displayBase = displayBaseForApiSymbol(symbol);
   const [book, setBook] = useState({ asks: [], bids: [] });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -345,7 +345,7 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
 
       <div className="flex px-3 py-2.5 text-[11px] text-white uppercase tracking-wider font-bold flex-shrink-0 border-b border-surface-border/50">
         <span className="w-1/3">Price (USDT)</span>
-        <span className="w-1/3 text-right">Amt ({base})</span>
+        <span className="w-1/3 text-right">Amt ({displayBase})</span>
         <span className="w-1/3 text-right">Total (USDT)</span>
       </div>
 

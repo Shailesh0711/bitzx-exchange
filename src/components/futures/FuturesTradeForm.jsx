@@ -19,11 +19,13 @@
  * Symbol switch → all inputs reset.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Info, TrendingUp, TrendingDown } from 'lucide-react';
+import { RefreshCw, Info, TrendingUp, TrendingDown, Shield, Clock } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useFutures } from '@/context/FuturesContext';
 import { futuresApi } from '@/services/futuresApi';
 import LeverageSelector from './LeverageSelector';
+import { useToast, friendlyError } from '@/context/ToastContext';
 
 const TYPES = [
   { id: 'limit',      label: 'Limit'  },
@@ -33,9 +35,64 @@ const TYPES = [
 
 const SIZE_PCTS = [10, 25, 50, 75, 100];
 
-const MAKER_FEE_RATE       = 0.0002;
-const TAKER_FEE_RATE       = 0.0005;
-const MMR_DEFAULT_FOR_HINT = 0.005;
+const MAKER_FEE_RATE = 0.0002;
+const TAKER_FEE_RATE = 0.0005;
+
+// ── Liquidation-price helpers (mirrors backend risk.py exactly) ────────────
+// Each tier: [maxNotional, maxLeverage, IMR, MMR]
+const LEVERAGE_TIERS = {
+  'BTCUSDT-PERP':  [[50_000,100,0.004,0.005],[250_000,100,0.005,0.0065],[1_000_000,50,0.01,0.013],[5_000_000,20,0.025,0.030]],
+  'ETHUSDT-PERP':  [[50_000,100,0.005,0.0065],[250_000,50,0.01,0.013],[1_000_000,20,0.025,0.030]],
+  'BNBUSDT-PERP':  [[50_000,100,0.005,0.0065],[250_000,50,0.01,0.013],[1_000_000,20,0.025,0.030]],
+  'SOLUSDT-PERP':  [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'XRPUSDT-PERP':  [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'DOGEUSDT-PERP': [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'ADAUSDT-PERP':  [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'POLUSDT-PERP':  [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'AVAXUSDT-PERP': [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'DOTUSDT-PERP':  [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'LINKUSDT-PERP': [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+  'LTCUSDT-PERP':  [[50_000,50,0.01,0.013],[250_000,20,0.025,0.030]],
+};
+const LIQ_FEE_RATE  = 0.005;   // matches LIQUIDATION_FEE_RATE in backend
+const INSURANCE_CUT = 0.001;   // matches INSURANCE_HAIRCUT (early-trigger buffer)
+
+function _tierFor(symbol, notional) {
+  const tiers = LEVERAGE_TIERS[symbol] || [[1_000_000, 10, 0.05, 0.025]];
+  for (const t of tiers) if (notional <= t[0]) return t;
+  return tiers[tiers.length - 1];
+}
+
+/**
+ * Exact isolated-margin liquidation price.
+ *
+ * Derived from the actual liquidation trigger: equity ≤ maintenance_margin
+ *   Long:  equity = IM + (liq − entry) × qty  →  liq = entry × (1−IMR)/(1−MMR−ins)
+ *   Short: equity = IM + (entry − liq) × qty  →  liq = entry × (1+IMR)/(1+MMR+ins)
+ *
+ * This NEVER produces liq > entry for longs or liq < entry for shorts,
+ * unlike the old linear approximation which broke at high leverage (≥90×).
+ */
+function calcLiqPrice(symbol, side, entryPrice, leverage, notional) {
+  if (!entryPrice || entryPrice <= 0 || !leverage) return null;
+  const lev = Math.max(1, leverage);
+  const [, , tierImr, mmr] = _tierFor(symbol, notional || entryPrice);
+  const imr = Math.max(1 / lev, tierImr);
+  if (side === 'buy') {
+    // Long — liquidated when price falls
+    const denom = 1 - mmr - INSURANCE_CUT;
+    if (denom <= 0) return null;
+    const liq = entryPrice * (1 - imr) / denom;
+    // Sanity: for a long the liq price must be below the entry price
+    return liq > 0 && liq < entryPrice ? liq : null;
+  } else {
+    // Short — liquidated when price rises
+    const denom = 1 + mmr + INSURANCE_CUT;
+    const liq = entryPrice * (1 + imr) / denom;
+    // Sanity: for a short the liq price must be above the entry price
+    return liq > entryPrice ? liq : null;
+  }
+}
 
 // ── Number helpers ────────────────────────────────────────────────────────
 
@@ -99,10 +156,11 @@ function walkBook(levels, qty) {
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
-  const { user } = useAuth();
+  const { user, kyc } = useAuth();
   const {
     wallet, settings, placeOrder, activeMark, symbols, orderbook, recentTrades,
   } = useFutures();
+  const toast = useToast();
 
   // ── Derived symbol metadata ──────────────────────────────────────────
   const meta     = useMemo(() => symbols.find((s) => s.symbol === symbol) || {}, [symbols, symbol]);
@@ -110,7 +168,11 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   const leverage = settings[symbol]?.leverage ?? 10;
   const tick     = Number(meta.tick_size || 0.01);
   const lot      = Number(meta.lot_size  || 0.001);
-  const free     = Number(wallet?.free_margin || 0);
+  // Use `available` (unencumbered USDT) — the backend locks against this field,
+  // not free_margin. free_margin includes unrealized PnL which can't be pledged
+  // as margin for NEW isolated positions, so using it causes the UI to allow
+  // orders that the backend will reject with InsufficientFundsError.
+  const free     = Number(wallet?.available || 0);
 
   // ── Live market data ─────────────────────────────────────────────────
   // REST-seed the mark price so the placeholder is visible immediately,
@@ -126,9 +188,14 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
     return () => { cancelled = true; };
   }, [symbol]);
 
+  // index_price is now fed from Binance's live miniTicker WS (FuturesContext),
+  // so it updates in real-time even when the backend mark is stale.
+  // Use index as the primary live reference; fall back to backend mark only
+  // when no index is available yet.
+  const wsIndex = Number(activeMark?.index_price || 0);
   const wsMark  = Number(activeMark?.mark_price  || 0);
-  const mark    = wsMark || seedMark;
-  const index   = Number(activeMark?.index_price || 0) || seedMark;
+  const index   = wsIndex || seedMark;
+  const mark    = wsIndex || wsMark || seedMark;  // prefer live Binance index
   const bestBid = Number(orderbook?.bids?.[0]?.price || 0);
   const bestAsk = Number(orderbook?.asks?.[0]?.price || 0);
   const spread  = bestBid > 0 && bestAsk > 0 ? bestAsk - bestBid : 0;
@@ -146,7 +213,6 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   const [tif,        setTif]     = useState('GTC');
   const [busy,       setBusy]    = useState(false);
   const [err,        setErr]     = useState(null);
-  const [ok,         setOk]      = useState(null);
 
   // Tracks which size field the user last touched so that when the price
   // changes (user typing or "Latest" snap) the correct companion field is
@@ -157,19 +223,21 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   // `limitPriceSyncKeyRef`.
   const priceSyncKeyRef = useRef('');
 
-  // Stable mirrors so the price-sync effect can read them without adding
-  // them to its dependency array (prevents feedback loops).
+  // Stable mirrors so effects can read current values without adding them
+  // to dependency arrays (prevents feedback loops).
   const qtyRef    = useRef(qty);
   const totalRef  = useRef(totalUsdt);
   const marginRef = useRef(marginUsdt);
+  const priceRef  = useRef(price);   // always holds the latest price string
   qtyRef.current    = qty;
   totalRef.current  = totalUsdt;
   marginRef.current = marginUsdt;
+  priceRef.current  = price;
 
   // ── Reset on symbol change ───────────────────────────────────────────
   useEffect(() => {
     setPrice(''); setStop(''); setQty(''); setTotal(''); setMargin('');
-    setErr(null); setOk(null);
+    setErr(null);
     sizeSourceRef.current  = 'qty';
     priceSyncKeyRef.current = '';
   }, [symbol]);
@@ -238,6 +306,12 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
     : 0;
   const refPx = type === 'market' ? marketPx : limitPx;
 
+  // For the order-summary "Reference price" display and the liq estimate we
+  // always use the live index price (Binance feed) so both update in real-time
+  // as the market moves.  Sizing fields (qty/margin) still use marketPx
+  // (best bid/ask) which is the closer approximation of the actual fill.
+  const summaryPx = type === 'market' ? (index || mark || last) : limitPx;
+
   // ── Bidirectional size-field onChange handlers ───────────────────────
   // Each handler sets its own field and re-derives the other two.
 
@@ -267,14 +341,17 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   const onMarginChange = (raw) => {
     sizeSourceRef.current = 'margin';
     setMargin(raw);
-    const px  = refPx;
+    // Read price directly from the ref so we always use the latest typed value,
+    // regardless of which render's closure this handler was created in.
+    const px  = type === 'market' ? refPx : (parseFloat(priceRef.current) || 0);
     const lev = Math.max(1, leverage);
     const m   = parseFloat(raw);
     if (!Number.isFinite(m) || m <= 0) { setQty(''); setTotal(''); return; }
     const tot = m * lev;
     setTotal(trimUsdt(tot, 4));
     if (px > 0) setQty(lotFloor(tot / px, lot));
-    else setQty('');
+    // If price isn't set yet, qty will be derived by the margin-sync effect
+    // below once the user fills the price field.
   };
 
   // ── Leverage-change propagation ──────────────────────────────────────
@@ -289,6 +366,25 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
       setMargin(trimUsdt(t / lev, 4));
     }
   }, [leverage]);
+
+  // ── Margin → Quantity sync effect ────────────────────────────────────
+  // Ensures Quantity is always derived when:
+  //   a) user fills Margin first, then types the Limit price, OR
+  //   b) the price changes while Margin is the active size source.
+  // This complements the inline handler and covers cases where the closure
+  // in onMarginChange held a stale refPx (e.g. React concurrent re-renders).
+  useEffect(() => {
+    if (type === 'market') return;
+    if (sizeSourceRef.current !== 'margin') return;
+    const px = parseFloat(price);
+    if (!Number.isFinite(px) || px <= 0) return;
+    const m   = parseFloat(marginRef.current);
+    if (!Number.isFinite(m) || m <= 0) return;
+    const lev = Math.max(1, leverage);
+    const tot = m * lev;
+    setTotal(trimUsdt(tot, 4));
+    setQty(lotFloor(tot / px, lot));
+  }, [price, leverage, lot, type]); // re-runs whenever price or leverage changes while margin is source
 
   // ── Derived summary values ───────────────────────────────────────────
   const qtyNum        = Math.max(0, parseFloat(qty || 0) || 0);
@@ -316,14 +412,8 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
 
   const feeRate = limitRole === 'maker' ? MAKER_FEE_RATE : TAKER_FEE_RATE;
   const estFee  = notional * feeRate;
-  const liqEst  = (() => {
-    if (!refPx || !leverage) return null;
-    const factor = side === 'buy'
-      ? 1 - 1 / leverage + MMR_DEFAULT_FOR_HINT
-      : 1 + 1 / leverage - MMR_DEFAULT_FOR_HINT;
-    const v = refPx * factor;
-    return v > 0 ? v : null;
-  })();
+  // Liq estimate always uses the live index price so it updates in real-time.
+  const liqEst = calcLiqPrice(symbol, side, summaryPx, leverage, notional);
 
   // ── % of free margin shortcut ─────────────────────────────────────────
   const onPickPct = (pct) => {
@@ -348,7 +438,11 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
 
   // ── Order submission ─────────────────────────────────────────────────
   const submit = async () => {
-    setErr(null); setOk(null);
+    setErr(null);
+    if (kyc?.status !== 'approved') {
+      toast.error('KYC required', 'Complete identity verification before trading futures.');
+      return;
+    }
     try {
       setBusy(true);
       const order = await placeOrder({
@@ -359,11 +453,37 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
         leverage, tif,
         reduce_only: reduceOnly,
       });
-      setOk(`Order ${order.id?.slice(0, 12)}… ${order.status}`);
+      // Build friendly success message.
+      const isLong   = side === 'buy';
+      const qtyStr   = `${qtyNum} ${base}`;
+      const execType = order.type || type;
+      let title, desc;
+      if (order.status === 'filled') {
+        const fills    = order.fills || [];
+        const avgFill  = fills.length
+          ? fills.reduce((s, f) => s + Number(f.price || 0) * Number(f.qty || 0), 0)
+            / fills.reduce((s, f) => s + Number(f.qty || 0), 0)
+          : (order.avg_price || 0);
+        const avgStr   = avgFill > 0 ? ` @ $${Number(avgFill).toFixed(2)}` : '';
+        title = isLong ? `Long filled — ${qtyStr}` : `Short filled — ${qtyStr}`;
+        desc  = `${execType === 'limit' ? 'Limit' : 'Market'} order filled${avgStr}.`;
+      } else if (order.status === 'partially_filled') {
+        title = isLong ? `Partial long filled` : `Partial short filled`;
+        desc  = `${qtyStr} — partial fill received, remainder on the book.`;
+      } else {
+        const priceStr  = order.price
+          ? ` @ $${Number(order.price).toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+          : '';
+        const typeLabel = execType === 'stop_limit' ? 'Stop-limit'
+          : execType === 'market' ? 'Market' : 'Limit';
+        title = isLong ? `${typeLabel} long placed` : `${typeLabel} short placed`;
+        desc  = `${qtyStr}${priceStr} — resting on the order book.`;
+      }
+      toast.success(title, desc);
       setQty(''); setTotal(''); setMargin('');
       sizeSourceRef.current = 'qty';
     } catch (e) {
-      setErr(e?.detail || e?.message || 'order failed');
+      toast.error('Order failed', friendlyError(e?.detail || e?.message));
     } finally {
       setBusy(false);
     }
@@ -456,20 +576,21 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
 
       {/* ── Price input — limit / stop_limit ── */}
       {type === 'market' ? (
-        /* Market: read-only reference (same as spot's "Last price" display) */
+        /* Market: show live index price — this is what the liq estimate is based on */
         <div>
           <label className="block text-[10px] uppercase tracking-widest text-white/50 font-bold mb-1">
-            Reference price (market)
+            Index price (live)
           </label>
           <p className="text-[10px] text-white/40 mb-1.5">
-            Order fills at the best available prices — totals below use this reference for sizing.
+            Sizing uses best bid/ask; liq estimate and order summary use this live index price.
           </p>
           <div className="flex items-center justify-between bg-black/30 border border-white/[.06] rounded-lg px-3 py-2.5">
-            <span className="text-xs text-white/50 font-bold">
-              {side === 'buy' ? 'Best ask' : 'Best bid'}
+            <span className="text-xs text-amber-300/70 font-bold flex items-center gap-1">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Live index
             </span>
-            <span className="font-mono text-sm text-white font-bold">
-              {pricePlaceholder || '—'}
+            <span className="font-mono text-sm text-amber-200 font-bold">
+              {summaryPx > 0 ? tickAlign(summaryPx, tick) : (pricePlaceholder || '—')}
             </span>
           </div>
         </div>
@@ -517,9 +638,11 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
             </p>
           )}
           {limitCrossBook && (
-            <p className="text-[10px] mt-1 text-amber-200">
+            <p className="text-[10px] mt-1.5 px-2 py-1.5 rounded-md bg-amber-400/10 border border-amber-400/25 text-amber-200 leading-snug">
               <Info size={10} className="inline mr-1" />
-              At or better than mark — matches visible liquidity first; remainder rests as a limit.
+              <strong>Fills at current price:</strong> your limit price{' '}
+              {side === 'buy' ? 'is at or above the market' : 'is at or below the market'}
+              {' '}— order type stays <em>Limit</em> but will execute immediately at the current mark price.
             </p>
           )}
         </div>
@@ -608,8 +731,9 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
             cls="text-amber-300" />
         )}
         {type === 'market' && (
-          <SummaryRow label="Reference price"
-            value={marketPx > 0 ? `$${tickAlign(marketPx, tick)}` : '—'} />
+          <SummaryRow label="Index price (live)"
+            value={summaryPx > 0 ? `$${tickAlign(summaryPx, tick)}` : '—'}
+            cls="text-amber-200" />
         )}
 
         <SummaryRow label="Quantity"
@@ -660,13 +784,48 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
         </select>
       </div>
 
-      {err && <Banner type="error">{String(err)}</Banner>}
-      {ok  && <Banner type="ok">{ok}</Banner>}
+      {err && (
+        <div className="text-[11px] rounded border px-2.5 py-1.5 bg-rose-500/10 border-rose-400/30 text-rose-300">
+          {String(err)}
+        </div>
+      )}
+
+      {/* KYC gate (same visual behavior as spot trade) */}
+      {user && kyc?.status !== 'approved' && (
+        <div className={`rounded-xl p-4 border ${
+          kyc?.status === 'pending'
+            ? 'bg-amber-500/8 border-amber-500/25'
+            : 'bg-red-500/8 border-red-500/25'
+        }`}>
+          <p className={`font-extrabold flex items-center gap-2 mb-2 text-sm ${
+            kyc?.status === 'pending' ? 'text-amber-300' : 'text-red-300'}`}>
+            {kyc?.status === 'pending'
+              ? <><Clock size={14} /> KYC Under Review</>
+              : <><Shield size={14} /> KYC Verification Required</>}
+          </p>
+          <p className="text-white text-xs mb-3 leading-relaxed">
+            {kyc?.status === 'pending'
+              ? 'Your documents are being reviewed. Trading will be enabled once approved.'
+              : kyc?.status === 'rejected'
+              ? 'Your KYC was rejected. Please resubmit with valid documents.'
+              : 'Complete identity verification to start trading on BITZX Exchange.'}
+          </p>
+          <Link to="/kyc"
+            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold ${
+              kyc?.status === 'pending'
+                ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                : 'bg-gold/20 text-gold-light hover:bg-gold/30'
+            } transition-colors`}>
+            <Shield size={13} />
+            {kyc?.status === 'pending' ? 'Check Status' : kyc?.status === 'rejected' ? 'Resubmit KYC' : 'Verify Now →'}
+          </Link>
+        </div>
+      )}
 
       {/* ── Submit button ── */}
       <button
         disabled={
-          !user || busy || insufficient || qtyNum <= 0
+          !user || busy || insufficient || qtyNum <= 0 || kyc?.status !== 'approved'
           || (type !== 'market' && (!price || Number(price) <= 0))
           || (type === 'stop_limit' && (!stopPrice || Number(stopPrice) <= 0))
         }
@@ -678,6 +837,7 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
         } disabled:opacity-40 disabled:cursor-not-allowed`}
       >
         {!user    ? 'Sign in to trade'
+          : kyc?.status !== 'approved' ? 'KYC required to trade'
           : busy  ? 'Placing…'
           : `${side === 'buy' ? 'Buy / Long' : 'Sell / Short'} ${base}`}
       </button>

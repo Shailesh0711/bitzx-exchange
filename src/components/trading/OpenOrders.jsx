@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Clock, CheckCircle, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
+import { displayPairSlash } from '@/services/marketApi';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
@@ -97,7 +98,7 @@ export default function OpenOrders() {
             <div key={o.id}
               className="grid grid-cols-9 gap-2 px-4 py-3 text-[13px] border-b border-surface-border/40 hover:bg-white/[.04] items-center transition-colors">
               <span className="text-[#4A4B50] truncate text-xs">{fmt(o.created_at)}</span>
-              <span className="text-white font-semibold">{o.symbol.replace('USDT', '/USDT')}</span>
+              <span className="text-white font-semibold">{displayPairSlash(o.symbol)}</span>
               <span className="text-[#8A8B90] capitalize">{o.type}</span>
               <span className={`font-bold capitalize ${o.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
                 {o.side.toUpperCase()}

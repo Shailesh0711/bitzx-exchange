@@ -90,6 +90,10 @@ export const optionsApi = {
     ),
 
   positions: () => authFetch(`${API}/positions`).then(jsonOrThrow),
+
+  /** Cached Binance spot price used as the chain reference index. */
+  indexPrice: (symbol) =>
+    fetch(`${API}/index-price?symbol=${encodeURIComponent(symbol)}`).then(jsonOrThrow),
 };
 
 export function optionsWsUrl(path) {
@@ -97,34 +101,81 @@ export function optionsWsUrl(path) {
   return `${WS_ORIGIN}${p}`;
 }
 
-/** ~1s snapshots: wallet, positions, open orders, history, trades (same shape as REST). */
+/**
+ * Create a WebSocket with automatic exponential-backoff reconnection.
+ * Returns an object with `close()` to permanently stop reconnects.
+ */
+function makeReconnectingWs(urlFn, onMessage, { baseDelay = 1000, maxDelay = 30000 } = {}) {
+  let ws = null;
+  let stopped = false;
+  let delay = baseDelay;
+  let reconnectTimer = null;
+
+  function connect() {
+    if (stopped) return;
+    try {
+      ws = new WebSocket(urlFn());
+    } catch {
+      scheduleReconnect();
+      return;
+    }
+    ws.addEventListener('open', () => { delay = baseDelay; });
+    ws.addEventListener('message', (e) => {
+      try { onMessage?.(JSON.parse(e.data)); } catch { /* ignore */ }
+    });
+    ws.addEventListener('close', () => { if (!stopped) scheduleReconnect(); });
+    ws.addEventListener('error', () => { try { ws?.close(); } catch { /* ignore */ } });
+  }
+
+  function scheduleReconnect() {
+    if (stopped) return;
+    reconnectTimer = setTimeout(() => {
+      delay = Math.min(delay * 1.5, maxDelay);
+      connect();
+    }, delay);
+  }
+
+  connect();
+  return {
+    close() {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { ws?.close(); } catch { /* ignore */ }
+    },
+  };
+}
+
+/**
+ * ~2s real-time chain: bid/ask/OI/IV/delta/gamma/theta/vega for ALL contracts of an underlying.
+ * Automatically reconnects on disconnect.
+ * Returns { close() } to stop.
+ */
+export function openOptionsChainWs(underlyingSymbol, onMessage) {
+  const q = new URLSearchParams({ underlying_symbol: String(underlyingSymbol) });
+  return makeReconnectingWs(
+    () => optionsWsUrl(`/ws/options/chain?${q}`),
+    onMessage,
+  );
+}
+
+/** ~1s snapshots: wallet, positions, open orders, history, trades (same shape as REST). Auto-reconnects. */
 export function openOptionsAccountWs(onMessage) {
   const t = getStoredExchangeToken();
   if (!t) return null;
-  const ws = new WebSocket(optionsWsUrl(`/ws/options/account?token=${encodeURIComponent(t)}`));
-  ws.addEventListener('message', (e) => {
-    try {
-      onMessage?.(JSON.parse(e.data));
-    } catch {
-      /* ignore */
-    }
-  });
-  return ws;
+  return makeReconnectingWs(
+    () => optionsWsUrl(`/ws/options/account?token=${encodeURIComponent(getStoredExchangeToken() || t)}`),
+    onMessage,
+  );
 }
 
-/** Public ~1s depth snapshots for a contract (no auth). */
+/** Public ~1s depth snapshots for a contract (no auth). Auto-reconnects. */
 export function openOptionsDepthWs(contractId, levels = 20, onMessage) {
   const q = new URLSearchParams({
     contract_id: String(contractId),
     levels: String(levels ?? 20),
   });
-  const ws = new WebSocket(optionsWsUrl(`/ws/options/depth?${q}`));
-  ws.addEventListener('message', (e) => {
-    try {
-      onMessage?.(JSON.parse(e.data));
-    } catch {
-      /* ignore */
-    }
-  });
-  return ws;
+  return makeReconnectingWs(
+    () => optionsWsUrl(`/ws/options/depth?${q}`),
+    onMessage,
+  );
 }

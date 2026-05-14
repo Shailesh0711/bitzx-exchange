@@ -1,16 +1,22 @@
 import { useState } from 'react';
 import { useFutures } from '@/context/FuturesContext';
+import { useToast, friendlyError } from '@/context/ToastContext';
 
 export default function FuturesOpenOrders() {
   const { openOrders, cancelOrder } = useFutures();
   const [busyId, setBusyId] = useState(null);
-  const [err, setErr] = useState(null);
+  const toast = useToast();
 
   const cancel = async (id) => {
-    setBusyId(id); setErr(null);
-    try { await cancelOrder(id); }
-    catch (e) { setErr(e?.detail || e?.message || 'cancel failed'); }
-    finally { setBusyId(null); }
+    setBusyId(id);
+    try {
+      await cancelOrder(id);
+      toast.success('Order cancelled', 'Your order has been removed from the book.');
+    } catch (e) {
+      toast.error('Could not cancel order', friendlyError(e?.detail || e?.message));
+    } finally {
+      setBusyId(null);
+    }
   };
 
   if (!openOrders.length) {
@@ -45,13 +51,14 @@ export default function FuturesOpenOrders() {
               <td className="px-3 py-2 text-right font-mono">{o.leverage}x</td>
               <td className="px-3 py-2 text-right pr-4">
                 <button disabled={busyId === o.id} onClick={() => cancel(o.id)}
-                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/80">Cancel</button>
+                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/80 disabled:opacity-40">
+                  {busyId === o.id ? 'Cancelling…' : 'Cancel'}
+                </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {err && <div className="px-3 py-2 text-xs text-rose-400">{String(err)}</div>}
     </div>
   );
 }

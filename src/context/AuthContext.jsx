@@ -430,6 +430,50 @@ export function AuthProvider({ children }) {
     return applyTokenResponse(data);
   }, [applyTokenResponse]);
 
+  // ── Two-step registration (request → verify) ────────────────────────────
+
+  /** Step 1: Submit name/email/password → backend sends OTP email.
+   *  Returns { message, email_hint } on success. */
+  const registerRequest = useCallback(async (name, email, password) => {
+    const res = await authFetch(`${API}/api/auth/register/request`, {
+      method: 'POST',
+      body: {
+        name: String(name ?? '').trim(),
+        email: String(email ?? '').trim(),
+        password: String(password ?? ''),
+      },
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Registration failed');
+    return data; // { message, email_hint }
+  }, []);
+
+  /** Step 2: Submit OTP code → backend creates account and returns JWT tokens.
+   *  Calls applyTokenResponse to log the user in. */
+  const registerVerify = useCallback(async (email, code) => {
+    const res = await authFetch(`${API}/api/auth/register/verify`, {
+      method: 'POST',
+      body: {
+        email: String(email ?? '').trim(),
+        code: String(code ?? '').trim(),
+      },
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Verification failed');
+    return applyTokenResponse(data);
+  }, [applyTokenResponse]);
+
+  /** Resend OTP to the same email (rate-limited server-side). */
+  const registerResend = useCallback(async (email) => {
+    const res = await authFetch(`${API}/api/auth/register/resend`, {
+      method: 'POST',
+      body: { email: String(email ?? '').trim() },
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Could not resend verification code');
+    return data; // { message, email_hint }
+  }, []);
+
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(() => {
     // Fire-and-forget refresh-token revocation so the server drops the
@@ -501,7 +545,7 @@ export function AuthProvider({ children }) {
       // KYC
       kyc, fetchKyc,
       // Auth
-      login, register, logout, revokeAllSessions,
+      login, register, registerRequest, registerVerify, registerResend, logout, revokeAllSessions,
       impersonationActive, impersonatorAdminId, refreshSession,
       userFeaturesPaused, userTradingPaused, userWithdrawalsPaused, userPauseNote,
     }}>

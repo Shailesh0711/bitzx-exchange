@@ -42,7 +42,7 @@ const TICKER = [
 ];
 
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const { registerRequest } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
@@ -93,8 +93,9 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await register(nm, em, password);
-      navigate('/kyc');
+      await registerRequest(nm, em, password);
+      // Pass the real email via router state (not URL) to keep it private
+      navigate('/verify-email', { state: { email: em } });
     } catch (err) {
       if (isAuthRequestError(err) && err.fieldErrors) {
         setFieldErrors({

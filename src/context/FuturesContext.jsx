@@ -25,6 +25,18 @@ import {
 
 const FuturesContext = createContext(null);
 
+/** Never let a stale/null backend tick wipe live Binance prices. */
+function mergeMarketTick(prev = {}, incoming = {}) {
+  const out = { ...prev, ...incoming, symbol: incoming.symbol || prev.symbol };
+  const pi = Number(prev.index_price);
+  const pm = Number(prev.mark_price);
+  const ii = Number(incoming.index_price);
+  const im = Number(incoming.mark_price);
+  out.index_price = ii > 0 ? ii : (pi > 0 ? pi : incoming.index_price);
+  out.mark_price  = im > 0 ? im : (pm > 0 ? pm : incoming.mark_price);
+  return out;
+}
+
 export function FuturesProvider({ children }) {
   const { user } = useAuth();
 
@@ -67,9 +79,14 @@ export function FuturesProvider({ children }) {
       if (cancelled) return;
       ws = openMarketsWs((msg) => {
         if (msg?.type !== 'futures_markets') return;
-        const next = {};
-        for (const m of msg.markets || []) next[m.symbol] = m;
-        setMarkets((prev) => ({ ...prev, ...next }));
+        setMarkets((prev) => {
+          const next = { ...prev };
+          for (const m of msg.markets || []) {
+            if (!m?.symbol) continue;
+            next[m.symbol] = mergeMarketTick(prev[m.symbol], m);
+          }
+          return next;
+        });
       });
       marketsWsRef.current = ws;
       ws.onclose = () => { if (!cancelled) timer = setTimeout(connect, 3000); };
@@ -126,12 +143,11 @@ export function FuturesProvider({ children }) {
         const next = { ...prev };
         for (const [sym, px] of Object.entries(snapshot)) {
           const existing = next[sym] || {};
-          next[sym] = {
-            ...existing,
-            symbol:      sym,
+          next[sym] = mergeMarketTick(existing, {
+            symbol: sym,
             index_price: px,
-            mark_price:  existing.mark_price > 0 ? existing.mark_price : px,
-          };
+            mark_price: existing.mark_price > 0 ? existing.mark_price : px,
+          });
         }
         return next;
       });
@@ -188,11 +204,16 @@ export function FuturesProvider({ children }) {
     const flushOb = () => {
       obFlushTimer = null;
       if (pendingBook) {
-        setOrderbook(pendingBook);
+        const bids = pendingBook.bids || [];
+        const asks = pendingBook.asks || [];
+        // Ignore empty book snapshots — they flash the UI to dashes between ticks.
+        if (bids.length > 0 || asks.length > 0) {
+          setOrderbook(pendingBook);
+        }
         pendingBook = null;
       }
       if (pendingTrades) {
-        setRecentTrades(pendingTrades);
+        if (pendingTrades.length > 0) setRecentTrades(pendingTrades);
         pendingTrades = null;
       }
     };
@@ -203,7 +224,10 @@ export function FuturesProvider({ children }) {
       futuresApi.markPrice(activeSymbol)
         .then((snap) => {
           if (cancelled || !snap) return;
-          setMarkets((prev) => ({ ...prev, [activeSymbol]: { ...(prev[activeSymbol] || {}), ...snap } }));
+          setMarkets((prev) => ({
+            ...prev,
+            [activeSymbol]: mergeMarketTick(prev[activeSymbol], snap),
+          }));
         })
         .catch(() => {});
     };

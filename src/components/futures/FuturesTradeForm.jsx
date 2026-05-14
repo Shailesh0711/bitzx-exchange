@@ -153,6 +153,53 @@ function walkBook(levels, qty) {
   };
 }
 
+/** Keep last good top-of-book prices — never flash to zero between WS ticks. */
+function topOfBook(orderbook) {
+  let bestBid = 0;
+  let bestAsk = 0;
+  for (const lv of orderbook?.bids || []) {
+    const p = Number(lv?.price ?? lv?.[0] ?? 0);
+    if (p > bestBid) bestBid = p;
+  }
+  for (const lv of orderbook?.asks || []) {
+    const p = Number(lv?.price ?? lv?.[0] ?? 0);
+    if (p > 0 && (bestAsk === 0 || p < bestAsk)) bestAsk = p;
+  }
+  return { bestBid, bestAsk };
+}
+
+function useStickyLiveQuotes({ symbol, wsIndex, wsMark, seedMark, orderbook, recentTrades }) {
+  const sticky = useRef({ mark: 0, index: 0, bestBid: 0, bestAsk: 0, last: 0, spread: 0 });
+
+  useEffect(() => {
+    sticky.current = { mark: 0, index: 0, bestBid: 0, bestAsk: 0, last: 0, spread: 0 };
+  }, [symbol]);
+
+  const rawIndex = Number(wsIndex || 0);
+  const rawMark  = Number(wsMark || 0);
+  const markRaw  = rawIndex || rawMark || Number(seedMark || 0);
+  const indexRaw = rawIndex || Number(seedMark || 0);
+  const { bestBid: bidRaw, bestAsk: askRaw } = topOfBook(orderbook);
+  const lastRaw  = Number(recentTrades?.[0]?.price || 0);
+
+  if (markRaw > 0)  sticky.current.mark    = markRaw;
+  if (indexRaw > 0) sticky.current.index   = indexRaw;
+  if (bidRaw > 0)   sticky.current.bestBid = bidRaw;
+  if (askRaw > 0)   sticky.current.bestAsk = askRaw;
+  if (lastRaw > 0)  sticky.current.last    = lastRaw;
+
+  const mark    = markRaw  > 0 ? markRaw  : sticky.current.mark;
+  const index   = indexRaw > 0 ? indexRaw : sticky.current.index;
+  const bestBid = bidRaw   > 0 ? bidRaw   : sticky.current.bestBid;
+  const bestAsk = askRaw   > 0 ? askRaw   : sticky.current.bestAsk;
+  const last    = lastRaw  > 0 ? lastRaw  : sticky.current.last;
+  const spreadRaw = bestBid > 0 && bestAsk > 0 ? bestAsk - bestBid : 0;
+  if (spreadRaw > 0) sticky.current.spread = spreadRaw;
+  const spread = spreadRaw > 0 ? spreadRaw : sticky.current.spread;
+
+  return { mark, index, bestBid, bestAsk, last, spread };
+}
+
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
@@ -180,10 +227,12 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   const [seedMark, setSeedMark] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    setSeedMark(0);
     if (!symbol) return undefined;
     futuresApi.markPrice(symbol)
-      .then((r) => { if (!cancelled) setSeedMark(Number(r?.mark_price || 0)); })
+      .then((r) => {
+        const px = Number(r?.mark_price || r?.index_price || 0);
+        if (!cancelled && px > 0) setSeedMark(px);
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [symbol]);
@@ -194,12 +243,9 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   // when no index is available yet.
   const wsIndex = Number(activeMark?.index_price || 0);
   const wsMark  = Number(activeMark?.mark_price  || 0);
-  const index   = wsIndex || seedMark;
-  const mark    = wsIndex || wsMark || seedMark;  // prefer live Binance index
-  const bestBid = Number(orderbook?.bids?.[0]?.price || 0);
-  const bestAsk = Number(orderbook?.asks?.[0]?.price || 0);
-  const spread  = bestBid > 0 && bestAsk > 0 ? bestAsk - bestBid : 0;
-  const last    = Number(recentTrades?.[0]?.price || 0);
+  const { mark, index, bestBid, bestAsk, last, spread } = useStickyLiveQuotes({
+    symbol, wsIndex, wsMark, seedMark, orderbook, recentTrades,
+  });
 
   // ── User inputs ──────────────────────────────────────────────────────
   const [side,       setSide]    = useState('buy');
@@ -540,7 +586,9 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
       </div>
 
       {/* ── Live market ticker ── */}
-      <LiveMarketTicker mark={mark} index={index} bestBid={bestBid} bestAsk={bestAsk} spread={spread} last={last} tick={tick} />
+      <LiveMarketTicker
+        key={symbol}
+        mark={mark} index={index} bestBid={bestBid} bestAsk={bestAsk} spread={spread} last={last} tick={tick} />
 
       {/* ── Leverage ── */}
       <LeverageSelector symbol={symbol} max={meta.max_leverage} />
@@ -895,15 +943,18 @@ const LiveMarketTicker = memo(function LiveMarketTicker({
 });
 
 const LivePriceValue = memo(function LivePriceValue({ value, tick, fallback = '—', cls = 'text-white' }) {
-  const text = value > 0 ? tickAlign(value, tick) : fallback;
+  const lastGood = useRef('');
+  const aligned = value > 0 ? tickAlign(value, tick) : '';
+  if (aligned) lastGood.current = aligned;
+  const text = aligned || lastGood.current || fallback;
   return (
     <span className={`font-mono tabular-nums min-w-[5.5rem] text-right ${cls}`}>
       {text}
     </span>
   );
 }, (prev, next) => {
-  const prevText = prev.value > 0 ? tickAlign(prev.value, prev.tick) : prev.fallback;
-  const nextText = next.value > 0 ? tickAlign(next.value, next.tick) : next.fallback;
+  const prevText = prev.value > 0 ? tickAlign(prev.value, prev.tick) : '';
+  const nextText = next.value > 0 ? tickAlign(next.value, next.tick) : '';
   return prevText === nextText && prev.cls === next.cls && prev.fallback === next.fallback;
 });
 

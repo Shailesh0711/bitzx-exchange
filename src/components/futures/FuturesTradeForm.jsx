@@ -18,7 +18,7 @@
  *
  * Symbol switch → all inputs reset.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { RefreshCw, Info, TrendingUp, TrendingDown, Shield, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
@@ -540,28 +540,7 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
       </div>
 
       {/* ── Live market ticker ── */}
-      <div className="rounded-lg bg-black/30 border border-white/[0.06] px-3 py-2 grid grid-cols-2 gap-y-1 text-[11px]">
-        <PriceCell label="Mark"     value={mark}    cls="text-amber-200" />
-        <PriceCell label="Index"    value={index}   cls="text-white/75" />
-        <PriceCell label="Best bid" value={bestBid} cls="text-emerald-300" />
-        <PriceCell label="Best ask" value={bestAsk} cls="text-rose-300" />
-        <div className="flex items-center justify-between col-span-2 mt-1 pt-1 border-t border-white/5">
-          <span className="text-white/50">Spread</span>
-          <span className="font-mono text-white">
-            {spread > 0
-              ? <>{tickAlign(spread, tick)}{' '}
-                  <span className="text-white/40">
-                    ({mark > 0 ? ((spread / mark) * 100).toFixed(3) : '—'}%)
-                  </span>
-                </>
-              : '—'}
-          </span>
-        </div>
-        <div className="flex items-center justify-between col-span-2">
-          <span className="text-white/50">Last trade</span>
-          <span className="font-mono text-white">{last ? tickAlign(last, tick) : '—'}</span>
-        </div>
-      </div>
+      <LiveMarketTicker mark={mark} index={index} bestBid={bestBid} bestAsk={bestAsk} spread={spread} last={last} tick={tick} />
 
       {/* ── Leverage ── */}
       <LeverageSelector symbol={symbol} max={meta.max_leverage} />
@@ -586,12 +565,10 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
           </p>
           <div className="flex items-center justify-between bg-black/30 border border-white/[.06] rounded-lg px-3 py-2.5">
             <span className="text-xs text-amber-300/70 font-bold flex items-center gap-1">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/80" />
               Live index
             </span>
-            <span className="font-mono text-sm text-amber-200 font-bold">
-              {summaryPx > 0 ? tickAlign(summaryPx, tick) : (pricePlaceholder || '—')}
-            </span>
+            <LivePriceValue value={summaryPx > 0 ? summaryPx : 0} tick={tick} fallback={pricePlaceholder || '—'} cls="text-sm text-amber-200 font-bold" />
           </div>
         </div>
       ) : (
@@ -731,9 +708,15 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
             cls="text-amber-300" />
         )}
         {type === 'market' && (
-          <SummaryRow label="Index price (live)"
-            value={summaryPx > 0 ? `$${tickAlign(summaryPx, tick)}` : '—'}
-            cls="text-amber-200" />
+          <div className="flex items-center justify-between">
+            <span className="text-white/55">Index price (live)</span>
+            <LivePriceValue
+              value={summaryPx}
+              tick={tick}
+              fallback="—"
+              cls="text-amber-200"
+            />
+          </div>
         )}
 
         <SummaryRow label="Quantity"
@@ -873,16 +856,56 @@ function SizeField({ label, value, step, unit, placeholder, onChange, hint, warn
   );
 }
 
-function PriceCell({ label, value, cls }) {
+function PriceCell({ label, value, tick, cls }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-white/50">{label}</span>
-      <span className={`font-mono ${cls || 'text-white'}`}>
-        {value > 0 ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}
-      </span>
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-white/50 shrink-0">{label}</span>
+      <LivePriceValue value={value} tick={tick} cls={cls || 'text-white'} />
     </div>
   );
 }
+
+const LiveMarketTicker = memo(function LiveMarketTicker({
+  mark, index, bestBid, bestAsk, spread, last, tick,
+}) {
+  return (
+    <div className="rounded-lg bg-black/30 border border-white/[0.06] px-3 py-2 grid grid-cols-2 gap-y-1 text-[11px]">
+      <PriceCell label="Mark"     value={mark}    tick={tick} cls="text-amber-200" />
+      <PriceCell label="Index"    value={index}   tick={tick} cls="text-white/75" />
+      <PriceCell label="Best bid" value={bestBid} tick={tick} cls="text-emerald-300" />
+      <PriceCell label="Best ask" value={bestAsk} tick={tick} cls="text-rose-300" />
+      <div className="flex items-center justify-between col-span-2 mt-1 pt-1 border-t border-white/5 gap-2">
+        <span className="text-white/50 shrink-0">Spread</span>
+        <span className="font-mono tabular-nums text-right text-white min-w-[5.5rem]">
+          {spread > 0
+            ? <>{tickAlign(spread, tick)}{' '}
+                <span className="text-white/40">
+                  ({mark > 0 ? ((spread / mark) * 100).toFixed(3) : '—'}%)
+                </span>
+              </>
+            : '—'}
+        </span>
+      </div>
+      <div className="flex items-center justify-between col-span-2 gap-2">
+        <span className="text-white/50 shrink-0">Last trade</span>
+        <LivePriceValue value={last} tick={tick} cls="text-white" />
+      </div>
+    </div>
+  );
+});
+
+const LivePriceValue = memo(function LivePriceValue({ value, tick, fallback = '—', cls = 'text-white' }) {
+  const text = value > 0 ? tickAlign(value, tick) : fallback;
+  return (
+    <span className={`font-mono tabular-nums min-w-[5.5rem] text-right ${cls}`}>
+      {text}
+    </span>
+  );
+}, (prev, next) => {
+  const prevText = prev.value > 0 ? tickAlign(prev.value, prev.tick) : prev.fallback;
+  const nextText = next.value > 0 ? tickAlign(next.value, next.tick) : next.fallback;
+  return prevText === nextText && prev.cls === next.cls && prev.fallback === next.fallback;
+});
 
 function SummaryRow({ label, value, cls }) {
   return (

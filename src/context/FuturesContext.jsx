@@ -178,9 +178,24 @@ export function FuturesProvider({ children }) {
     let ws = null;
     let timer = null;
     let markTimer = null;
+    let obFlushTimer = null;
+    let pendingBook = null;
+    let pendingTrades = null;
 
     setOrderbook({ bids: [], asks: [] });
     setRecentTrades([]);
+
+    const flushOb = () => {
+      obFlushTimer = null;
+      if (pendingBook) {
+        setOrderbook(pendingBook);
+        pendingBook = null;
+      }
+      if (pendingTrades) {
+        setRecentTrades(pendingTrades);
+        pendingTrades = null;
+      }
+    };
 
     // Seed headline/orderbook sections immediately on symbol switch so
     // the header never stays empty while WS reconnects.
@@ -214,8 +229,9 @@ export function FuturesProvider({ children }) {
       ws = openOrderbookWs(activeSymbol, (msg) => {
         if (msg?.type !== 'futures_orderbook') return;
         if (msg.symbol !== activeSymbol) return;
-        setOrderbook(msg.book || { bids: [], asks: [] });
-        setRecentTrades(msg.recent_trades || []);
+        pendingBook = msg.book || { bids: [], asks: [] };
+        pendingTrades = msg.recent_trades || [];
+        if (!obFlushTimer) obFlushTimer = setTimeout(flushOb, 250);
       });
       ws.onclose = () => { if (!cancelled) timer = setTimeout(connect, 3000); };
     };
@@ -224,6 +240,7 @@ export function FuturesProvider({ children }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
       if (markTimer) clearInterval(markTimer);
+      if (obFlushTimer) clearTimeout(obFlushTimer);
       try { ws?.close(); } catch { /* ignore */ }
     };
   }, [activeSymbol]);

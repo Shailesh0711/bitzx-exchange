@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { exchangeApiOrigin } from '@/lib/apiBase';
+import ComingSoonPage from '@/pages/ComingSoonPage';
 import Navbar        from '@/components/layout/Navbar';
 import ImpersonationBanner from '@/components/layout/ImpersonationBanner';
 import FeaturesPausedBanner from '@/components/layout/FeaturesPausedBanner';
@@ -30,6 +32,7 @@ import P2POrdersPage         from '@/pages/p2p/P2POrdersPage';
 import P2PMyAdsPage          from '@/pages/p2p/P2PMyAdsPage';
 import P2PPaymentMethodsPage from '@/pages/p2p/P2PPaymentMethodsPage';
 import P2PMerchantPage       from '@/pages/p2p/P2PMerchantPage';
+import BZXMarketsPage        from '@/pages/BZXMarketsPage';
 
 /** Surfaces render/import errors instead of a blank screen on the options route. */
 class OptionsRouteErrorBoundary extends React.Component {
@@ -113,8 +116,66 @@ function Layout() {
   );
 }
 
+// ── Launch-status gate ────────────────────────────────────────────────────────
+const API_ORIGIN = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
+const POLL_INTERVAL_MS = 30_000;
+
+function useLaunchStatus() {
+  const [status, setStatus] = useState({ checked: false, comingSoon: false, message: '', launchDate: '' });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetch_status() {
+      try {
+        const res = await fetch(`${API_ORIGIN}/api/platform/launch-status`, { cache: 'no-store' });
+        if (!res.ok) {
+          // Backend unavailable / error — treat as exchange open (fail open)
+          if (!cancelled) setStatus(s => ({ ...s, checked: true, comingSoon: false }));
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) {
+          setStatus({
+            checked:     true,
+            comingSoon:  !!data.coming_soon,
+            message:     data.message || '',
+            launchDate:  data.launch_date || '',
+          });
+        }
+      } catch {
+        // Network error – fail open so users aren't stuck on a spinner
+        if (!cancelled) setStatus(s => ({ ...s, checked: true, comingSoon: false }));
+      }
+    }
+
+    fetch_status();
+    const id = setInterval(fetch_status, POLL_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  return status;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
+  const launch = useLaunchStatus();
+
+  // While the status hasn't been fetched yet, show a minimal loading indicator
+  // so we don't flash the full UI before potentially redirecting to Coming Soon.
+  if (!launch.checked) {
+    return (
+      <div className="min-h-screen bg-surface-dark flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Coming Soon gate — shows ONLY the coming soon page when enabled.
+  if (launch.comingSoon) {
+    return <ComingSoonPage message={launch.message} launchDate={launch.launchDate} />;
+  }
+
   return (
     <Routes>
       <Route path="/login"         element={<LoginPage />} />
@@ -162,6 +223,9 @@ export default function App() {
         <Route path="/settings" element={
           <ProtectedRoute><SettingsPage /></ProtectedRoute>
         } />
+
+        {/* ── BZX Markets ──────────────────────────────────────────────── */}
+        <Route path="/bzx-markets" element={<BZXMarketsPage />} />
 
         {/* ── P2P Trading ──────────────────────────────────────────────── */}
         <Route path="/p2p"                  element={<P2PMarketplacePage />} />

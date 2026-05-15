@@ -23,19 +23,26 @@ const BZX_VOL    = 7_284_521;
 
 // ── Supported pairs (must match backend SYMBOL_BASE_MAP / BINANCE_USDT_PAIRS + BZX) ──
 export const PAIRS = [
-  { symbol: 'BZXUSDT',  base: 'BZX',  source: 'internal' },
-  { symbol: 'BTCUSDT',  base: 'BTC',  source: 'binance'  },
-  { symbol: 'ETHUSDT',  base: 'ETH',  source: 'binance'  },
-  { symbol: 'BNBUSDT',  base: 'BNB',  source: 'binance'  },
-  { symbol: 'SOLUSDT',  base: 'SOL',  source: 'binance'  },
-  { symbol: 'XRPUSDT',  base: 'XRP',  source: 'binance'  },
-  { symbol: 'DOGEUSDT', base: 'DOGE', source: 'binance'  },
-  { symbol: 'ADAUSDT',  base: 'ADA',  source: 'binance'  },
-  { symbol: 'POLUSDT', base: 'POL', source: 'binance' },
-  { symbol: 'AVAXUSDT', base: 'AVAX', source: 'binance'  },
-  { symbol: 'DOTUSDT',  base: 'DOT',  source: 'binance'  },
-  { symbol: 'LINKUSDT', base: 'LINK', source: 'binance'  },
-  { symbol: 'LTCUSDT',  base: 'LTC',  source: 'binance'  },
+  { symbol: 'BZXUSDT',  base: 'BZX',  quote: 'USDT', source: 'internal' },
+  { symbol: 'BTCUSDT',  base: 'BTC',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'ETHUSDT',  base: 'ETH',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'BNBUSDT',  base: 'BNB',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'SOLUSDT',  base: 'SOL',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'XRPUSDT',  base: 'XRP',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'DOGEUSDT', base: 'DOGE', quote: 'USDT', source: 'binance'  },
+  { symbol: 'ADAUSDT',  base: 'ADA',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'POLUSDT',  base: 'POL',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'AVAXUSDT', base: 'AVAX', quote: 'USDT', source: 'binance'  },
+  { symbol: 'DOTUSDT',  base: 'DOT',  quote: 'USDT', source: 'binance'  },
+  { symbol: 'LINKUSDT', base: 'LINK', quote: 'USDT', source: 'binance'  },
+  { symbol: 'LTCUSDT',  base: 'LTC',  quote: 'USDT', source: 'binance'  },
+  // BZX-quoted pairs
+  { symbol: 'BTCBZX',  base: 'BTC',  quote: 'BZX',  source: 'internal' },
+  { symbol: 'ETHBZX',  base: 'ETH',  quote: 'BZX',  source: 'internal' },
+  { symbol: 'BNBBZX',  base: 'BNB',  quote: 'BZX',  source: 'internal' },
+  { symbol: 'SOLBZX',  base: 'SOL',  quote: 'BZX',  source: 'internal' },
+  { symbol: 'XRPBZX',  base: 'XRP',  quote: 'BZX',  source: 'internal' },
+  { symbol: 'DOGEBZX', base: 'DOGE', quote: 'BZX',  source: 'internal' },
 ];
 
 export const COIN_ICONS = {
@@ -73,9 +80,12 @@ export function displayBaseForApiSymbol(apiSym) {
   return row?.base ?? String(apiSym || '').replace('USDT', '');
 }
 
-/** `BZXUSDT` → `BZX/USDT` for tables and order rows. */
+/** `BZXUSDT` → `BZX/USDT`, `BTCBZX` → `BTC/BZX` for tables and order rows. */
 export function displayPairSlash(apiSymbol) {
   const s = String(apiSymbol || '').toUpperCase();
+  const row = PAIRS.find(x => x.symbol === s);
+  if (row) return `${row.base}/${row.quote}`;
+  if (s.endsWith('BZX')) return s.replace(/BZX$/, '/BZX');
   return s.replace('USDT', '/USDT');
 }
 
@@ -143,11 +153,24 @@ export function normalizeMarketsList(raw) {
   return raw.map(normalizeMarketRow).filter(Boolean);
 }
 
+/** WebSocket path for BZX market streams. */
+export function bzxWsPath(pathWithQuery) {
+  return exchangeWsPath(pathWithQuery);
+}
+
 export const marketApi = {
   /** All markets — single backend call (BZX + Binance batch server-side) */
   async getMarkets() {
     const raw = await safeFetch(`${BACKEND}/api/trading/markets`, null);
     return normalizeMarketsList(raw);
+  },
+
+  /** BZX-quoted pair markets only. Returns { markets: [], bzx_usdt_price }. */
+  async getBZXMarkets() {
+    const raw = await safeFetch(`${BACKEND}/api/trading/bzx-markets`, null);
+    if (raw && Array.isArray(raw.markets)) return raw;
+    if (Array.isArray(raw)) return { markets: raw };   // legacy shape
+    return { markets: [] };
   },
 
   async getTicker(symbol) {

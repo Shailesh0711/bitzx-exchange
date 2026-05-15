@@ -85,13 +85,14 @@ const MARKET_MODES = [
   { id: 'spot', label: 'Spot', desc: 'USDT pairs' },
   { id: 'futures', label: 'Futures', desc: 'USDT perpetuals' },
   { id: 'options', label: 'Options', desc: 'USDT · v1 long-only' },
+  { id: 'bzx', label: 'BZX Markets', desc: 'BZX-quoted pairs' },
 ];
 
 const CATEGORY_TABS = [
   { id: 'all', label: 'All markets', short: 'All' },
   { id: 'major', label: 'Major', short: 'Major' },
   { id: 'alt', label: 'Altcoins', short: 'Alts' },
-  { id: 'vsn', label: 'Vision', short: 'VSN' },
+  { id: 'bzx', label: 'BZX', short: 'BZX' },
   { id: 'favorites', label: 'Watchlist', short: '★', icon: Star },
   { id: 'gainers', label: '24h Gainers', short: '▲' },
   { id: 'losers', label: '24h Losers', short: '▼' },
@@ -541,9 +542,9 @@ export default function MarketsPage() {
     let list = markets.filter(m => {
       const base = m.base || m.symbol?.replace('USDT', '');
       if (category === 'favorites') return favorites.includes(m.symbol);
-      if (category === 'vsn') return base === 'VSN';
+      if (category === 'bzx') return base === 'BZX';
       if (category === 'major') return MAJOR_BASES.has(base);
-      if (category === 'alt') return !MAJOR_BASES.has(base) && base !== 'VSN';
+      if (category === 'alt') return !MAJOR_BASES.has(base) && base !== 'BZX';
       if (category === 'gainers') return num(m.priceChangePercent) > 0;
       if (category === 'losers') return num(m.priceChangePercent) < 0;
       return true;
@@ -606,6 +607,11 @@ export default function MarketsPage() {
             {marketMode === 'spot' && (
               <>
                 Spot markets with last price, 24h OHLC, weighted average, best bid/ask, spread, volumes, and trade count — refreshed every 5s.
+              </>
+            )}
+            {marketMode === 'bzx' && (
+              <>
+                BZX-as-quote trading pairs: buy and sell BTC, ETH, SOL and more using BITZX ($BZX) as the settlement currency. Prices update in real time.
               </>
             )}
           </p>
@@ -1599,7 +1605,7 @@ export default function MarketsPage() {
                                 <div className="flex items-center gap-1 flex-wrap">
                                   <span className="text-white font-bold text-xs md:text-sm">{base}</span>
                                   <span className="text-white/50 text-[11px] md:text-sm">/USDT</span>
-                                  {base === 'VSN' && (
+                                  {base === 'BZX' && (
                                     <span className="text-[9px] bg-gold/20 text-gold-light px-1 py-0.5 rounded font-bold">BZX</span>
                                   )}
                                 </div>
@@ -1764,8 +1770,23 @@ export default function MarketsPage() {
         </>
         )}
 
+        {/* ── BZX Markets section ──────────────────────────────────────── */}
+        {marketMode === 'bzx' && (
+          <div className="text-center py-8">
+            <p className="text-white/50 text-sm mb-4">
+              BZX-quoted pairs are available on the dedicated BZX Markets page.
+            </p>
+            <Link
+              to="/bzx-markets"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gold/15 border border-gold/30 text-gold-light font-bold text-sm hover:bg-gold/25 transition-colors"
+            >
+              Open BZX Markets <ArrowRight size={14} />
+            </Link>
+          </div>
+        )}
+
         <p className="text-white/45 text-xs sm:text-sm text-center mt-8 px-2">
-          VSN from MaxByte API · Other pairs from Binance public 24h ticker · Not financial advice
+          BZX data from BITZX backend · Other pairs from Binance public 24h ticker · Not financial advice
         </p>
       </div>
     </div>

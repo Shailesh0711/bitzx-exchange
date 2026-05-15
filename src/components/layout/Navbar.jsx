@@ -24,13 +24,14 @@ const USER_MENU_WIDTH_PX = 208;
 const USER_MENU_EDGE_GAP = 8;
 
 const NAV_LINKS = [
-  { label: 'Markets', to: '/markets' },
-  { label: 'Trade',   to: '/trade/BZXUSDT' },
-  { label: 'Futures', to: '/futures/BTCUSDT-PERP' },
-  { label: 'Options', to: '/options/BTCUSDT' },
-  { label: 'P2P',     to: '/p2p' },
-  { label: 'Wallet',  to: '/wallet' },
-  { label: 'P&L',     to: '/portfolio' },
+  { label: 'Markets',     to: '/markets' },
+  { label: 'BZX Markets', to: '/bzx-markets' },
+  { label: 'Trade',       to: '/trade/BZXUSDT' },
+  { label: 'Futures',     to: '/futures/BTCUSDT-PERP' },
+  { label: 'Options',     to: '/options/BTCUSDT' },
+  { label: 'P2P',         to: '/p2p' },
+  { label: 'Wallet',      to: '/wallet' },
+  { label: 'P&L',         to: '/portfolio' },
 ];
 
 function LiveTicker() {

@@ -9,6 +9,9 @@ import {
   LayoutDashboard, LineChart, Flame, Snowflake,
 } from 'lucide-react';
 import { COIN_ICONS, PAIRS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
+import MobileAppDownload from '@/components/ui/MobileAppDownload';
+import LandingPromoModal from '@/components/ui/LandingPromoModal';
+import MobileAppStickyBar from '@/components/ui/MobileAppStickyBar';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -405,6 +408,8 @@ export default function LandingPage() {
 
   return (
     <div className="overflow-x-hidden" style={{ background: 'transparent' }}>
+      <LandingPromoModal />
+      <MobileAppStickyBar />
 
       {/* ══════════════════════════════════════════════════════════════════
           HERO
@@ -492,7 +497,7 @@ export default function LandingPage() {
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
-                  className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-3.5 mb-11 sm:mb-12"
+                  className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-3.5 mb-8 sm:mb-9"
                 >
                   <Link
                     to="/register"
@@ -511,6 +516,16 @@ export default function LandingPage() {
                   <Link to="/markets" className="group bitzx-footer-link inline-flex items-center justify-center gap-1.5 py-3.5 text-[15px] font-medium text-gold-light/95">
                     Browse markets <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                   </Link>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.38 }}
+                  className="mb-11 sm:mb-12 flex flex-wrap items-center gap-3"
+                >
+                  <MobileAppDownload id="mobile-app" variant="pill" />
+                  <MobileAppDownload variant="inline" className="hidden sm:inline-flex" />
                 </motion.div>
 
                 <motion.div
@@ -585,6 +600,11 @@ export default function LandingPage() {
             ))}
           </div>
         </div>
+      </section>
+
+      {/* APK download — primary banner */}
+      <section className="relative z-[3] bitzx-landing-container py-6 md:py-8">
+        <MobileAppDownload variant="banner" />
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
@@ -874,6 +894,11 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* APK — compact strip before features */}
+      <section className="bitzx-landing-container pb-2" style={{ background: 'rgba(10,11,15,0.97)' }}>
+        <MobileAppDownload variant="strip" title="Take BITZX anywhere" />
+      </section>
+
       {/* ══════════════════════════════════════════════════════════════════
           FEATURES
           ══════════════════════════════════════════════════════════════════ */}
@@ -1089,10 +1114,14 @@ export default function LandingPage() {
               Ready to start<br />
               <span className="text-gradient">trading?</span>
             </h2>
-            <p className="bitzx-lead-wide mx-auto mb-10 sm:mb-12 text-zinc-400 px-2 sm:px-0">
+            <p className="bitzx-lead-wide mx-auto mb-8 sm:mb-10 text-zinc-400 px-2 sm:px-0">
               Join over 2.5M traders on BITZX Exchange. Get a free demo account with $5,000 USDT
               instantly — no deposit required.
             </p>
+
+            <div className="max-w-2xl mx-auto mb-10">
+              <MobileAppDownload variant="card" compact title="Trade on your phone" />
+            </div>
 
             <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3 sm:gap-4 px-2 sm:px-0">
               <motion.div whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.985 }} transition={{ type: 'tween', duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>

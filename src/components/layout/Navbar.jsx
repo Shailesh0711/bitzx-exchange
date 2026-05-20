@@ -2,10 +2,11 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart, HelpCircle, Settings } from 'lucide-react';
+import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart, HelpCircle, Settings, Smartphone, Download } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { exchangeApiOrigin } from '@/lib/apiBase';
+import { useMobileAppRelease } from '@/hooks/useMobileAppRelease';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
@@ -125,6 +126,7 @@ export default function Navbar() {
     || location.pathname.startsWith('/futures')
     || location.pathname.startsWith('/options');
   const isHome = location.pathname === '/';
+  const { available: appAvailable, downloadHref: appDownloadHref, release: appRelease } = useMobileAppRelease();
 
   useEffect(() => {
     setUserOpen(false);
@@ -243,6 +245,19 @@ export default function Navbar() {
             <Zap size={15} />
             Quick Trade
           </Link>
+
+          {appAvailable && appDownloadHref && (
+            <a
+              href={appDownloadHref}
+              download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
+              className="hidden sm:flex items-center gap-2 ml-2 px-4 py-2 rounded-xl font-bold text-sm
+                text-emerald-300 border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+              title={`Download BITZX Mobile v${appRelease?.version || ''}`}
+            >
+              <Smartphone size={15} />
+              App
+            </a>
+          )}
 
           {/* Right side */}
           <div className="ml-auto flex items-center gap-4">
@@ -378,6 +393,30 @@ export default function Navbar() {
                 >
                   <Zap size={17} /> Quick Trade
                 </Link>
+
+                {appAvailable && appDownloadHref ? (
+                  <a
+                    href={appDownloadHref}
+                    download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
+                    onClick={() => setMenuOpen(false)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-extrabold text-base mb-2 transition-all"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(52,211,153,0.12))',
+                      border: '1px solid rgba(52,211,153,0.35)',
+                      color: '#6ee7b7',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    <Download size={17} />
+                    {' Download app'}
+                    {appRelease?.version ? ` v${appRelease.version}` : null}
+                  </a>
+                ) : (
+                  <Link to="/#mobile-app" onClick={() => setMenuOpen(false)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-semibold text-base mb-2 text-zinc-400 border border-white/10">
+                    <Smartphone size={17} /> Mobile app — coming soon
+                  </Link>
+                )}
 
                 {NAV_LINKS.map(l => (
                   <Link key={l.to} to={l.to} onClick={() => setMenuOpen(false)}

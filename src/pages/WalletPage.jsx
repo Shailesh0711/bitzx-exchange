@@ -505,12 +505,32 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
   // every mount so a user who just turned 2FA off in another tab doesn't
   // keep seeing the input.
   const [twofa, setTwofa] = useState({ enabled: false, required_for_withdrawal: false });
+  const [withdrawConfig, setWithdrawConfig] = useState({
+    withdraw_fee_rate: 0,
+    withdraw_gas_fee_bzx: 0,
+    gas_fee_description: '',
+  });
   useEffect(() => {
     (async () => {
       try {
         const res = await authFetch(`${API}/api/auth/2fa/status`);
         if (res.ok) setTwofa(await res.json());
       } catch { /* silent — worst case the UI just hides the field */ }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API}/api/wallet/withdraw-config`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setWithdrawConfig({
+          withdraw_fee_rate: Number(data?.withdraw_fee_rate || 0),
+          withdraw_gas_fee_bzx: Number(data?.withdraw_gas_fee_bzx || 0),
+          gas_fee_description: data?.gas_fee_description || '',
+        });
+      } catch { /* fee panel stays hidden when config unavailable */ }
     })();
   }, []);
 
@@ -561,6 +581,17 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
   // AuthContext so trades and other tabs stay in sync.
   const assetRow = (walletAssets || []).find(w => w.asset === asset) || { available: 0, locked: 0 };
   const availableBalance = Number(assetRow.available || 0);
+  const bzxRow = (walletAssets || []).find(w => w.asset === 'BZX') || { available: 0, locked: 0 };
+  const bzxAvailable = Number(bzxRow.available || 0);
+  const amtNum = Number(amount);
+  const platformFee = Number.isFinite(amtNum) && amtNum > 0
+    ? amtNum * withdrawConfig.withdraw_fee_rate
+    : 0;
+  const bzxGasFee = asset.toUpperCase() === 'BZX' ? 0 : withdrawConfig.withdraw_gas_fee_bzx;
+  const totalAssetDebit = Number.isFinite(amtNum) && amtNum > 0
+    ? amtNum + platformFee
+    : 0;
+  const showFeePanel = withdrawConfig.withdraw_fee_rate > 0 || bzxGasFee > 0;
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -578,6 +609,14 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
       return;
     }
     if (nextErrors.amount || nextErrors.address || nextErrors.totp) {
+      return;
+    }
+    if (totalAssetDebit > availableBalance + 1e-12) {
+      setSubmitError(`Insufficient ${asset} balance (need ${totalAssetDebit.toFixed(8)} including fees).`);
+      return;
+    }
+    if (bzxGasFee > 0 && bzxGasFee > bzxAvailable + 1e-12) {
+      setSubmitError(`Insufficient BZX balance for gas fee (${bzxGasFee} BZX required).`);
       return;
     }
     setSubmitting(true);
@@ -725,6 +764,34 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
                 <p className="text-xs text-red-400 mt-1.5 font-medium">{fieldErrors.amount}</p>
               )}
             </div>
+
+            {showFeePanel && (
+              <div className="rounded-xl border border-surface-border bg-surface-card/40 px-4 py-3 text-xs text-white/75 space-y-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-white/55">Fee summary</p>
+                {withdrawConfig.withdraw_fee_rate > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span>Platform fee ({(withdrawConfig.withdraw_fee_rate * 100).toFixed(2)}%)</span>
+                    <span className="font-mono text-white">{platformFee.toFixed(8)} {asset}</span>
+                  </div>
+                )}
+                {bzxGasFee > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span>Network gas fee (BZX)</span>
+                    <span className="font-mono text-white">{bzxGasFee.toFixed(8)} BZX</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3 pt-1 border-t border-surface-border/60">
+                  <span className="font-semibold text-white">Total {asset} debited</span>
+                  <span className="font-mono font-semibold text-gold-light">{totalAssetDebit.toFixed(8)} {asset}</span>
+                </div>
+                {bzxGasFee > 0 && (
+                  <p className="text-[11px] text-white/50 leading-relaxed">
+                    {withdrawConfig.gas_fee_description || 'BZX gas fee covers on-chain Ethereum network costs.'}
+                    {' '}Your BZX balance: <span className="font-mono text-white/70">{bzxAvailable.toFixed(4)}</span>
+                  </p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Note <span className="text-white/40 normal-case">(optional, for your records)</span></label>
@@ -1033,7 +1100,12 @@ function HistoryTab() {
                       <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{fmt(r.created_at)}</td>
                       <td className="px-5 py-3 text-sm text-white font-bold">{r.asset}</td>
                       <td className="px-5 py-3 text-sm text-white font-mono">{fmtAmt(r.amount, r.asset)}</td>
-                      <td className="px-5 py-3 text-xs text-white/70 font-mono">{fmtAmt(r.fee_amount, r.asset)}</td>
+                      <td className="px-5 py-3 text-xs text-white/70 font-mono">
+                        {fmtAmt(r.fee_amount, r.asset)}
+                        {Number(r.bzx_gas_fee) > 0 && (
+                          <div className="text-[10px] text-white/45 mt-0.5">+ {fmtAmt(r.bzx_gas_fee, 'BZX')} gas</div>
+                        )}
+                      </td>
                       <td className="px-5 py-3 text-xs text-white font-mono">
                         <span className="flex items-center gap-1">
                           {(r.address || '—').slice(0, 10)}…{(r.address || '').slice(-6)}

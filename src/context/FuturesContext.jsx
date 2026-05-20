@@ -269,6 +269,46 @@ export function FuturesProvider({ children }) {
     };
   }, [activeSymbol]);
 
+  // ── Account data (REST + WS) ────────────────────────────────────────────
+  const refreshAccount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [walletRes, posRes, openRes, histRes, tradesRes] = await Promise.all([
+        futuresApi.wallet(),
+        futuresApi.positions(),
+        futuresApi.openOrders(),
+        futuresApi.orderHistory({ limit: 50 }),
+        futuresApi.myTrades({ limit: 50 }),
+      ]);
+      if (walletRes) setWallet(walletRes);
+      setPositions(posRes?.positions ?? []);
+      setOpenOrders(openRes?.orders ?? []);
+      setOrderHistory(histRes?.orders ?? []);
+      setUserTrades(tradesRes?.trades ?? []);
+    } catch { /* WS will catch up */ }
+  }, [user]);
+
+  const upsertOpenOrder = useCallback((order) => {
+    if (!order?.id) return;
+    const st = String(order.status || '').toLowerCase();
+    if (st !== 'open' && st !== 'partially_filled') return;
+    setOpenOrders((prev) => {
+      const i = prev.findIndex((o) => o.id === order.id);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = order;
+        return next;
+      }
+      return [order, ...prev];
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    refreshAccount();
+    return undefined;
+  }, [user, refreshAccount]);
+
   // ── Account WS (per logged-in user) ───────────────────────────────────
   useEffect(() => {
     if (!user) {
@@ -338,11 +378,13 @@ export function FuturesProvider({ children }) {
     wallet, positions, openOrders, orderHistory, userTrades,
     settings, setLeverage, setMarginMode,
     placeOrder, cancelOrder, closePosition, transfer, syncLocked,
+    refreshAccount, upsertOpenOrder,
     activeMark: activeSymbol ? markets[activeSymbol] : null,
   }), [
     symbols, leverageOptions, activeSymbol, markets, orderbook, recentTrades,
     wallet, positions, openOrders, orderHistory, userTrades, settings,
     setLeverage, setMarginMode, placeOrder, cancelOrder, closePosition, transfer, syncLocked,
+    refreshAccount, upsertOpenOrder,
   ]);
 
   return <FuturesContext.Provider value={value}>{children}</FuturesContext.Provider>;

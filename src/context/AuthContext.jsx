@@ -248,6 +248,22 @@ export function AuthProvider({ children }) {
     finally { setOrdersLoading(false); }
   }, []);
 
+  /** Merge one resting order from POST /orders so the list updates before the next WS tick. */
+  const upsertOpenOrder = useCallback((order) => {
+    if (!order?.id) return;
+    const st = String(order.status || '').toLowerCase();
+    if (st !== 'open' && st !== 'partially_filled') return;
+    setOpenOrders((prev) => {
+      const i = prev.findIndex((o) => o.id === order.id);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = order;
+        return next;
+      }
+      return [order, ...prev];
+    });
+  }, []);
+
   const fetchUserTrades = useCallback(async () => {
     setUserTradesLoading(true);
     try {
@@ -537,7 +553,7 @@ export function AuthProvider({ children }) {
       // Wallet
       walletAssets, balance, lockedBalance, walletLoading, fetchWallet,
       // Orders & fills (read-only — mutations via API; live updates via /ws/exchange/account)
-      openOrders, orderHistory, ordersLoading, fetchOrders,
+      openOrders, orderHistory, ordersLoading, fetchOrders, upsertOpenOrder,
       userTrades, userTradesLoading, fetchUserTrades,
       liveSpotPositions, fetchLiveSpotPositions,
       // Phase 2 — wallet ledger fetcher (paged, filterable)

@@ -206,6 +206,7 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   const { user, kyc } = useAuth();
   const {
     wallet, settings, placeOrder, activeMark, symbols, orderbook, recentTrades,
+    refreshAccount, upsertOpenOrder,
   } = useFutures();
   const toast = useToast();
 
@@ -526,6 +527,8 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
         desc  = `${qtyStr}${priceStr} — resting on the order book.`;
       }
       toast.success(title, desc);
+      upsertOpenOrder(order);
+      await refreshAccount();
       setQty(''); setTotal(''); setMargin('');
       sizeSourceRef.current = 'qty';
     } catch (e) {

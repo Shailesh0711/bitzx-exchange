@@ -40,7 +40,7 @@ function trimDecimalString(s, maxDecimals) {
 }
 
 export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', initialSide }) {
-  const { user, balance, fetchWallet, fetchOrders, fetchLiveSpotPositions, kyc } = useAuth();
+  const { user, balance, fetchWallet, fetchOrders, fetchLiveSpotPositions, upsertOpenOrder, kyc } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
   const apiBase = symbol.replace('USDT', '');
@@ -281,6 +281,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
         desc = `${amtStr}${priceStr} — order is now on the book.`;
       }
       toast.success(title, desc);
+      upsertOpenOrder(data);
 
       setAmount('');
       setTotalUsdt('');

@@ -11,6 +11,19 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 import { MIN_WALLET_NOTIONAL_USDT } from '@/lib/walletValidation';
+import {
+  normalizeSupportedNetworks,
+  filterDepositNetworks,
+  filterWithdrawNetworks,
+  uniqueAssets,
+  networksForAsset,
+  activeNetworksForAsset,
+  plannedNetworksForAsset,
+  defaultAssetSelection,
+} from '@/lib/walletNetworks';
+import WalletChainsBanner from '@/components/wallet/WalletChainsBanner';
+import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
+import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
@@ -218,9 +231,10 @@ function DepositTab({ kycBlocked, kyc }) {
   // configuration (which QuickNode URLs are set, mainnet vs testnet, …).
   // ``asset`` / ``network`` are empty strings until the list lands so we
   // never fire a deposit-addresses call with a combo the server can't serve.
-  const [supported, setSupported]       = useState([]);
+  const [supportedAll, setSupportedAll] = useState([]);
   const [netsLoading, setNetsLoading]   = useState(true);
   const [netsError, setNetsError]       = useState(null);
+  const depositActive = filterDepositNetworks(supportedAll);
   const [asset,   setAsset]             = useState('');
   const [network, setNetwork]           = useState('');
   const [depositAddresses, setDepositAddresses] = useState([]);
@@ -239,18 +253,14 @@ function DepositTab({ kycBlocked, kyc }) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
-        const list = Array.isArray(data) ? data : [];
-        setSupported(list);
-        if (list.length > 0) {
-          setAsset(list[0].asset);
-          setNetwork(list[0].network);
-        } else {
-          setAsset('');
-          setNetwork('');
-        }
+        const list = normalizeSupportedNetworks(data);
+        setSupportedAll(list);
+        const { asset: a0, network: n0 } = defaultAssetSelection(list);
+        setAsset(a0);
+        setNetwork(n0);
       } catch (e) {
         if (!cancelled) {
-          setSupported([]);
+          setSupportedAll([]);
           setNetsError(
             e?.message?.includes('Failed to fetch')
               ? 'Could not reach the API. Check VITE_BACKEND_URL and CORS.'
@@ -264,16 +274,23 @@ function DepositTab({ kycBlocked, kyc }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Derived dropdown sources — unique assets, and networks for the current asset.
-  const availableAssets = Array.from(new Set(supported.map(r => r.asset)));
-  const networks        = supported.filter(r => r.asset === asset);
+  const availableAssets = uniqueAssets(supportedAll);
+  const networksForAssetAll = networksForAsset(supportedAll, asset);
+  const networksActive = activeNetworksForAsset(supportedAll, asset);
+  const networksPlanned = plannedNetworksForAsset(supportedAll, asset);
+  const hasAnyChains = supportedAll.length > 0;
+  const hasDepositActive = depositActive.length > 0;
 
   useEffect(() => {
     // Don't hit the deposit-addresses endpoint until we know which combo
     // the provider supports; otherwise the server just returns 400.
-    if (!asset || !network) {
+    const sel = networksForAsset(supportedAll, asset).find((n) => n.network === network);
+    const canDeposit = sel?.deposit_enabled && sel?.status === 'active';
+    if (!asset || !network || !canDeposit) {
       setDepositAddresses([]);
-      setDepAddrError(null);
+      setDepAddrError(canDeposit ? null : (sel?.status === 'coming_soon'
+        ? 'Deposits for this network are not live yet. Choose an active network.'
+        : null));
       setDepAddrLoading(false);
       return undefined;
     }
@@ -322,16 +339,19 @@ function DepositTab({ kycBlocked, kyc }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [asset, network]);
+  }, [asset, network, supportedAll]);
 
   const handleAsset = (a) => {
     setAsset(a);
-    const firstForAsset = supported.find(r => r.asset === a);
-    setNetwork(firstForAsset ? firstForAsset.network : '');
+    const active = activeNetworksForAsset(supportedAll, a);
+    const nets = networksForAsset(supportedAll, a);
+    setNetwork(active[0]?.network || nets[0]?.network || '');
   };
 
   const personalAddress = depositAddresses[0] || null;
-  const hasSupported    = supported.length > 0;
+  const hasSupported = hasAnyChains;
+  const selectedNet = networksForAssetAll.find((n) => n.network === network);
+  const depositReady = selectedNet?.deposit_enabled && selectedNet?.status === 'active';
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
@@ -375,8 +395,7 @@ function DepositTab({ kycBlocked, kyc }) {
           )}
           {!netsLoading && !netsError && !hasSupported && (
             <div className="rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2.5 text-xs text-white/65">
-              No deposit networks are currently enabled. Please check back shortly — the operator is
-              still configuring the blockchain provider.
+              No blockchain endpoints are configured. Add QuickNode URLs in the server environment.
             </div>
           )}
           {hasSupported && (
@@ -384,16 +403,29 @@ function DepositTab({ kycBlocked, kyc }) {
               <AssetSelect value={asset} onChange={handleAsset} label="Asset" assets={availableAssets} />
 
               <div>
-                <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
-                <select value={network} onChange={e => setNetwork(e.target.value)} required
-                  className="w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors border-surface-border">
-                  {networks.map(n => (
-                    <option key={`${n.asset}-${n.network}-${n.chain || ''}`} value={n.network}>
-                      {n.label ? n.label : n.network}{n.testnet ? ' · testnet' : ''}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-xs text-white mb-2 uppercase tracking-wider">Network</label>
+                <NetworkSelectList
+                  networks={networksActive}
+                  plannedNetworks={networksPlanned}
+                  value={network}
+                  onChange={setNetwork}
+                  mode="deposit"
+                />
               </div>
+              {selectedNet ? (
+                <NetworkChainDetails network={selectedNet} mode="deposit" />
+              ) : null}
+              {!depositReady && selectedNet?.status === 'coming_soon' && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+                  RPC is configured for <strong>{selectedNet.endpoint_label || selectedNet.chain}</strong>.
+                  On-chain deposit scanning for this network is not live yet — choose an active network to deposit.
+                </div>
+              )}
+              {hasSupported && !hasDepositActive && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+                  No deposit networks are active yet. Listed assets reflect your configured endpoints.
+                </div>
+              )}
             </>
           )}
 
@@ -483,10 +515,9 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
   // Phase 6 — on-chain withdrawals via BlockchainProvider.send_transaction.
   // Only assets the backend can actually broadcast appear in the dropdown;
   // the same ``/api/wallet/supported-networks`` endpoint powers both tabs.
-  const [supported, setSupported]     = useState([]);
+  const [supportedAll, setSupportedAll] = useState([]);
   const [netsLoading, setNetsLoading] = useState(true);
   const [netsError, setNetsError]     = useState(null);
-
   const [asset,   setAsset]           = useState('');
   const [network, setNetwork]         = useState('');
   const [address, setAddress]         = useState('');
@@ -544,15 +575,20 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
-        const list = Array.isArray(data) ? data : [];
-        setSupported(list);
-        if (list.length > 0) {
-          setAsset(list[0].asset);
-          setNetwork(list[0].network);
+        const list = normalizeSupportedNetworks(data);
+        setSupportedAll(list);
+        const withdrawActive = filterWithdrawNetworks(list);
+        if (withdrawActive.length > 0) {
+          setAsset(withdrawActive[0].asset);
+          setNetwork(withdrawActive[0].network);
+        } else {
+          const { asset: a0, network: n0 } = defaultAssetSelection(list);
+          setAsset(a0);
+          setNetwork(n0);
         }
       } catch (e) {
         if (!cancelled) {
-          setSupported([]);
+          setSupportedAll([]);
           setNetsError(
             e?.message?.includes('Failed to fetch')
               ? 'Could not reach the API. Check VITE_BACKEND_URL and CORS.'
@@ -566,14 +602,25 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
     return () => { cancelled = true; };
   }, []);
 
-  const availableAssets = Array.from(new Set(supported.map(r => r.asset)));
-  const networks        = supported.filter(r => r.asset === asset);
-  const hasSupported    = supported.length > 0;
+  const withdrawActive = filterWithdrawNetworks(supportedAll);
+  const availableAssets = uniqueAssets(supportedAll);
+  const networksForAssetAll = networksForAsset(supportedAll, asset);
+  const networksWithdrawActive = networksForAssetAll.filter((n) => n.withdraw_enabled && n.status === 'active');
+  const networksWithdrawPlanned = networksForAssetAll.filter(
+    (n) => !n.withdraw_enabled || n.status === 'coming_soon',
+  );
+  const hasSupported = supportedAll.length > 0;
+  const hasWithdrawActive = withdrawActive.length > 0;
+  const selectedNet = networksForAssetAll.find((n) => n.network === network);
+  const withdrawReady = selectedNet?.withdraw_enabled && selectedNet?.status === 'active';
 
   const handleAsset = (a) => {
     setAsset(a);
-    const firstForAsset = supported.find(r => r.asset === a);
-    setNetwork(firstForAsset ? firstForAsset.network : '');
+    const active = networksForAsset(supportedAll, a).filter(
+      (n) => n.withdraw_enabled && n.status === 'active',
+    );
+    const nets = networksForAsset(supportedAll, a);
+    setNetwork(active[0]?.network || nets[0]?.network || '');
   };
 
   // Available balance for the currently selected asset (drives the Max button
@@ -606,6 +653,10 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
     setFieldErrors(nextErrors);
     if (!asset || !network) {
       setSubmitError('Please pick an asset and network.');
+      return;
+    }
+    if (!withdrawReady) {
+      setSubmitError('Withdrawals are not enabled for this network yet.');
       return;
     }
     if (nextErrors.amount || nextErrors.address || nextErrors.totp) {
@@ -686,7 +737,7 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
         )}
         {!netsLoading && !netsError && !hasSupported && (
           <div className="rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2.5 text-xs text-white/65">
-            No withdrawal networks are currently enabled. Please check back shortly.
+            No blockchain endpoints are configured.
           </div>
         )}
 
@@ -695,16 +746,29 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
             <AssetSelect value={asset} onChange={handleAsset} label="Asset" assets={availableAssets} />
 
             <div>
-              <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Network</label>
-              <select value={network} onChange={e => setNetwork(e.target.value)} required
-                className="w-full bg-surface-card border rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-gold/50 transition-colors border-surface-border">
-                {networks.map(n => (
-                  <option key={`${n.asset}-${n.network}-${n.chain || ''}`} value={n.network}>
-                    {n.label ? n.label : n.network}{n.testnet ? ' · testnet' : ''}
-                  </option>
-                ))}
-              </select>
+              <label className="block text-xs text-white mb-2 uppercase tracking-wider">Network</label>
+              <NetworkSelectList
+                networks={networksWithdrawActive}
+                plannedNetworks={networksWithdrawPlanned}
+                value={network}
+                onChange={setNetwork}
+                mode="withdraw"
+              />
             </div>
+            {selectedNet ? (
+              <NetworkChainDetails network={selectedNet} mode="withdraw" />
+            ) : null}
+            {!withdrawReady && selectedNet && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+                Withdrawals for {selectedNet.label || selectedNet.network} are not enabled yet.
+                {hasWithdrawActive ? ' Choose an active network above.' : ''}
+              </div>
+            )}
+            {hasSupported && !hasWithdrawActive && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+                No withdrawal networks are active. Assets listed match your configured RPC endpoints.
+              </div>
+            )}
 
             <div>
               <label className="block text-xs text-white mb-1.5 uppercase tracking-wider">Destination address</label>
@@ -1475,6 +1539,8 @@ export default function WalletPage() {
           </h1>
           <p className="text-white/60 text-sm mt-1 truncate max-w-full">{user.email}</p>
         </motion.div>
+
+        <WalletChainsBanner />
 
         {/* Tabs + actions — one toolbar row uses full width without duplicating balance stats */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-surface-border pb-0 mb-6 w-full min-w-0">

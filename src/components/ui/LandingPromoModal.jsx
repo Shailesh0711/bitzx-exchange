@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X, Download, Smartphone, Sparkles, ChevronRight } from 'lucide-react';
-import { useLandingPromo, promoAssetUrl, dismissPromo } from '@/hooks/useLandingPromo';
+import { useLandingPromo, promoAssetUrl } from '@/hooks/useLandingPromo';
 import { mobileAppDownloadHref } from '@/hooks/useMobileAppRelease';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
@@ -262,9 +262,8 @@ export default function LandingPromoModal() {
   }, [open, slides.length, intervalSec, paused, index]);
 
   const close = useCallback(() => {
-    dismissPromo(promo?.dismiss_hours);
     setOpen(false);
-  }, [promo?.dismiss_hours]);
+  }, []);
 
   if (!loaded || !shouldShow) return null;
 

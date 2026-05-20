@@ -61,7 +61,8 @@ export function useLandingPromo() {
   }, []);
 
   const slides = buildPromoSlides(promo);
-  const shouldShow = loaded && slides.length > 0 && !isPromoDismissed(promo?.dismiss_hours);
+  // Show on every full page load/refresh of the landing page (no localStorage gate).
+  const shouldShow = loaded && slides.length > 0;
 
-  return { promo, loaded, slides, shouldShow, dismiss: () => dismissPromo(promo?.dismiss_hours) };
+  return { promo, loaded, slides, shouldShow };
 }

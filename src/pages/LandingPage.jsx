@@ -6,7 +6,7 @@ import {
   TrendingUp, TrendingDown, Globe, Star, ChevronRight,
   Users, Activity, Award, RefreshCw, CheckCircle, X,
   Cpu, Eye, Sparkles, ArrowUpRight,
-  LayoutDashboard, LineChart, Flame, Snowflake,
+  LayoutDashboard, LineChart, Flame, Snowflake, Coins,
 } from 'lucide-react';
 import { COIN_ICONS, PAIRS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import MobileAppDownload from '@/components/ui/MobileAppDownload';
@@ -582,6 +582,7 @@ export default function LandingPage() {
               { to: '/dashboard', label: 'Portfolio', sub: 'P&L · Balances', icon: LayoutDashboard },
               { to: '/portfolio', label: 'Analytics', sub: 'Fills · Performance', icon: LineChart },
               { to: '/wallet', label: 'Wallet', sub: 'Deposit · Withdraw', icon: Wallet },
+              { to: '/list-coin', label: 'List Your Coin', sub: 'Apply for listing', icon: Coins },
             ].map(({ to, label, sub, icon: Icon }) => (
               <Link
                 key={to}
@@ -825,11 +826,18 @@ export default function LandingPage() {
               Last price, 24h change, high / low, volume in coin and in USDT — same fields you expect on a pro markets screen.
             </p>
           </div>
-          <motion.div whileHover={{ x: 3 }} transition={{ type: 'tween', duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
-            <Link to="/markets" className="flex items-center gap-2 text-gold-light text-[15px] font-medium">
-              Full markets <ArrowRight size={16} />
-            </Link>
-          </motion.div>
+          <div className="flex flex-wrap items-center gap-4">
+            <motion.div whileHover={{ x: 3 }} transition={{ type: 'tween', duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
+              <Link to="/list-coin" className="flex items-center gap-2 text-white/80 hover:text-gold-light text-[15px] font-medium">
+                <Coins size={16} /> List your coin
+              </Link>
+            </motion.div>
+            <motion.div whileHover={{ x: 3 }} transition={{ type: 'tween', duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
+              <Link to="/markets" className="flex items-center gap-2 text-gold-light text-[15px] font-medium">
+                Full markets <ArrowRight size={16} />
+              </Link>
+            </motion.div>
+          </div>
         </motion.div>
 
         <div className="flex flex-wrap gap-2.5 mb-5">

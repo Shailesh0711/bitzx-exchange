@@ -32,6 +32,17 @@ const TV_SYMBOLS = {
   LTCUSDT:  'BINANCE:LTCUSDT',
 };
 
+function resolveTvSymbol(apiSymbol) {
+  const sym = String(apiSymbol || '').toUpperCase();
+  if (TV_SYMBOLS[sym]) return TV_SYMBOLS[sym];
+  // BZX-quoted spot pairs (e.g. BNBBZX) → same base on Binance USDT
+  if (sym.endsWith('BZX')) {
+    const usdt = `${sym.slice(0, -3)}USDT`;
+    if (TV_SYMBOLS[usdt]) return TV_SYMBOLS[usdt];
+  }
+  return 'BINANCE:BTCUSDT';
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function TVChart({ symbol }) {
   const containerRef = useRef(null);
@@ -42,7 +53,7 @@ export default function TVChart({ symbol }) {
 
     el.innerHTML = '';
 
-    const tvSymbol = TV_SYMBOLS[symbol] ?? 'BINANCE:BTCUSDT';
+    const tvSymbol = resolveTvSymbol(symbol);
 
     /**
      * Official TradingView embed structure:

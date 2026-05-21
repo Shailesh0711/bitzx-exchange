@@ -2,7 +2,11 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell, ExternalLink, Shield, Zap, LineChart, HelpCircle, Settings, Smartphone, Download } from 'lucide-react';
+import {
+  ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell,
+  ExternalLink, Shield, Zap, LineChart, HelpCircle, Settings, Smartphone,
+  Download, MoreHorizontal, Coins,
+} from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { exchangeApiOrigin } from '@/lib/apiBase';
@@ -12,6 +16,29 @@ const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifac
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const TOKEN_SITE_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
 
+const TICKER_PAIRS = ['BZXUSDT', 'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT'];
+const USER_MENU_WIDTH_PX = 208;
+const USER_MENU_EDGE_GAP = 8;
+const MORE_MENU_WIDTH_PX = 220;
+
+/** Always visible on large screens */
+const NAV_PRIMARY = [
+  { label: 'Markets', to: '/markets' },
+  { label: 'Trade', to: '/trade/BZXUSDT' },
+  { label: 'Futures', to: '/futures/BTCUSDT-PERP' },
+  { label: 'Wallet', to: '/wallet' },
+];
+
+/** Grouped under “More” until 2xl, or always in mobile drawer */
+const NAV_MORE = [
+  { label: 'List Your Coin', to: '/list-coin', icon: Coins },
+  { label: 'BZX Markets', to: '/bzx-markets' },
+  { label: 'Options', to: '/options/BTCUSDT' },
+  { label: 'P2P', to: '/p2p' },
+  { label: 'P&L', to: '/portfolio' },
+  { label: 'Quick Trade', to: '/quick-trade', icon: Zap },
+];
+
 function userAvatarSrc(user) {
   if (!user?.avatar_url) return null;
   const u = user.avatar_url;
@@ -19,21 +46,12 @@ function userAvatarSrc(user) {
   const base = API.replace(/\/$/, '');
   return `${base}${u.startsWith('/') ? u : `/${u}`}`;
 }
-const TICKER_PAIRS   = ['BZXUSDT','BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT'];
-/** Tailwind `w-52` — menu width for viewport clamp math */
-const USER_MENU_WIDTH_PX = 208;
-const USER_MENU_EDGE_GAP = 8;
 
-const NAV_LINKS = [
-  { label: 'Markets',     to: '/markets' },
-  { label: 'BZX Markets', to: '/bzx-markets' },
-  { label: 'Trade',       to: '/trade/BZXUSDT' },
-  { label: 'Futures',     to: '/futures/BTCUSDT-PERP' },
-  { label: 'Options',     to: '/options/BTCUSDT' },
-  { label: 'P2P',         to: '/p2p' },
-  { label: 'Wallet',      to: '/wallet' },
-  { label: 'P&L',         to: '/portfolio' },
-];
+function pathActive(pathname, to) {
+  if (pathname === to) return true;
+  const base = to.split('/').slice(0, 2).join('/');
+  return base.length > 1 && pathname.startsWith(base);
+}
 
 function LiveTicker() {
   const [tickers, setTickers] = useState([]);
@@ -51,7 +69,7 @@ function LiveTicker() {
           const j = JSON.parse(ev.data);
           if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
             const data = normalizeMarketsList(j.markets);
-            setTickers(data.filter(m => TICKER_PAIRS.includes(m.symbol)).slice(0, 6));
+            setTickers(data.filter((m) => TICKER_PAIRS.includes(m.symbol)).slice(0, 6));
           }
         } catch {
           /* ignore */
@@ -81,21 +99,26 @@ function LiveTicker() {
   const items = [...tickers, ...tickers];
 
   return (
-    <div className="border-b border-white/[.06] overflow-hidden"
-      style={{ background: 'rgba(8,9,12,0.45)', backdropFilter: 'blur(12px)' }}>
-      <div className="flex">
+    <div
+      className="border-b border-white/[.06] overflow-hidden hidden sm:block"
+      style={{ background: 'rgba(8,9,12,0.45)', backdropFilter: 'blur(12px)' }}
+    >
+      <div className="flex overflow-hidden">
         <div
-          className="flex gap-10 py-2 px-6 whitespace-nowrap"
+          className="flex gap-8 lg:gap-10 py-1.5 px-4 sm:px-6 whitespace-nowrap"
           style={{ animation: 'ticker 35s linear infinite' }}
         >
           {items.map((t, i) => {
-            const pct  = parseFloat(t.priceChangePercent ?? 0);
-            const base = t.symbol.replace('USDT','');
+            const pct = parseFloat(t.priceChangePercent ?? 0);
+            const base = t.symbol.replace('USDT', '');
             return (
-              <Link key={i} to={`/trade/${t.symbol}`}
-                className="bitzx-ticker-link flex items-center gap-2.5 text-sm opacity-90 hover:opacity-100">
+              <Link
+                key={i}
+                to={`/trade/${t.symbol}`}
+                className="bitzx-ticker-link flex items-center gap-2 text-xs sm:text-sm opacity-90 hover:opacity-100"
+              >
                 <span className="text-white font-semibold">{base}/USDT</span>
-                <span className="text-white font-mono font-medium">
+                <span className="text-white font-mono font-medium hidden md:inline">
                   ${parseFloat(t.price || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
                 </span>
                 <span className={`font-semibold ${pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -110,16 +133,37 @@ function LiveTicker() {
   );
 }
 
+function NavLink({ to, label, active, compact }) {
+  return (
+    <Link
+      to={to}
+      className={`rounded-lg font-semibold transition-colors whitespace-nowrap ${
+        compact ? 'px-2.5 py-1.5 text-sm' : 'px-3 py-2 text-sm'
+      } ${
+        active
+          ? 'text-gold-light bg-gold/10'
+          : 'text-white/90 hover:text-white hover:bg-white/[0.06] bitzx-nav-link'
+      }`}
+    >
+      {label}
+    </Link>
+  );
+}
+
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const navigate   = useNavigate();
-  const location   = useLocation();
-  const [menuOpen,  setMenuOpen]  = useState(false);
-  const [userOpen,  setUserOpen]  = useState(false);
-  const [scrolled,  setScrolled]  = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState(null);
+  const [moreMenuPos, setMoreMenuPos] = useState(null);
   const userTriggerRef = useRef(null);
   const userMenuPanelRef = useRef(null);
+  const moreTriggerRef = useRef(null);
+  const moreMenuPanelRef = useRef(null);
 
   const isTrade =
     location.pathname.startsWith('/trade')
@@ -128,8 +172,12 @@ export default function Navbar() {
   const isHome = location.pathname === '/';
   const { available: appAvailable, downloadHref: appDownloadHref, release: appRelease } = useMobileAppRelease();
 
+  const moreActive = NAV_MORE.some((l) => pathActive(location.pathname, l.to));
+
   useEffect(() => {
     setUserOpen(false);
+    setMoreOpen(false);
+    setMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -137,6 +185,15 @@ export default function Navbar() {
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [menuOpen]);
 
   const updateUserMenuPosition = useCallback(() => {
     const el = userTriggerRef.current;
@@ -150,10 +207,22 @@ export default function Navbar() {
     setUserMenuPos({ top: r.bottom + USER_MENU_EDGE_GAP, left });
   }, []);
 
+  const updateMoreMenuPosition = useCallback(() => {
+    const el = moreTriggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    let left = r.left;
+    left = Math.max(
+      USER_MENU_EDGE_GAP,
+      Math.min(left, window.innerWidth - MORE_MENU_WIDTH_PX - USER_MENU_EDGE_GAP),
+    );
+    setMoreMenuPos({ top: r.bottom + USER_MENU_EDGE_GAP, left });
+  }, []);
+
   useLayoutEffect(() => {
     if (!userOpen) {
       setUserMenuPos(null);
-      return;
+      return undefined;
     }
     updateUserMenuPosition();
     window.addEventListener('scroll', updateUserMenuPosition, true);
@@ -164,77 +233,117 @@ export default function Navbar() {
     };
   }, [userOpen, updateUserMenuPosition]);
 
+  useLayoutEffect(() => {
+    if (!moreOpen) {
+      setMoreMenuPos(null);
+      return undefined;
+    }
+    updateMoreMenuPosition();
+    window.addEventListener('scroll', updateMoreMenuPosition, true);
+    window.addEventListener('resize', updateMoreMenuPosition);
+    return () => {
+      window.removeEventListener('scroll', updateMoreMenuPosition, true);
+      window.removeEventListener('resize', updateMoreMenuPosition);
+    };
+  }, [moreOpen, updateMoreMenuPosition]);
+
   useEffect(() => {
-    const onClick = e => {
+    const onClick = (e) => {
       if (userTriggerRef.current?.contains(e.target)) return;
       if (userMenuPanelRef.current?.contains(e.target)) return;
+      if (moreTriggerRef.current?.contains(e.target)) return;
+      if (moreMenuPanelRef.current?.contains(e.target)) return;
       setUserOpen(false);
+      setMoreOpen(false);
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  const handleLogout = () => { logout(); navigate('/'); };
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+    setMenuOpen(false);
+  };
   const navAvatarSrc = user ? userAvatarSrc(user) : null;
 
   return (
     <>
-      {/* Hide on trade (chart height) and on home (clean video hero) */}
       {!isTrade && !isHome && <LiveTicker />}
       <header
         className="sticky top-0 z-50 transition-all duration-300"
         style={{
-          background: scrolled || isTrade
-            ? 'rgba(10,11,15,0.92)'
-            : 'rgba(8,9,12,0.35)',
+          background: scrolled || isTrade ? 'rgba(10,11,15,0.92)' : 'rgba(8,9,12,0.35)',
           backdropFilter: 'blur(16px)',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
         }}
       >
-        {/* Main nav bar — taller and full-width */}
-        <div className="w-full flex items-center gap-3 sm:gap-6 px-4 sm:px-6 lg:px-10 xl:px-14 2xl:px-16 h-18" style={{ height: '70px' }}>
-          {/* Logo */}
-          <Link to="/" className="flex items-center gap-3 flex-shrink-0 group">
+        <div className="w-full flex items-center gap-2 sm:gap-3 min-h-[56px] sm:min-h-[64px] lg:min-h-[70px] px-3 sm:px-4 lg:px-8 xl:px-10 max-w-[100vw]">
+          {/* Logo — compact on small screens */}
+          <Link to="/" className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0 min-w-0 group">
             <motion.img
-              src={LOGO} alt="BITZX"
-              className="h-11 w-11 object-contain"
+              src={LOGO}
+              alt="BITZX"
+              className="h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 object-contain flex-shrink-0"
               whileHover={{ rotate: 8, scale: 1.05 }}
               transition={{ type: 'spring', stiffness: 300 }}
             />
-            <span className="font-extrabold text-xl tracking-tight">
+            <span className="font-extrabold text-lg sm:text-xl tracking-tight truncate">
               <span className="text-white">BITZ</span>
               <span className="text-gradient">X</span>
-              <span className="ml-2 text-xs font-bold text-white tracking-widest uppercase">Exchange</span>
+              <span className="hidden sm:inline ml-1.5 text-[10px] lg:text-xs font-bold text-white/70 tracking-widest uppercase">
+                Exchange
+              </span>
             </span>
           </Link>
 
-          {/* Desktop nav links */}
-          <nav className="hidden md:flex items-center gap-1 ml-4">
-            {NAV_LINKS.map(l => {
-              const active =
-                location.pathname === l.to ||
-                location.pathname.startsWith(l.to.split('/').slice(0, 2).join('/'));
-              return (
-                <Link
+          {/* Desktop nav — lg+ only; primary + More (2xl shows all inline) */}
+          <nav className="hidden lg:flex items-center gap-0.5 min-w-0 flex-1 justify-center max-w-3xl mx-auto">
+            {NAV_PRIMARY.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                label={l.label}
+                active={pathActive(location.pathname, l.to)}
+                compact
+              />
+            ))}
+
+            {/* 2xl: extra links inline */}
+            <div className="hidden 2xl:flex items-center gap-0.5">
+              {NAV_MORE.filter((l) => l.to !== '/quick-trade').map((l) => (
+                <NavLink
                   key={l.to}
                   to={l.to}
-                  className={`px-4 py-2 rounded-lg text-base font-semibold transition-colors ${
-                    active
-                      ? 'text-gold-light bg-gold/10'
-                      : 'text-white hover:text-white hover:bg-surface-hover bitzx-nav-link'
-                  }`}
-                >
-                  {l.label}
-                </Link>
-              );
-            })}
+                  label={l.label}
+                  active={pathActive(location.pathname, l.to)}
+                  compact
+                />
+              ))}
+            </div>
+
+            {/* lg–xl: More dropdown */}
+            <div className="2xl:hidden relative flex-shrink-0" ref={moreTriggerRef}>
+              <button
+                type="button"
+                onClick={() => setMoreOpen((v) => !v)}
+                className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition-colors ${
+                  moreOpen || moreActive
+                    ? 'text-gold-light bg-gold/10'
+                    : 'text-white/90 hover:bg-white/[0.06]'
+                }`}
+              >
+                <MoreHorizontal size={16} />
+                More
+                <ChevronDown size={14} className={`transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
           </nav>
 
-          {/* Quick Trade — dedicated page link */}
+          {/* Quick Trade CTA — xl+ in bar */}
           <Link
             to="/quick-trade"
-            className="bitzx-hover-scale hidden sm:flex items-center gap-2 ml-4 px-4 py-2 rounded-xl
-              font-extrabold text-sm shadow-md shadow-black/20"
+            className="bitzx-hover-scale hidden xl:flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 rounded-lg font-bold text-sm"
             style={{
               background: 'linear-gradient(135deg, rgba(156,121,65,0.22), rgba(235,211,141,0.18))',
               border: '1px solid rgba(235,211,141,0.38)',
@@ -242,49 +351,50 @@ export default function Navbar() {
               textDecoration: 'none',
             }}
           >
-            <Zap size={15} />
-            Quick Trade
+            <Zap size={14} />
+            Quick
           </Link>
 
           {appAvailable && appDownloadHref && (
             <a
               href={appDownloadHref}
               download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
-              className="hidden sm:flex items-center gap-2 ml-2 px-4 py-2 rounded-xl font-bold text-sm
-                text-emerald-300 border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+              className="hidden xl:flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 rounded-lg font-bold text-sm text-emerald-300 border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
               title={`Download BITZX Mobile v${appRelease?.version || ''}`}
             >
-              <Smartphone size={15} />
+              <Smartphone size={14} />
               App
             </a>
           )}
 
-          {/* Right side */}
-          <div className="ml-auto flex items-center gap-4">
-            {/* Token site link */}
+          {/* Right cluster */}
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             <a
               href={TOKEN_SITE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden lg:flex items-center gap-1.5 text-sm text-white hover:text-white transition-colors border border-surface-border px-3 py-1.5 rounded-lg hover:border-white/40"
+              className="hidden 2xl:flex items-center gap-1 text-xs text-white/70 hover:text-white border border-white/10 px-2.5 py-1.5 rounded-lg hover:border-white/25 transition-colors"
             >
-              <ExternalLink size={13} /> Token Site
+              <ExternalLink size={12} />
+              Token
             </a>
 
             {user ? (
               <>
-                {/* Notification */}
-                <button className="relative p-2.5 rounded-lg text-white hover:text-white hover:bg-surface-hover transition-colors">
-                  <Bell size={18} />
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-gold rounded-full" />
+                <button
+                  type="button"
+                  className="hidden xl:block relative p-2 rounded-lg text-white/80 hover:text-white hover:bg-white/[0.06] transition-colors"
+                  aria-label="Notifications"
+                >
+                  <Bell size={17} />
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-gold rounded-full" />
                 </button>
 
-                {/* User menu — portaled + fixed so sticky header / transforms never misalign the panel */}
                 <div className="relative" ref={userTriggerRef}>
                   <button
                     type="button"
-                    onClick={() => setUserOpen(v => !v)}
-                    className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-surface-card border border-surface-border hover:border-gold/40 transition-colors"
+                    onClick={() => setUserOpen((v) => !v)}
+                    className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-surface-card border border-surface-border hover:border-gold/40 transition-colors max-w-[140px] sm:max-w-[180px]"
                   >
                     <div className="w-7 h-7 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-sm font-bold overflow-hidden flex-shrink-0">
                       {navAvatarSrc ? (
@@ -293,10 +403,10 @@ export default function Navbar() {
                         user.name?.[0]?.toUpperCase()
                       )}
                     </div>
-                    <span className="hidden sm:block text-base text-white font-semibold max-w-[100px] truncate">
+                    <span className="hidden md:block text-sm text-white font-semibold truncate">
                       {user.name}
                     </span>
-                    <ChevronDown size={15} className="text-white" />
+                    <ChevronDown size={14} className="text-white/70 flex-shrink-0 hidden sm:block" />
                   </button>
                 </div>
 
@@ -316,36 +426,36 @@ export default function Navbar() {
                     }}
                   >
                     <Link to="/dashboard" onClick={() => setUserOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
                       <LayoutDashboard size={16} /> Dashboard
                     </Link>
                     <Link to="/portfolio" onClick={() => setUserOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
                       <LineChart size={16} /> P&amp;L &amp; fills
                     </Link>
                     <Link to="/wallet" onClick={() => setUserOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
                       <Wallet size={16} /> My Wallet
                     </Link>
                     <Link to="/profile" onClick={() => setUserOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
                       <User size={16} /> Edit Profile
                     </Link>
                     <Link to="/kyc" onClick={() => setUserOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                      <Shield size={16} /> KYC Verification
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
+                      <Shield size={16} /> KYC
                     </Link>
                     <Link to="/support-disputes" onClick={() => setUserOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                      <HelpCircle size={16} /> Support & Disputes
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
+                      <HelpCircle size={16} /> Support
                     </Link>
                     <Link to="/settings" onClick={() => setUserOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-3 text-base text-white hover:bg-surface-hover hover:text-white transition-colors">
-                      <Settings size={16} /> Security & Settings
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
+                      <Settings size={16} /> Settings
                     </Link>
                     <div className="border-t border-surface-border my-1" />
                     <button type="button" onClick={handleLogout}
-                      className="w-full flex items-center gap-2.5 px-4 py-3 text-base text-red-400 hover:bg-surface-hover transition-colors">
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-surface-hover transition-colors">
                       <LogOut size={16} /> Sign Out
                     </button>
                   </motion.div>,
@@ -353,111 +463,207 @@ export default function Navbar() {
                 )}
               </>
             ) : (
-              <div className="flex items-center gap-3">
-                <Link to="/login"
-                  className="hidden sm:block px-5 py-2 text-base font-semibold text-white hover:text-white transition-colors">
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/login"
+                  className="hidden sm:block px-3 py-1.5 text-sm font-semibold text-white/90 hover:text-white transition-colors"
+                >
                   Log In
                 </Link>
-                <Link to="/register"
-                  className="px-5 py-2.5 text-base font-bold bg-gradient-to-r from-gold to-gold-light text-surface-dark rounded-xl hover:shadow-lg hover:shadow-gold/20 hover:scale-[1.03] transition-all">
-                  Sign Up Free
+                <Link
+                  to="/register"
+                  className="px-3 sm:px-4 py-1.5 sm:py-2 text-sm font-bold bg-gradient-to-r from-gold to-gold-light text-surface-dark rounded-lg sm:rounded-xl hover:shadow-lg hover:shadow-gold/20 transition-all whitespace-nowrap"
+                >
+                  Sign Up
                 </Link>
               </div>
             )}
 
-            {/* Mobile hamburger */}
-            <button onClick={() => setMenuOpen(v => !v)} className="md:hidden p-2 text-white hover:text-white">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="lg:hidden p-2 rounded-lg text-white hover:bg-white/[0.06] transition-colors"
+              aria-expanded={menuOpen}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            >
               {menuOpen ? <X size={22} /> : <Menu size={22} />}
             </button>
           </div>
         </div>
 
-        {/* Mobile menu */}
+        {/* More menu portal (lg–xl) */}
+        {typeof document !== 'undefined' && moreOpen && moreMenuPos != null && createPortal(
+          <motion.div
+            ref={moreMenuPanelRef}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.15 }}
+            className="bg-surface-card border border-surface-border rounded-xl shadow-2xl py-1 overflow-hidden"
+            style={{
+              position: 'fixed',
+              top: moreMenuPos.top,
+              left: moreMenuPos.left,
+              width: MORE_MENU_WIDTH_PX,
+              zIndex: 10050,
+            }}
+          >
+            {NAV_MORE.map((l) => {
+              const Icon = l.icon;
+              return (
+                <Link
+                  key={l.to}
+                  to={l.to}
+                  onClick={() => setMoreOpen(false)}
+                  className={`flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors ${
+                    pathActive(location.pathname, l.to)
+                      ? 'text-gold-light bg-gold/10'
+                      : 'text-white hover:bg-surface-hover'
+                  }`}
+                >
+                  {Icon ? <Icon size={16} className="flex-shrink-0 opacity-80" /> : null}
+                  {l.label}
+                </Link>
+              );
+            })}
+            <div className="border-t border-surface-border my-1" />
+            <a
+              href={TOKEN_SITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMoreOpen(false)}
+              className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white/80 hover:bg-surface-hover"
+            >
+              <ExternalLink size={16} /> Token Site
+            </a>
+          </motion.div>,
+          document.body,
+        )}
+
+        {/* Mobile / tablet drawer */}
         <AnimatePresence>
           {menuOpen && (
-            <motion.div
-              initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
-              className="md:hidden overflow-hidden border-t border-surface-border bg-surface-dark"
-            >
-              <div className="px-6 py-4 space-y-1">
-                {/* Quick Trade — mobile */}
-                <Link to="/quick-trade" onClick={() => setMenuOpen(false)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3.5
-                    rounded-xl font-extrabold text-base mb-2 transition-all"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(156,121,65,0.22), rgba(235,211,141,0.18))',
-                    border: '1px solid rgba(235,211,141,0.38)',
-                    color: '#EBD38D',
-                    textDecoration: 'none',
-                  }}
-                >
-                  <Zap size={17} /> Quick Trade
-                </Link>
-
-                {appAvailable && appDownloadHref ? (
-                  <a
-                    href={appDownloadHref}
-                    download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
+            <>
+              <motion.button
+                type="button"
+                aria-label="Close menu"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="lg:hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm"
+                onClick={() => setMenuOpen(false)}
+              />
+              <motion.div
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+                className="lg:hidden fixed top-0 right-0 bottom-0 z-[61] w-[min(100vw-3rem,320px)] bg-[#0d0f14] border-l border-white/10 shadow-2xl flex flex-col"
+              >
+                <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+                  <span className="text-sm font-bold text-white/80 uppercase tracking-wider">Menu</span>
+                  <button
+                    type="button"
                     onClick={() => setMenuOpen(false)}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-extrabold text-base mb-2 transition-all"
+                    className="p-2 rounded-lg text-white/70 hover:bg-white/10"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-3 space-y-4">
+                  <Link
+                    to="/quick-trade"
+                    onClick={() => setMenuOpen(false)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm"
                     style={{
-                      background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(52,211,153,0.12))',
-                      border: '1px solid rgba(52,211,153,0.35)',
-                      color: '#6ee7b7',
-                      textDecoration: 'none',
+                      background: 'linear-gradient(135deg, rgba(156,121,65,0.22), rgba(235,211,141,0.18))',
+                      border: '1px solid rgba(235,211,141,0.38)',
+                      color: '#EBD38D',
                     }}
                   >
-                    <Download size={17} />
-                    {' Download app'}
-                    {appRelease?.version ? ` v${appRelease.version}` : null}
-                  </a>
-                ) : (
-                  <Link to="/#mobile-app" onClick={() => setMenuOpen(false)}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-semibold text-base mb-2 text-zinc-400 border border-white/10">
-                    <Smartphone size={17} /> Mobile app — coming soon
+                    <Zap size={16} /> Quick Trade
                   </Link>
-                )}
 
-                {NAV_LINKS.map(l => (
-                  <Link key={l.to} to={l.to} onClick={() => setMenuOpen(false)}
-                    className="block px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
-                    {l.label}
-                  </Link>
-                ))}
-                {user && (
-                  <>
-                    <Link to="/dashboard" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
-                      <LayoutDashboard size={15} /> Dashboard
-                    </Link>
-                    <Link to="/profile" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
-                      <User size={15} /> Edit Profile
-                    </Link>
-                    <Link to="/kyc" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
-                      <Shield size={15} /> KYC Verification
-                    </Link>
-                    <Link to="/support-disputes" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
-                      <HelpCircle size={15} /> Support & Disputes
-                    </Link>
-                    <Link to="/settings" onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold text-white hover:text-white hover:bg-surface-hover transition-colors">
-                      <Settings size={15} /> Security & Settings
-                    </Link>
-                  </>
-                )}
-                <a href={TOKEN_SITE_URL} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-3 text-base text-white hover:text-white transition-colors">
-                  <ExternalLink size={14} /> Token Site
-                </a>
-              </div>
-            </motion.div>
+                  {appAvailable && appDownloadHref ? (
+                    <a
+                      href={appDownloadHref}
+                      download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
+                      onClick={() => setMenuOpen(false)}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm text-emerald-300 border border-emerald-500/35 bg-emerald-500/10"
+                    >
+                      <Download size={16} />
+                      App{appRelease?.version ? ` v${appRelease.version}` : ''}
+                    </a>
+                  ) : null}
+
+                  <div>
+                    <p className="px-2 mb-1.5 text-[10px] font-bold text-white/40 uppercase tracking-widest">Trade</p>
+                    <div className="space-y-0.5">
+                      {[...NAV_PRIMARY, ...NAV_MORE.filter((l) => l.to !== '/quick-trade')].map((l) => (
+                        <Link
+                          key={l.to}
+                          to={l.to}
+                          onClick={() => setMenuOpen(false)}
+                          className={`block px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                            pathActive(location.pathname, l.to)
+                              ? 'text-gold-light bg-gold/10'
+                              : 'text-white hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          {l.label}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+
+                  {user && (
+                    <div>
+                      <p className="px-2 mb-1.5 text-[10px] font-bold text-white/40 uppercase tracking-widest">Account</p>
+                      <div className="space-y-0.5">
+                        {[
+                          { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                          { to: '/portfolio', label: 'P&L & fills', icon: LineChart },
+                          { to: '/profile', label: 'Profile', icon: User },
+                          { to: '/kyc', label: 'KYC', icon: Shield },
+                          { to: '/support-disputes', label: 'Support', icon: HelpCircle },
+                          { to: '/settings', label: 'Settings', icon: Settings },
+                        ].map(({ to, label, icon: Icon }) => (
+                          <Link
+                            key={to}
+                            to={to}
+                            onClick={() => setMenuOpen(false)}
+                            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-white/90 hover:bg-white/[0.06]"
+                          >
+                            <Icon size={15} className="opacity-70" />
+                            {label}
+                          </Link>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={handleLogout}
+                          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-red-400 hover:bg-white/[0.06]"
+                        >
+                          <LogOut size={15} /> Sign Out
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <a
+                    href={TOKEN_SITE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2.5 text-sm text-white/60 hover:text-white"
+                  >
+                    <ExternalLink size={14} /> Token Site
+                  </a>
+                </div>
+              </motion.div>
+            </>
           )}
         </AnimatePresence>
       </header>
-
     </>
   );
 }

@@ -14,5 +14,6 @@
 import TVChart from './TVChart';
 
 export default function TradingChart({ symbol }) {
-  return <TVChart symbol={symbol} />;
+  const sym = String(symbol || '').toUpperCase();
+  return <TVChart key={sym} symbol={sym} />;
 }

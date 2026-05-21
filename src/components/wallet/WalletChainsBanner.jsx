@@ -62,10 +62,10 @@ export default function WalletChainsBanner() {
           );
         })}
       </div>
-      <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
+      {/* <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">
         Networks shown in Deposit / Withdraw follow your QuickNode RPC configuration. Each chain uses a
         dedicated endpoint with isolated rate limits.
-      </p>
+      </p> */}
     </div>
   );
 }

@@ -33,6 +33,7 @@ import P2PMyAdsPage          from '@/pages/p2p/P2PMyAdsPage';
 import P2PPaymentMethodsPage from '@/pages/p2p/P2PPaymentMethodsPage';
 import P2PMerchantPage       from '@/pages/p2p/P2PMerchantPage';
 import BZXMarketsPage        from '@/pages/BZXMarketsPage';
+import ListCoinPage          from '@/pages/ListCoinPage';
 
 /** Surfaces render/import errors instead of a blank screen on the options route. */
 class OptionsRouteErrorBoundary extends React.Component {
@@ -187,6 +188,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/"              element={<LandingPage />} />
         <Route path="/markets"       element={<MarketsPage />} />
+        <Route path="/list-coin"     element={<ListCoinPage />} />
         <Route path="/quick-trade"   element={<QuickTradePage />} />
         <Route path="/trade"         element={<TradePage />} />
         <Route path="/trade/:symbol" element={<TradePage />} />

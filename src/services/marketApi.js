@@ -66,7 +66,15 @@ export const INTERNAL_SPOT_SYMBOL = 'BZXUSDT';
 
 /** Route `/trade/BZXUSDT` → API symbol (identity for bitzx). */
 export function apiSymbolFromRouteParam(param) {
-  return String(param || '').toUpperCase();
+  return String(param || '').trim().toUpperCase();
+}
+
+const SPOT_SYMBOL_SET = new Set(PAIRS.map((p) => p.symbol));
+
+/** Valid spot pair from `/trade/:symbol`, or null if unknown / empty. */
+export function tradeSymbolFromRouteParam(param) {
+  const upper = apiSymbolFromRouteParam(param);
+  return upper && SPOT_SYMBOL_SET.has(upper) ? upper : null;
 }
 
 /** Pretty path segment for `/trade/:symbol`. */

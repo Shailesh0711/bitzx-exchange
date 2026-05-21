@@ -29,8 +29,9 @@ import {
   COIN_ICONS,
   PAIRS,
   exchangeWsPath,
-  apiSymbolFromRouteParam,
+  INTERNAL_SPOT_SYMBOL,
   tradePathForApiSymbol,
+  tradeSymbolFromRouteParam,
   displayBaseForApiSymbol,
   displayPairSlash,
   walletAssetLabel,
@@ -68,8 +69,7 @@ function StatItem({ label, value, color }) {
   );
 }
 
-const API       = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
-const ALL_PAIRS = PAIRS.map(p => p.symbol);
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 // ─── Date formatter ───────────────────────────────────────────────────────────
 const ORDER_FMT = iso => new Date(iso).toLocaleString('en-US', {
@@ -943,13 +943,17 @@ function BottomPanel({ symbol }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function TradePage() {
-  const { symbol: p } = useParams();
+  const { symbol: routeParam } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sideQ = searchParams.get('side');
   const formInitialSide = sideQ === 'sell' ? 'sell' : sideQ === 'buy' ? 'buy' : undefined;
 
-  const [symbol, setSymbol] = useState(() => apiSymbolFromRouteParam((p || 'BZXUSDT').toUpperCase()));
+  // URL is the source of truth so deep links from Markets/Landing show the right chart immediately.
+  const symbol = useMemo(
+    () => tradeSymbolFromRouteParam(routeParam) ?? INTERNAL_SPOT_SYMBOL,
+    [routeParam],
+  );
   const [ticker,        setTicker]        = useState(null);
   const [pairOpen,      setPairOpen]      = useState(false);
   const [formPrice,     setFormPrice]     = useState('');
@@ -1002,21 +1006,23 @@ export default function TradePage() {
   }, [symbol]);
 
   useEffect(() => {
-    if (!p) return;
-    const upper = String(p).toUpperCase();
-    // Redirect unknown / legacy symbols (e.g. VSNUSDT) to BZXUSDT
-    if (!ALL_PAIRS.includes(upper)) {
-      navigate('/trade/BZXUSDT', { replace: true });
+    if (!routeParam) {
+      navigate(`/trade/${INTERNAL_SPOT_SYMBOL}`, { replace: true });
       return;
     }
-    setSymbol(apiSymbolFromRouteParam(upper));
+    if (!tradeSymbolFromRouteParam(routeParam)) {
+      navigate(`/trade/${INTERNAL_SPOT_SYMBOL}`, { replace: true });
+    }
+  }, [routeParam, navigate]);
+
+  useEffect(() => {
     setFormPrice('');
-  }, [p, navigate]);
+  }, [symbol]);
 
   const switchPair = sym => {
-    setSymbol(sym);
     navigate(`/trade/${tradePathForApiSymbol(sym)}`, { replace: true });
-    setPairOpen(false); setFormPrice('');
+    setPairOpen(false);
+    setFormPrice('');
   };
 
   const onOrderBookPrice = useCallback(pr => { setFormPrice(pr); }, []);
@@ -1178,7 +1184,7 @@ export default function TradePage() {
 
         {/* Mobile Chart — explicit pixel height so TradingView renders */}
         <div style={{ height: 280, position: 'relative', overflow: 'hidden', pointerEvents: pairOpen ? 'none' : 'auto' }}>
-          <TradingChart symbol={symbol} />
+          <TradingChart key={symbol} symbol={symbol} />
         </div>
 
         <div style={{
@@ -1269,7 +1275,7 @@ export default function TradePage() {
         {/* Desktop three columns */}
         <div style={{ display: 'flex', flex: '1 1 0', minHeight: 0 }}>
           <div style={{ flex: '1 1 0', minWidth: 0, position: 'relative', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)', pointerEvents: pairOpen ? 'none' : 'auto' }}>
-            <TradingChart symbol={symbol} />
+            <TradingChart key={symbol} symbol={symbol} />
           </div>
           <div
             className="flex min-h-0 w-[340px] shrink-0 flex-col overflow-hidden border-r border-white/[0.06]"

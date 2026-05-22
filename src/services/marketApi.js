@@ -216,14 +216,38 @@ export const marketApi = {
   async getBZXMarkets(params = {}) {
     const q = new URLSearchParams({
       skip: String(params.skip ?? 0),
-      limit: String(params.limit ?? 40),
-      tier: params.tier ?? 'featured',
+      limit: String(params.limit ?? 80),
+      tier: params.tier ?? 'all',
     });
     if (params.q) q.set('q', params.q);
     const raw = await safeFetch(`${BACKEND}/api/trading/bzx-markets?${q}`, null);
     if (raw && Array.isArray(raw.markets)) return raw;
     if (Array.isArray(raw)) return { markets: raw, total: raw.length };
     return { markets: [], total: 0 };
+  },
+
+  /** Full BZX catalog (majors + all Web3), paginated until complete. */
+  async fetchAllBzxMarkets() {
+    const PAGE = 80;
+    const seen = new Set();
+    const out = [];
+    let skip = 0;
+    let total = 1;
+    while (skip < total) {
+      const d = await marketApi.getBZXMarkets({ tier: 'all', skip, limit: PAGE });
+      const list = d?.markets ?? [];
+      total = Number(d?.total) ?? skip + list.length;
+      for (const m of list) {
+        const sym = String(m?.symbol || '').toUpperCase();
+        if (sym && !seen.has(sym)) {
+          seen.add(sym);
+          out.push(m);
+        }
+      }
+      skip += list.length;
+      if (!list.length) break;
+    }
+    return out;
   },
 
   async getTicker(symbol) {

@@ -8,7 +8,7 @@ const PAGE_SIZE = 40;
 /**
  * Optimized BZX markets — paginated REST + lightweight WS (featured/top ~48).
  */
-export function useBzxMarkets({ tier: initialTier = 'featured' } = {}) {
+export function useBzxMarkets({ tier: initialTier = 'all' } = {}) {
   const [tier, setTier] = useState(initialTier);
   const [query, setQuery] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');

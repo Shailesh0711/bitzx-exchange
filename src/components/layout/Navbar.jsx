@@ -548,17 +548,20 @@ export default function Navbar() {
           document.body,
         )}
 
-        {/* Mobile / tablet drawer */}
+      </header>
+
+      {/* Mobile drawer — portaled (header backdrop-filter traps fixed children otherwise) */}
+      {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {menuOpen && (
-            <>
+            <div className="lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
               <motion.button
                 type="button"
                 aria-label="Close menu"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="lg:hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm"
+                className="fixed inset-0 z-[10070] bg-black/65 backdrop-blur-sm touch-manipulation"
                 onClick={() => setMenuOpen(false)}
               />
               <motion.div
@@ -566,24 +569,29 @@ export default function Navbar() {
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}
                 transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-                className="lg:hidden fixed top-0 right-0 bottom-0 z-[61] w-[min(100vw-3rem,320px)] bg-[#0d0f14] border-l border-white/10 shadow-2xl flex flex-col"
+                className="fixed top-0 right-0 z-[10071] flex flex-col w-full max-w-[min(100vw,340px)] h-[100dvh] max-h-[100dvh] bg-[#0d0f14] border-l border-white/10 shadow-2xl"
+                style={{
+                  paddingTop: 'env(safe-area-inset-top, 0px)',
+                  paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                }}
               >
-                <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+                <div className="flex items-center justify-between px-4 py-4 border-b border-white/10 flex-shrink-0">
                   <span className="text-sm font-bold text-white/80 uppercase tracking-wider">Menu</span>
                   <button
                     type="button"
                     onClick={() => setMenuOpen(false)}
-                    className="p-2 rounded-lg text-white/70 hover:bg-white/10"
+                    className="p-2.5 rounded-lg text-white/70 hover:bg-white/10 touch-manipulation"
+                    aria-label="Close menu"
                   >
-                    <X size={20} />
+                    <X size={22} />
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-3 space-y-4">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-4 space-y-4 pb-6">
                   <Link
                     to="/quick-trade"
                     onClick={() => setMenuOpen(false)}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-sm touch-manipulation"
                     style={{
                       background: 'linear-gradient(135deg, rgba(156,121,65,0.22), rgba(235,211,141,0.18))',
                       border: '1px solid rgba(235,211,141,0.38)',
@@ -598,7 +606,7 @@ export default function Navbar() {
                       href={appDownloadHref}
                       download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
                       onClick={() => setMenuOpen(false)}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm text-emerald-300 border border-emerald-500/35 bg-emerald-500/10"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-sm text-emerald-300 border border-emerald-500/35 bg-emerald-500/10 touch-manipulation"
                     >
                       <Download size={16} />
                       App{appRelease?.version ? ` v${appRelease.version}` : ''}
@@ -606,14 +614,14 @@ export default function Navbar() {
                   ) : null}
 
                   <div>
-                    <p className="px-2 mb-1.5 text-[10px] font-bold text-white/40 uppercase tracking-widest">Trade</p>
-                    <div className="space-y-0.5">
+                    <p className="px-2 mb-2 text-[10px] font-bold text-white/40 uppercase tracking-widest">Trade</p>
+                    <div className="space-y-1">
                       {[...NAV_PRIMARY, ...NAV_MORE.filter((l) => l.to !== '/quick-trade')].map((l) => (
                         <Link
                           key={l.to}
                           to={l.to}
                           onClick={() => setMenuOpen(false)}
-                          className={`block px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                          className={`block px-3 py-3 rounded-lg text-[15px] font-semibold transition-colors touch-manipulation ${
                             pathActive(location.pathname, l.to)
                               ? 'text-gold-light bg-gold/10'
                               : 'text-white hover:bg-white/[0.06]'
@@ -625,13 +633,14 @@ export default function Navbar() {
                     </div>
                   </div>
 
-                  {user && (
+                  {user ? (
                     <div>
-                      <p className="px-2 mb-1.5 text-[10px] font-bold text-white/40 uppercase tracking-widest">Account</p>
-                      <div className="space-y-0.5">
+                      <p className="px-2 mb-2 text-[10px] font-bold text-white/40 uppercase tracking-widest">Account</p>
+                      <div className="space-y-1">
                         {[
                           { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
                           { to: '/portfolio', label: 'P&L & fills', icon: LineChart },
+                          { to: '/wallet', label: 'Wallet', icon: Wallet },
                           { to: '/profile', label: 'Profile', icon: User },
                           { to: '/kyc', label: 'KYC', icon: Shield },
                           { to: '/support-disputes', label: 'Support', icon: HelpCircle },
@@ -641,20 +650,37 @@ export default function Navbar() {
                             key={to}
                             to={to}
                             onClick={() => setMenuOpen(false)}
-                            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-white/90 hover:bg-white/[0.06]"
+                            className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-[15px] font-medium text-white/90 hover:bg-white/[0.06] touch-manipulation"
                           >
-                            <Icon size={15} className="opacity-70" />
+                            <Icon size={16} className="opacity-70 flex-shrink-0" />
                             {label}
                           </Link>
                         ))}
                         <button
                           type="button"
                           onClick={handleLogout}
-                          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-red-400 hover:bg-white/[0.06]"
+                          className="w-full flex items-center gap-2.5 px-3 py-3 rounded-lg text-[15px] font-medium text-red-400 hover:bg-white/[0.06] touch-manipulation"
                         >
-                          <LogOut size={15} /> Sign Out
+                          <LogOut size={16} /> Sign Out
                         </button>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 pt-2 border-t border-white/10">
+                      <Link
+                        to="/login"
+                        onClick={() => setMenuOpen(false)}
+                        className="block w-full text-center px-4 py-3 rounded-xl border border-white/12 text-white font-semibold text-[15px] touch-manipulation"
+                      >
+                        Log In
+                      </Link>
+                      <Link
+                        to="/register"
+                        onClick={() => setMenuOpen(false)}
+                        className="block w-full text-center px-4 py-3 rounded-xl bg-gradient-to-r from-gold to-gold-light text-surface-dark font-bold text-[15px] touch-manipulation"
+                      >
+                        Sign Up
+                      </Link>
                     </div>
                   )}
 
@@ -663,16 +689,17 @@ export default function Navbar() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setMenuOpen(false)}
-                    className="flex items-center gap-2 px-3 py-2.5 text-sm text-white/60 hover:text-white"
+                    className="flex items-center gap-2 px-3 py-3 text-sm text-white/60 hover:text-white touch-manipulation"
                   >
                     <ExternalLink size={14} /> Token Site
                   </a>
                 </div>
               </motion.div>
-            </>
+            </div>
           )}
-        </AnimatePresence>
-      </header>
+        </AnimatePresence>,
+        document.body,
+      )}
     </>
   );
 }

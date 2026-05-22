@@ -103,7 +103,7 @@ export default function BZXMarketsPage() {
     hasMore,
     loadMore,
     refresh,
-  } = useBzxMarkets({ tier: 'featured' });
+  } = useBzxMarkets({ tier: 'all' });
 
   const toggleFav = (sym) => {
     const next = favorites.includes(sym) ? favorites.filter((f) => f !== sym) : [...favorites, sym];

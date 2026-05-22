@@ -75,10 +75,8 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
   const [tab, setTab] = useState('all');
   const [query, setQuery] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
-  const [featuredBzx, setFeaturedBzx] = useState([]);
-  const [searchBzx, setSearchBzx] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [searchTotal, setSearchTotal] = useState(0);
+  const [allBzx, setAllBzx] = useState([]);
+  const [bzxLoading, setBzxLoading] = useState(false);
 
   const btnRef = useRef(null);
   const searchRef = useRef(null);
@@ -91,17 +89,19 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
     return () => window.clearTimeout(t);
   }, [query]);
 
-  const loadFeatured = useCallback(() => {
+  const loadAllBzx = useCallback(() => {
+    setBzxLoading(true);
     marketApi
-      .getBZXMarkets({ tier: 'featured', limit: 24 })
-      .then((d) => {
+      .fetchAllBzxMarkets()
+      .then((markets) => {
         const staticSyms = new Set(STATIC_BZX_PAIRS.map((p) => p.symbol));
-        const extra = (d?.markets || [])
+        const extra = (markets || [])
           .map(normalizeBzxMarket)
           .filter((p) => p && !staticSyms.has(p.symbol));
-        setFeaturedBzx(extra);
+        setAllBzx(extra);
       })
-      .catch(() => setFeaturedBzx([]));
+      .catch(() => setAllBzx([]))
+      .finally(() => setBzxLoading(false));
   }, []);
 
   useEffect(() => {
@@ -110,39 +110,9 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
 
   useEffect(() => {
     if (!open) return;
-    loadFeatured();
+    loadAllBzx();
     window.setTimeout(() => searchRef.current?.focus(), 80);
-  }, [open, loadFeatured]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (!debouncedQ) {
-      setSearchBzx([]);
-      setSearchTotal(0);
-      setSearching(false);
-      return;
-    }
-    let cancelled = false;
-    setSearching(true);
-    marketApi
-      .getBZXMarkets({ tier: 'all', q: debouncedQ, limit: 40 })
-      .then((d) => {
-        if (cancelled) return;
-        const rows = (d?.markets || []).map(normalizeBzxMarket).filter(Boolean);
-        setSearchBzx(rows);
-        setSearchTotal(d?.total ?? rows.length);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSearchBzx([]);
-          setSearchTotal(0);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSearching(false);
-      });
-    return () => { cancelled = true; };
-  }, [open, debouncedQ]);
+  }, [open, loadAllBzx]);
 
   const openPicker = () => {
     if (!open && btnRef.current) {
@@ -182,23 +152,9 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
   const usdtFiltered = useMemo(() => filterPairs(USDT_PAIRS, debouncedQ), [debouncedQ]);
 
   const bzxList = useMemo(() => {
-    if (debouncedQ) {
-      const seen = new Set();
-      const out = [];
-      for (const p of [...searchBzx, ...STATIC_BZX_PAIRS]) {
-        if (!p || seen.has(p.symbol)) continue;
-        if (filterPairs([p], debouncedQ).length === 0) continue;
-        seen.add(p.symbol);
-        out.push(p);
-      }
-      if (activeQuote === 'BZX' && !seen.has(activeSym)) {
-        out.unshift({ symbol: activeSym, base: activeBase, quote: 'BZX' });
-      }
-      return out.slice(0, 40);
-    }
     const seen = new Set(STATIC_BZX_PAIRS.map((p) => p.symbol));
     const merged = [...STATIC_BZX_PAIRS];
-    for (const p of featuredBzx) {
+    for (const p of allBzx) {
       if (p && !seen.has(p.symbol)) {
         seen.add(p.symbol);
         merged.push(p);
@@ -207,8 +163,8 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
     if (activeQuote === 'BZX' && !seen.has(activeSym)) {
       merged.unshift({ symbol: activeSym, base: activeBase, quote: 'BZX' });
     }
-    return merged;
-  }, [debouncedQ, searchBzx, featuredBzx, activeSym, activeBase, activeQuote]);
+    return filterPairs(merged, debouncedQ);
+  }, [debouncedQ, allBzx, activeSym, activeBase, activeQuote]);
 
   const showUsdt = tab === 'all' || tab === 'usdt';
   const showBzx = tab === 'all' || tab === 'bzx';
@@ -286,13 +242,13 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
-          {searching && debouncedQ ? (
+          {bzxLoading && showBzx ? (
             <div className="flex items-center justify-center gap-2 py-8 text-white/50 text-sm">
-              <Loader2 size={18} className="animate-spin" /> Searching…
+              <Loader2 size={18} className="animate-spin" /> Loading all BZX markets…
             </div>
           ) : null}
 
-          {!searching && empty ? (
+          {!bzxLoading && empty ? (
             <p className="text-center text-sm text-white/45 py-10 px-4">
               No pairs match &ldquo;{debouncedQ}&rdquo;. Try a symbol or name.
             </p>
@@ -312,32 +268,12 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
           {showBzx && bzxList.length > 0 ? (
             <section className={showUsdt && usdtFiltered.length ? 'border-t border-white/[0.06]' : ''}>
               <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-200/55">
-                BZX pairs
-                {debouncedQ && searchTotal > bzxList.length ? (
-                  <span className="text-white/35 font-normal normal-case tracking-normal ml-1">
-                    ({bzxList.length} of {searchTotal})
-                  </span>
-                ) : null}
+                BZX pairs ({bzxList.length})
               </div>
               {bzxList.map((pr) => (
                 <PairRow key={pr.symbol} pr={pr} active={activeSym} onPick={pick} />
               ))}
-              {debouncedQ && searchTotal > 40 ? (
-                <p className="px-4 py-2 text-[11px] text-white/40">
-                  Refine search for more BZX markets, or browse{' '}
-                  <Link to="/bzx-markets" onClick={close} className="text-gold-light font-semibold hover:underline">
-                    BZX Markets
-                  </Link>
-                  .
-                </p>
-              ) : null}
             </section>
-          ) : null}
-
-          {!debouncedQ && showBzx ? (
-            <p className="px-4 py-2 text-[11px] text-white/40 border-t border-white/[0.06]">
-              Type to search 500+ BZX pairs. Featured majors shown above.
-            </p>
           ) : null}
         </div>
 

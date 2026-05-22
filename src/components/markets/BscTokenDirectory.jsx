@@ -45,6 +45,10 @@ function TokenCard({ item, compact }) {
         <p className="text-[10px] font-mono text-zinc-500 truncate" title={item.contract_address}>
           {shortContract(item.contract_address)}
         </p>
+      ) : item.universal_bep20 ? (
+        <p className="text-[10px] text-zinc-500 truncate" title="Deposits use the shared BNB Chain address">
+          Universal BEP-20
+        </p>
       ) : null}
 
       <div className="flex flex-wrap gap-1.5">
@@ -227,8 +231,9 @@ export default function BscTokenDirectory({
                       <td className="px-3 py-3 font-mono text-zinc-400 text-xs tabular-nums">
                         {it.has_live_price ? `$${fmtMarketVol(it.quoteVolume)}` : '—'}
                       </td>
-                      <td className="px-3 py-3 font-mono text-[11px] text-zinc-500">
-                        {shortContract(it.contract_address) || '—'}
+                      <td className="px-3 py-3 font-mono text-[11px] text-zinc-500" title={it.contract_address || ''}>
+                        {shortContract(it.contract_address)
+                          || (it.universal_bep20 ? 'Universal BEP-20' : '—')}
                       </td>
                       <td className="px-3 py-3 text-right">
                         <Link to="/wallet" className="text-xs font-bold text-gold-light hover:underline">

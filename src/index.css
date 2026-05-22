@@ -619,3 +619,11 @@
   background: linear-gradient(90deg, #9c7941, #ebd38d);
   animation: promo-progress linear forwards;
 }
+
+/* Trade page — TradingView: hide side toolbar width + footer promo strip */
+.bitzx-tv-chart .tradingview-widget-copyright {
+  display: none !important;
+}
+.bitzx-tv-chart .tradingview-widget-container__widget {
+  width: 100% !important;
+}

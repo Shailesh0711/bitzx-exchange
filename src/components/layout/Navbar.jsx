@@ -14,6 +14,7 @@ import { useMobileAppRelease } from '@/hooks/useMobileAppRelease';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
+const IS_DEV = import.meta.env.DEV;
 const TOKEN_SITE_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
 
 const TICKER_PAIRS = ['BZXUSDT', 'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT'];
@@ -269,6 +270,14 @@ export default function Navbar() {
 
   return (
     <>
+      {IS_DEV ? (
+        <div
+          className="fixed bottom-2 right-2 z-[200] pointer-events-none rounded-lg bg-emerald-500/15 border border-emerald-500/35 px-2.5 py-1 text-[10px] font-bold text-emerald-200/95 shadow-lg"
+          title="You are on the correct exchange app (bitzx-exchange). Not frontend/ on :3000."
+        >
+          Exchange UI · API {API.replace(/^https?:\/\//, '')}
+        </div>
+      ) : null}
       {!isTrade && !isHome && <LiveTicker />}
       <header
         className="sticky top-0 z-50 transition-all duration-300"

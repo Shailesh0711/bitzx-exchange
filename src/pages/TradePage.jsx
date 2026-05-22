@@ -17,29 +17,29 @@
  * │  ZONE 2 — Working orders (first) | Spot assets | Order history   │
  * └──────────────────────────────────────────────────────────────────┘
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal }  from 'react-dom';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
-  ChevronDown, TrendingUp, TrendingDown, Globe,
+  TrendingUp, TrendingDown,
   RefreshCw, X, Clock, CheckCircle, AlertCircle,
   BarChart2, DollarSign,
 } from 'lucide-react';
 import {
   COIN_ICONS,
-  PAIRS,
   exchangeWsPath,
   INTERNAL_SPOT_SYMBOL,
   tradePathForApiSymbol,
   tradeSymbolFromRouteParam,
   displayBaseForApiSymbol,
   displayPairSlash,
+  parsePairFromApiSymbol,
   walletAssetLabel,
 } from '@/services/marketApi';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 import { useToast, friendlyError } from '@/context/ToastContext';
 import TradingChart    from '@/components/trading/TradingChart';
+import TradePairPicker from '@/components/trading/TradePairPicker';
 import OrderBook       from '@/components/trading/OrderBook';
 import TradeForm       from '@/components/trading/TradeForm';
 import ClosePositionModal from '@/components/trading/ClosePositionModal';
@@ -959,13 +959,8 @@ export default function TradePage() {
   const [formPrice,     setFormPrice]     = useState('');
   const [mobilePanelTab, setMobilePanelTab] = useState('trade'); // 'trade' | 'book'
 
-  const dropRef = useRef(null);
-  const [dropPos, setDropPos] = useState(null);
-
-  const pairRow  = PAIRS.find(x => x.symbol === symbol);
-  const apiBase  = pairRow?.base ?? symbol.replace(/USDT|BZX$/i, '');
-  const apiQuote = pairRow?.quote ?? 'USDT';
-  const displayBase = displayBaseForApiSymbol(symbol);
+  const { base: apiBase, quote: apiQuote } = parsePairFromApiSymbol(symbol);
+  const displayBase = apiBase;
   const icon = COIN_ICONS[displayBase] ?? COIN_ICONS[apiBase];
 
   useEffect(() => {
@@ -1019,11 +1014,10 @@ export default function TradePage() {
     setFormPrice('');
   }, [symbol]);
 
-  const switchPair = sym => {
+  const switchPair = useCallback((sym) => {
     navigate(`/trade/${tradePathForApiSymbol(sym)}`, { replace: true });
-    setPairOpen(false);
     setFormPrice('');
-  };
+  }, [navigate]);
 
   const onOrderBookPrice = useCallback(pr => { setFormPrice(pr); }, []);
   const onOrderBookPriceMobile = useCallback(pr => {
@@ -1035,115 +1029,15 @@ export default function TradePage() {
   const isUp      = pct >= 0;
   const livePrice = ticker?.price ?? null;
 
-  /* ── Shared header JSX (used in both mobile & desktop) ── */
-  const PairDropdown = (
-    <>
-      <div style={{ position: 'relative', flexShrink: 0 }} ref={dropRef}>
-        <button
-          onClick={() => {
-            if (!pairOpen && dropRef.current) {
-              const r = dropRef.current.getBoundingClientRect();
-              setDropPos({ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - 310) });
-            }
-            setPairOpen(v => !v);
-          }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '7px 12px', borderRadius: 10,
-            background: '#161820',
-            border: `1px solid ${pairOpen ? 'rgba(91,184,255,0.45)' : 'rgba(255,255,255,0.07)'}`,
-            cursor: 'pointer', transition: 'border-color 0.2s', flexShrink: 0,
-          }}
-          className="bitzx-chip">
-          {icon && <img src={icon} alt={displayBase} style={{ width: 24, height: 24, borderRadius: '50%' }} />}
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{displayBase}</span>
-          <span style={{ fontSize: 13, color: apiQuote === 'BZX' ? '#EBD38D' : '#ffffff' }}>/{apiQuote}</span>
-          <ChevronDown size={13} color="#ffffff"
-            style={{ transform: pairOpen ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
-        </button>
-      </div>
-      {pairOpen && dropPos && createPortal(
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setPairOpen(false)} />
-          <div style={{
-            position: 'fixed', top: dropPos.top, left: dropPos.left,
-            width: Math.min(300, window.innerWidth - 16), background: '#161820',
-            border: '1px solid rgba(255,255,255,0.10)',
-            borderRadius: 12, boxShadow: '0 32px 64px rgba(0,0,0,0.85)',
-            zIndex: 9999, maxHeight: '65vh', overflowY: 'auto', padding: '6px 0',
-          }} className="scrollbar-hide">
-            {/* USDT pairs */}
-            <div style={{ padding: '4px 16px 2px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              USDT Pairs
-            </div>
-            {PAIRS.filter(pr => pr.quote === 'USDT').map(pr => {
-              const q = pr.symbol;
-              const b = pr.base;
-              return (
-                <button key={q} onClick={() => switchPair(q)}
-                  style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '11px 16px', cursor: 'pointer',
-                    background: q === symbol ? 'rgba(91,184,255,0.07)' : 'transparent',
-                    border: 'none', color: q === symbol ? '#5BB8FF' : '#ffffff',
-                    transition: 'background 0.15s',
-                  }}
-                  className="hover:bg-white/5">
-                  {COIN_ICONS[b] && <img src={COIN_ICONS[b]} alt={b} style={{ width: 26, height: 26, borderRadius: '50%' }} />}
-                  <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{b}/{pr.quote}</div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>Spot</div>
-                  </div>
-                  {q === symbol && (
-                    <span style={{ fontSize: 10, background: 'rgba(91,184,255,0.15)', color: '#5BB8FF', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
-                      ACTIVE
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-            {/* BZX-quoted pairs */}
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '4px 0 2px', padding: '4px 16px 2px', fontSize: 10, fontWeight: 700, color: 'rgba(235,211,141,0.55)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              BZX Pairs
-            </div>
-            {PAIRS.filter(pr => pr.quote === 'BZX').map(pr => {
-              const q = pr.symbol;
-              const b = pr.base;
-              return (
-                <button key={q} onClick={() => switchPair(q)}
-                  style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '11px 16px', cursor: 'pointer',
-                    background: q === symbol ? 'rgba(235,211,141,0.12)' : 'transparent',
-                    border: 'none', color: q === symbol ? '#EBD38D' : '#ffffff',
-                    transition: 'background 0.15s',
-                  }}
-                  className="hover:bg-white/5">
-                  {COIN_ICONS[b] && <img src={COIN_ICONS[b]} alt={b} style={{ width: 26, height: 26, borderRadius: '50%' }} />}
-                  <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{b}/{pr.quote}</div>
-                    <div style={{ fontSize: 11, color: 'rgba(235,211,141,0.5)', marginTop: 1 }}>BZX Market</div>
-                  </div>
-                  {q === symbol && (
-                    <span style={{ fontSize: 10, background: 'rgba(235,211,141,0.15)', color: '#EBD38D', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
-                      ACTIVE
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '4px 0' }}>
-              <Link to="/markets" onClick={() => setPairOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', color: '#ffffff', fontSize: 14, textDecoration: 'none' }}
-                className="hover:text-white hover:bg-white/5 transition-colors">
-                <Globe size={15} /> All markets
-              </Link>
-            </div>
-          </div>
-        </>,
-        document.body
-      )}
-    </>
+  const pairPicker = (
+    <TradePairPicker
+      symbol={symbol}
+      onSelect={switchPair}
+      displayBase={displayBase}
+      apiQuote={apiQuote}
+      icon={icon}
+      onOpenChange={setPairOpen}
+    />
   );
 
   return (
@@ -1162,7 +1056,7 @@ export default function TradePage() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflowX: 'auto' }}
             className="scrollbar-hide">
-            {PairDropdown}
+            {pairPicker}
 
             {ticker ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
@@ -1243,7 +1137,7 @@ export default function TradePage() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, overflowX: 'auto' }}
             className="scrollbar-hide">
-            {PairDropdown}
+            {pairPicker}
 
             {ticker ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, overflowX: 'auto' }}
@@ -1261,7 +1155,7 @@ export default function TradePage() {
                   <StatItem label="24h High"   value={`$${fmtP(ticker.highPrice, apiBase)}`}  color="text-green-300" />
                   <StatItem label="24h Low"    value={`$${fmtP(ticker.lowPrice, apiBase)}`}   color="text-red-300" />
                   <StatItem label="24h Volume" value={`${fmtVol(ticker.volume)} ${displayBase}`} />
-                  <StatItem label="Quote Vol"  value={`$${fmtVol(ticker.quoteVolume)}`} />
+                  <StatItem label="Quote Vol"  value={apiQuote === 'BZX' ? `${fmtVol(ticker.quoteVolume)} BZX` : `$${fmtVol(ticker.quoteVolume)}`} />
                 </div>
               </div>
             ) : (

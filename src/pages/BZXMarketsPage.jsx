@@ -1,21 +1,17 @@
 /**
- * BZX Markets — Mirrors the MarketsPage layout for BZX-quoted pairs.
- *
- * Uses the same stats cards, gainers/losers lists, heatmap, sortable table,
- * and mobile cards as MarketsPage. Data comes from /api/ws/bzx/markets with a
- * REST fallback.
+ * BZX Markets — paginated catalog + lightweight live updates.
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Search, Star, TrendingUp, TrendingDown, ArrowRight, RefreshCw, BarChart2,
   Activity, Flame, Snowflake, LayoutGrid, Table2, ChevronRight,
-  Layers, Clock, ChevronLeft,
+  Layers, Clock, ChevronLeft, Loader2,
 } from 'lucide-react';
-import { COIN_ICONS, exchangeWsPath, marketApi } from '@/services/marketApi';
-
-// ── Helpers (mirrored from MarketsPage) ──────────────────────────────────────
+import { COIN_ICONS } from '@/services/marketApi';
+import { useBzxMarkets } from '@/hooks/useBzxMarkets';
+import MarketsPagination from '@/components/markets/MarketsPagination';
 
 const fmtP = (v) => {
   const n = parseFloat(v);
@@ -71,76 +67,44 @@ function RangeBar({ low, high, price }) {
 }
 
 const BZX_LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+const HEATMAP_CAP = 36;
 
-const CATEGORY_TABS = [
-  { id: 'all',       label: 'All pairs',    short: 'All'   },
-  { id: 'gainers',   label: '24h Gainers',  short: '▲'     },
-  { id: 'losers',    label: '24h Losers',   short: '▼'     },
-  { id: 'favorites', label: 'Watchlist',    short: '★',  icon: Star },
-  { id: 'topVolume', label: 'By volume',    short: 'Vol'   },
+const TIER_TABS = [
+  { id: 'featured', label: 'Featured', short: 'Top' },
+  { id: 'major', label: 'Majors', short: 'Major' },
+  { id: 'web3', label: 'Web3', short: 'Web3' },
+  { id: 'all', label: 'All', short: 'All' },
 ];
-
-// ── Main component ────────────────────────────────────────────────────────────
 
 export default function BZXMarketsPage() {
   const navigate = useNavigate();
-
-  const [markets, setMarkets]   = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState('');
-  const [category, setCategory] = useState('all');
-  const [sortKey, setSortKey]   = useState('quoteVolume');
-  const [sortDir, setSortDir]   = useState(-1);
-  const [viewMode, setViewMode] = useState('split'); // split | table | heatmap
-  const [bzxPrice, setBzxPrice] = useState(null);   // live BZX/USDT price
-
+  const [viewMode, setViewMode] = useState('split');
+  const [sortKey, setSortKey] = useState('quoteVolume');
+  const [sortDir, setSortDir] = useState(-1);
   const [favorites, setFavorites] = useState(() => {
     try { return JSON.parse(localStorage.getItem('bitzx_bzxmkt_favs') || '[]'); } catch { return []; }
   });
 
-  // ── WebSocket feed ────────────────────────────────────────────────────────
-  useEffect(() => {
-    setLoading(true);
-    const url = exchangeWsPath('/api/ws/bzx/markets');
-    let closed = false, ws = null, reconnectTimer = null;
+  const {
+    tier,
+    setTier,
+    query,
+    setQuery,
+    items,
+    total,
+    catalogTotal,
+    summary,
+    topGainers,
+    topLosers,
+    bzxPrice,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+  } = useBzxMarkets({ tier: 'featured' });
 
-    const connect = () => {
-      if (closed) return;
-      ws = new WebSocket(url);
-      ws.onmessage = (ev) => {
-        try {
-          const j = JSON.parse(ev.data);
-          if (j.type === 'bzx_markets' && Array.isArray(j.markets)) {
-            setMarkets(j.markets);
-            setLoading(false);
-            if (j.bzx_usdt_price) setBzxPrice(j.bzx_usdt_price);
-          }
-        } catch { /* ignore */ }
-      };
-      ws.onclose = () => {
-        ws = null;
-        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
-      };
-    };
-    connect();
-
-    // REST fallback
-    marketApi.getBZXMarkets().then((d) => {
-      if (Array.isArray(d?.markets) && d.markets.length) {
-        setMarkets(d.markets);
-        setLoading(false);
-        if (d.bzx_usdt_price) setBzxPrice(d.bzx_usdt_price);
-      }
-    }).catch(() => {});
-
-    return () => {
-      closed = true;
-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
-      try { ws?.close(); } catch { /* ignore */ }
-    };
-  }, []);
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
   const toggleFav = (sym) => {
     const next = favorites.includes(sym) ? favorites.filter((f) => f !== sym) : [...favorites, sym];
     setFavorites(next);
@@ -151,48 +115,32 @@ export default function BZXMarketsPage() {
     if (sortKey === k) setSortDir((d) => -d);
     else {
       setSortKey(k);
-      setSortDir(k === 'priceChangePercent' || k === 'quoteVolume' || k === 'volume' || k === 'count' ? -1 : 1);
+      setSortDir(k === 'priceChangePercent' || k === 'quoteVolume' || k === 'volume' ? -1 : 1);
     }
   };
 
-  const selectCategory = (id) => {
-    setCategory(id);
-    if (id === 'topVolume') { setSortKey('quoteVolume'); setSortDir(-1); }
-  };
+  const heatmapRows = useMemo(() => items.slice(0, HEATMAP_CAP), [items]);
+  const { minPct, maxPct } = useMemo(() => {
+    const pcts = heatmapRows.map((m) => num(m.priceChangePercent));
+    return {
+      minPct: pcts.length ? Math.min(...pcts) : 0,
+      maxPct: pcts.length ? Math.max(...pcts) : 0,
+    };
+  }, [heatmapRows]);
 
-  // ── Derived stats ─────────────────────────────────────────────────────────
-  const { minPct, maxPct, gainers, losers, totalVol, upCount, downCount } = useMemo(() => {
-    const pcts  = markets.map((m) => num(m.priceChangePercent));
-    const minP  = pcts.length ? Math.min(...pcts) : 0;
-    const maxP  = pcts.length ? Math.max(...pcts) : 0;
-    const sorted = [...markets].sort((a, b) => num(b.priceChangePercent) - num(a.priceChangePercent));
-    const gain  = sorted.filter((m) => num(m.priceChangePercent) > 0).slice(0, 6);
-    const lose  = [...markets].sort((a, b) => num(a.priceChangePercent) - num(b.priceChangePercent)).filter((m) => num(m.priceChangePercent) < 0).slice(0, 6);
-    const tvol  = markets.reduce((s, m) => s + num(m.quoteVolume), 0);
-    const up    = markets.filter((m) => num(m.priceChangePercent) > 0).length;
-    const down  = markets.filter((m) => num(m.priceChangePercent) < 0).length;
-    return { minPct: minP, maxPct: maxP, gainers: gain, losers: lose, totalVol: tvol, upCount: up, downCount: down };
-  }, [markets]);
-
-  // ── Filtered + sorted list ────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    let list = markets.filter((m) => {
-      const base = m.base || m.symbol?.replace('BZX', '');
-      if (category === 'favorites') return favorites.includes(m.symbol);
-      if (category === 'gainers')   return num(m.priceChangePercent) > 0;
-      if (category === 'losers')    return num(m.priceChangePercent) < 0;
-      return true;
-    });
-    list = list.filter((m) =>
-      !search
-      || m.symbol?.toLowerCase().includes(search.toLowerCase())
-      || m.base?.toLowerCase().includes(search.toLowerCase()),
-    );
-    list = [...list].sort((a, b) => (num(a[sortKey] ?? 0) - num(b[sortKey] ?? 0)) * sortDir);
-    return list;
-  }, [markets, category, favorites, search, sortKey, sortDir]);
+    let list = [...items];
+    if (tier === 'favorites') {
+      list = list.filter((m) => favorites.includes(m.symbol));
+    }
+    return list.sort((a, b) => (num(a[sortKey] ?? 0) - num(b[sortKey] ?? 0)) * sortDir);
+  }, [items, tier, favorites, sortKey, sortDir]);
 
-  // ── Sort header component ─────────────────────────────────────────────────
+  const pairLabel = summary?.total_pairs ?? catalogTotal;
+  const upCount = summary?.gainers ?? 0;
+  const downCount = summary?.losers ?? 0;
+  const totalVol = summary?.total_quote_volume ?? 0;
+
   const SortTh = ({ label, field, className = '' }) => (
     <th
       onClick={() => handleSort(field)}
@@ -203,32 +151,46 @@ export default function BZXMarketsPage() {
     </th>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
+  const renderMoverRow = (m, i) => {
+    const base = m.base || m.symbol?.replace('BZX', '');
+    const pct = num(m.priceChangePercent);
+    const icon = COIN_ICONS[base];
+    return (
+      <button key={m.symbol} type="button" onClick={() => navigate(`/trade/${m.symbol}`)}
+        className="group/row w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.055]">
+        <span className="text-xs font-mono text-white/40 w-5">{i + 1}</span>
+        {icon ? <img src={icon} alt="" className="w-8 h-8 rounded-full" /> : (
+          <div className="w-8 h-8 rounded-full bg-gold/20 text-[10px] font-bold flex items-center justify-center text-gold-light">{base?.slice(0, 2)}</div>
+        )}
+        <div className="flex-1 min-w-0">
+          <span className="font-bold text-white">{base}</span>
+          <span className="text-white/50 text-sm"> /BZX</span>
+        </div>
+        <span className={`font-extrabold tabular-nums ${pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+        </span>
+        <ChevronRight size={16} className="text-white/30" />
+      </button>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-surface-dark w-full min-w-0 overflow-x-hidden">
       <div className="w-full max-w-[100vw] min-w-0 px-3 sm:px-5 md:px-6 lg:px-8 xl:px-10 2xl:px-12 py-4 sm:py-8 md:py-10 pb-10 sm:pb-14">
 
-        {/* ── Header ─────────────────────────────────────────────────── */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-          <button
-            type="button"
-            onClick={() => navigate('/markets')}
-            className="flex items-center gap-1.5 text-white/50 hover:text-white text-xs font-semibold mb-4 transition-colors"
-          >
+          <button type="button" onClick={() => navigate('/markets')}
+            className="flex items-center gap-1.5 text-white/50 hover:text-white text-xs font-semibold mb-4 transition-colors">
             <ChevronLeft size={14} /> Back to Markets
           </button>
-
           <div className="flex items-center gap-3 mb-2">
             <img src={BZX_LOGO} alt="BZX" className="w-8 h-8 rounded-full ring-2 ring-gold/30" />
             <span className="text-gold-light text-xs sm:text-sm font-bold uppercase tracking-widest">BZX Markets</span>
           </div>
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-2">
-            BZX-Quoted Pairs
-          </h1>
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-2">BZX-Quoted Pairs</h1>
           <p className="text-sm sm:text-base text-white/80 max-w-3xl">
-            Buy and sell BTC, ETH, BNB, SOL, XRP, DOGE using BITZX ($BZX) as the settlement currency.
-            Prices update in real time from the BITZX internal engine.
-            {bzxPrice && (
+            Trade hundreds of BEP-20 tokens against BZX. Featured majors load instantly; explore Web3 with search and pagination.
+            {bzxPrice != null && (
               <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gold/15 border border-gold/25 text-gold-light text-xs font-bold">
                 BZX/USDT ≈ ${parseFloat(bzxPrice).toFixed(4)}
               </span>
@@ -236,13 +198,12 @@ export default function BZXMarketsPage() {
           </p>
         </motion.div>
 
-        {/* ── Stats cards ────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4 mb-6 sm:mb-8">
           {[
-            { label: 'Pairs listed',       value: String(markets.length), sub: 'BZX quote pairs',  icon: Activity },
-            { label: '24h vol (BZX)',       value: fmtVol(totalVol),       sub: 'Quote volume',     icon: BarChart2 },
-            { label: 'Gainers',             value: String(upCount),        sub: '24h ▲',            icon: Flame,    accent: 'text-green-400' },
-            { label: 'Losers',              value: String(downCount),      sub: '24h ▼',            icon: Snowflake, accent: 'text-red-400' },
+            { label: 'Catalog', value: String(pairLabel || '—'), sub: 'Tradable vs BZX', icon: Activity },
+            { label: 'Showing', value: String(items.length), sub: `${total} in view · ${tier}`, icon: Layers },
+            { label: 'Gainers', value: String(upCount), sub: '24h ▲', icon: Flame, accent: 'text-green-400' },
+            { label: 'Losers', value: String(downCount), sub: '24h ▼', icon: Snowflake, accent: 'text-red-400' },
           ].map(({ label, value, sub, icon: Icon, accent }) => (
             <div key={label} className="bitzx-hover-lift bitzx-hover-glow rounded-2xl border border-surface-border px-4 py-4 sm:py-5" style={{ background: 'rgba(255,255,255,0.03)' }}>
               <div className="flex items-start justify-between gap-2">
@@ -257,244 +218,143 @@ export default function BZXMarketsPage() {
           ))}
         </div>
 
-        {/* ── Gainers / Losers lists ─────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
           <div className="bitzx-hover-lift bitzx-hover-border rounded-2xl border border-surface-border overflow-hidden" style={{ background: 'rgba(34,197,94,0.04)' }}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-green-500/10">
-              <span className="text-sm font-extrabold text-green-400 flex items-center gap-2"><Flame size={16} /> Top gainers (24h)</span>
+              <span className="text-sm font-extrabold text-green-400 flex items-center gap-2"><Flame size={16} /> Top gainers</span>
             </div>
             <div className="divide-y divide-white/[0.06]">
-              {loading ? (
-                <div className="py-8 text-center text-white/50 text-sm">Loading…</div>
-              ) : gainers.length === 0 ? (
-                <div className="py-6 text-center text-white/50 text-sm">No gainers in this window</div>
-              ) : gainers.map((m, i) => {
-                const base = m.base || m.symbol?.replace('BZX', '');
-                const pct  = num(m.priceChangePercent);
-                const icon = COIN_ICONS[base];
-                return (
-                  <button key={m.symbol} type="button" onClick={() => navigate(`/trade/${m.symbol}`)}
-                    className="group/row w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.055]">
-                    <span className="text-xs font-mono text-white/40 w-5">{i + 1}</span>
-                    {icon ? <img src={icon} alt="" className="w-8 h-8 rounded-full" /> : <div className="w-8 h-8 rounded-full bg-gold/20 text-[10px] font-bold flex items-center justify-center text-gold-light">{base?.slice(0, 2)}</div>}
-                    <div className="flex-1 min-w-0">
-                      <span className="font-bold text-white">{base}</span>
-                      <span className="text-white/50 text-sm"> /BZX</span>
-                    </div>
-                    <span className="text-green-400 font-extrabold tabular-nums">+{pct.toFixed(2)}%</span>
-                    <ChevronRight size={16} className="text-white/30" />
-                  </button>
-                );
-              })}
+              {loading ? <div className="py-8 text-center text-white/50 text-sm">Loading…</div>
+                : topGainers.length === 0 ? <div className="py-6 text-center text-white/50 text-sm">No gainers</div>
+                  : topGainers.map(renderMoverRow)}
             </div>
           </div>
-
           <div className="bitzx-hover-lift bitzx-hover-border rounded-2xl border border-surface-border overflow-hidden" style={{ background: 'rgba(239,68,68,0.04)' }}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-red-500/10">
-              <span className="text-sm font-extrabold text-red-400 flex items-center gap-2"><Snowflake size={16} /> Top losers (24h)</span>
+              <span className="text-sm font-extrabold text-red-400 flex items-center gap-2"><Snowflake size={16} /> Top losers</span>
             </div>
             <div className="divide-y divide-white/[0.06]">
-              {loading ? (
-                <div className="py-8 text-center text-white/50 text-sm">Loading…</div>
-              ) : losers.length === 0 ? (
-                <div className="py-6 text-center text-white/50 text-sm">No losers in this window</div>
-              ) : losers.map((m, i) => {
-                const base = m.base || m.symbol?.replace('BZX', '');
-                const pct  = num(m.priceChangePercent);
-                const icon = COIN_ICONS[base];
-                return (
-                  <button key={m.symbol} type="button" onClick={() => navigate(`/trade/${m.symbol}`)}
-                    className="group/row w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.055]">
-                    <span className="text-xs font-mono text-white/40 w-5">{i + 1}</span>
-                    {icon ? <img src={icon} alt="" className="w-8 h-8 rounded-full" /> : <div className="w-8 h-8 rounded-full bg-gold/20 text-[10px] font-bold flex items-center justify-center text-gold-light">{base?.slice(0, 2)}</div>}
-                    <div className="flex-1 min-w-0">
-                      <span className="font-bold text-white">{base}</span>
-                      <span className="text-white/50 text-sm"> /BZX</span>
-                    </div>
-                    <span className="text-red-400 font-extrabold tabular-nums">{pct.toFixed(2)}%</span>
-                    <ChevronRight size={16} className="text-white/30" />
-                  </button>
-                );
-              })}
+              {loading ? <div className="py-8 text-center text-white/50 text-sm">Loading…</div>
+                : topLosers.length === 0 ? <div className="py-6 text-center text-white/50 text-sm">No losers</div>
+                  : topLosers.map(renderMoverRow)}
             </div>
           </div>
         </div>
 
-        {/* ── Heatmap ────────────────────────────────────────────────── */}
         {viewMode !== 'table' && (
           <div className="mb-8">
             <div className="flex items-center justify-between gap-3 mb-3">
               <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
-                <LayoutGrid size={18} className="text-gold-light" /> 24h performance heatmap
+                <LayoutGrid size={18} className="text-gold-light" /> Heatmap (top {HEATMAP_CAP})
               </h2>
-              <span className="text-[10px] sm:text-xs text-white/45 hidden sm:inline">Darker red = lower % · Green = higher %</span>
             </div>
             <div className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-2.5">
-              {loading ? (
-                <div className="col-span-full py-12 text-center text-white/50">Loading heatmap…</div>
-              ) : markets.map((m) => {
-                const pct  = num(m.priceChangePercent);
-                const base = m.base || m.symbol?.replace('BZX', '');
-                const bg   = heatBg(pct, minPct, maxPct);
-                return (
-                  <Link key={m.symbol} to={`/trade/${m.symbol}`}
-                    className="bitzx-hover-lift rounded-xl border border-white/10 p-3 sm:p-3.5 flex flex-col items-center justify-center min-h-[88px]"
-                    style={{ background: bg }}>
-                    <span className="text-sm font-extrabold text-white">{base}</span>
-                    <span className="text-[10px] text-white/50 font-mono">/BZX</span>
-                    <span className={`text-xs font-bold mt-1 ${pct >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                      {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-                    </span>
-                  </Link>
-                );
-              })}
+              {loading ? <div className="col-span-full py-12 text-center text-white/50">Loading…</div>
+                : heatmapRows.map((m) => {
+                  const pct = num(m.priceChangePercent);
+                  const base = m.base || m.symbol?.replace('BZX', '');
+                  return (
+                    <Link key={m.symbol} to={`/trade/${m.symbol}`}
+                      className="bitzx-hover-lift rounded-xl border border-white/10 p-3 flex flex-col items-center justify-center min-h-[88px]"
+                      style={{ background: heatBg(pct, minPct, maxPct) }}>
+                      <span className="text-sm font-extrabold text-white">{base}</span>
+                      <span className="text-[10px] text-white/50 font-mono">/BZX</span>
+                      <span className={`text-xs font-bold mt-1 ${pct >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                      </span>
+                    </Link>
+                  );
+                })}
             </div>
           </div>
         )}
 
-        {/* ── Category tabs + search + view toggle ────────────────────── */}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between mb-5 sm:mb-6 min-w-0">
           <div className="space-y-2 w-full min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex items-center gap-2">
-              <Clock size={12} /> Categories
+              <Clock size={12} /> Browse
             </p>
-            <div className="-mx-3 px-3 sm:mx-0 sm:px-0 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:thin]">
-              <div className="flex flex-nowrap gap-2 pb-1.5 sm:flex-wrap sm:pb-0">
-                {CATEGORY_TABS.map(({ id, label, short, icon: Icon }) => (
-                  <button key={id} type="button" onClick={() => selectCategory(id)}
-                    className={`bitzx-hover-border inline-flex flex-shrink-0 items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-[11px] sm:text-sm font-bold whitespace-nowrap snap-start ${
-                      category === id ? 'bg-gold text-surface-dark' : 'bg-white/[0.05] text-white border border-surface-border hover:border-gold/30'
+            <div className="-mx-3 px-3 sm:mx-0 overflow-x-auto [scrollbar-width:thin]">
+              <div className="flex flex-nowrap gap-2 pb-1">
+                {TIER_TABS.map(({ id, label, short }) => (
+                  <button key={id} type="button" onClick={() => setTier(id)}
+                    className={`flex-shrink-0 px-3 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${
+                      tier === id ? 'bg-gold text-surface-dark border-gold' : 'border-surface-border text-white/70'
                     }`}>
-                    {Icon && <Icon size={12} className={category === id ? 'text-surface-dark' : 'text-gold-light/80'} />}
-                    <span className="min-[400px]:hidden">{short}</span>
-                    <span className="hidden min-[400px]:inline">{label}</span>
+                    {short} · {label}
                   </button>
                 ))}
+                <button type="button" onClick={() => setTier('favorites')}
+                  className={`flex-shrink-0 px-3 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${
+                    tier === 'favorites' ? 'bg-gold text-surface-dark border-gold' : 'border-surface-border text-white/70'
+                  }`}>
+                  ★ Watchlist
+                </button>
               </div>
             </div>
           </div>
-
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full lg:w-auto lg:min-w-[280px] min-w-0">
-            <div className="flex items-center gap-2 rounded-xl border border-surface-border px-3 py-2.5 w-full min-w-0" style={{ background: 'rgba(255,255,255,0.04)' }}>
-              <Search size={16} className="text-white/60 flex-shrink-0" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search pair…"
-                className="bg-transparent text-sm text-white outline-none flex-1 min-w-0 placeholder:text-white/40"
-              />
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto min-w-0">
+            <div className="flex items-center gap-2 rounded-xl border border-surface-border px-3 py-2.5 flex-1 min-w-0" style={{ background: 'rgba(255,255,255,0.04)' }}>
+              <Search size={16} className="text-white/60 shrink-0" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search token…"
+                className="bg-transparent text-sm text-white outline-none flex-1 min-w-0 placeholder:text-white/40" />
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button type="button"
-                onClick={() => setViewMode((v) => v === 'split' ? 'table' : v === 'table' ? 'heatmap' : 'split')}
-                className="flex-1 sm:flex-none px-2.5 sm:px-3 py-2.5 rounded-xl border border-surface-border text-white text-[11px] sm:text-xs font-bold hover:bg-white/[0.06] flex items-center justify-center gap-1.5">
-                {viewMode === 'split'  && <><Table2    size={14} /> <span>Table</span></>}
-                {viewMode === 'table'  && <><LayoutGrid size={14} /> <span>Heatmap</span></>}
-                {viewMode === 'heatmap'&& <><BarChart2  size={14} /> <span>Full</span></>}
-              </button>
-              <button type="button" onClick={() => setLoading(true)}
-                className="p-2.5 rounded-xl border border-surface-border text-white hover:bg-white/[0.06] flex-shrink-0"
-                aria-label="Refresh">
-                <RefreshCw size={17} className={loading ? 'animate-spin' : ''} />
-              </button>
-            </div>
+            <button type="button" onClick={() => setViewMode((v) => (v === 'split' ? 'table' : v === 'table' ? 'heatmap' : 'split'))}
+              className="px-3 py-2.5 rounded-xl border border-surface-border text-white text-xs font-bold">
+              {viewMode === 'split' ? 'Table' : viewMode === 'table' ? 'Heatmap' : 'Full'}
+            </button>
+            <button type="button" onClick={() => refresh()} className="p-2.5 rounded-xl border border-surface-border text-white" aria-label="Refresh">
+              <RefreshCw size={17} className={loading ? 'animate-spin' : ''} />
+            </button>
           </div>
         </div>
 
+        {error ? (
+          <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 mb-4">{error}</div>
+        ) : null}
+
         <p className="text-[11px] text-white/45 mb-3">
-          Showing {filtered.length} of {markets.length} pair{markets.length === 1 ? '' : 's'}
-          {search ? ' (search)' : ''}.
+          {loading ? 'Loading…' : `Showing ${filtered.length} of ${total} in this view (${catalogTotal} in catalog). Vol (BZX): ${fmtVol(totalVol)}`}
         </p>
 
-        {/* ── Desktop table ──────────────────────────────────────────── */}
         {viewMode !== 'heatmap' && (
-          <div className="hidden md:block w-full min-w-0 rounded-2xl border border-surface-border bg-[#0d0f14] overflow-hidden">
-            <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:thin] [scrollbar-color:rgba(156,121,65,0.4)_rgba(255,255,255,0.06)]">
-              <table className="w-full min-w-[720px] md:min-w-[860px] xl:min-w-[1050px] text-left text-xs md:text-sm">
+          <div className="hidden md:block w-full min-w-0 rounded-2xl border border-surface-border bg-[#0d0f14] overflow-hidden mb-4">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="border-b border-surface-border bg-white/[0.02]">
                   <tr>
-                    <th className="px-1.5 md:px-2 py-2.5 w-10 lg:sticky lg:left-0 lg:z-[2] lg:bg-[#12141a] lg:border-r lg:border-white/[0.06]" />
-                    <th className="px-2 md:px-3 py-2.5 text-[10px] font-semibold text-white uppercase lg:sticky lg:left-10 lg:z-[2] lg:bg-[#12141a] lg:border-r lg:border-white/[0.06] min-w-[120px]">Pair</th>
-                    <SortTh label="Price (BZX)"          field="price" />
-                    <SortTh label="24h %"                field="priceChangePercent" />
-                    <th className="px-1 md:px-2 py-2.5 text-[10px] font-semibold text-white uppercase hidden md:table-cell">Range</th>
-                    <SortTh label="High"                 field="highPrice"          className="hidden md:table-cell" />
-                    <SortTh label="Low"                  field="lowPrice"           className="hidden md:table-cell" />
-                    <SortTh label="Open"                 field="openPrice"          className="hidden xl:table-cell" />
-                    <SortTh label="Bid"                  field="bidPrice"           className="hidden xl:table-cell" />
-                    <SortTh label="Ask"                  field="askPrice"           className="hidden xl:table-cell" />
-                    <SortTh label="Spread"               field="spread"             className="hidden xl:table-cell" />
-                    <SortTh label="Vol (base)"           field="volume" />
-                    <SortTh label="Vol (BZX)"            field="quoteVolume"        className="hidden md:table-cell" />
-                    <th className="px-2 md:px-3 py-2.5 text-right text-[10px] font-semibold text-white uppercase lg:sticky lg:right-0 lg:z-[2] lg:bg-[#12141a] lg:border-l lg:border-white/[0.06]">Trade</th>
+                    <th className="w-10 px-2 py-3" />
+                    <th className="px-3 py-3 text-xs text-white uppercase">Pair</th>
+                    <SortTh label="Price" field="price" />
+                    <SortTh label="24h %" field="priceChangePercent" />
+                    <SortTh label="Vol" field="quoteVolume" />
+                    <th className="px-3 py-3 text-right text-xs text-white uppercase">Trade</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {loading ? (
-                    <tr><td colSpan={14} className="py-20 text-center"><div className="w-10 h-10 border-2 border-gold border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+                  {loading && !items.length ? (
+                    <tr><td colSpan={6} className="py-16 text-center"><Loader2 className="animate-spin mx-auto text-gold" /></td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={14} className="py-16 text-center text-white/60">No pairs match your filters.</td></tr>
-                  ) : filtered.map((m, i) => {
-                    const base  = m.base || m.symbol?.replace('BZX', '');
-                    const pct   = num(m.priceChangePercent);
-                    const isUp  = pct >= 0;
-                    const icon  = COIN_ICONS[base];
-                    const isFav = favorites.includes(m.symbol);
-                    const spread = fmtSpread(m.bidPrice, m.askPrice);
+                    <tr><td colSpan={6} className="py-12 text-center text-white/50">No pairs match.</td></tr>
+                  ) : filtered.map((m) => {
+                    const base = m.base || m.symbol?.replace('BZX', '');
+                    const pct = num(m.priceChangePercent);
+                    const isUp = pct >= 0;
                     return (
-                      <motion.tr key={m.symbol}
-                        initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: Math.min(i * 0.04, 0.4) }}
-                        className="bitzx-hover-table-row border-b border-surface-border/50 group">
-                        <td className="px-1.5 md:px-2 py-3 lg:sticky lg:left-0 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-r border-transparent lg:border-white/[0.06]">
-                          <button type="button" onClick={() => toggleFav(m.symbol)} className="p-0.5 md:p-1">
-                            <Star size={15} className={isFav ? 'text-gold fill-gold' : 'text-white/25 group-hover:text-white/50'} />
+                      <tr key={m.symbol} className="border-b border-surface-border/40 hover:bg-white/[0.03]">
+                        <td className="px-2 py-3">
+                          <button type="button" onClick={() => toggleFav(m.symbol)}>
+                            <Star size={14} className={favorites.includes(m.symbol) ? 'text-gold fill-gold' : 'text-white/25'} />
                           </button>
                         </td>
-                        <td className="px-2 md:px-3 py-3 lg:sticky lg:left-10 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-r border-transparent lg:border-white/[0.06] min-w-[120px]">
-                          <div className="flex items-center gap-2 md:gap-3">
-                            {icon ? <img src={icon} alt="" className="w-8 h-8 rounded-full flex-shrink-0" /> : <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-[10px] font-bold">{base?.slice(0, 2)}</div>}
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1">
-                                <span className="text-white font-bold text-xs md:text-sm">{base}</span>
-                                <span className="text-white/50 text-[11px]">/BZX</span>
-                              </div>
-                              <div className="text-[10px] text-white/40 font-mono">{m.symbol}</div>
-                            </div>
-                          </div>
+                        <td className="px-3 py-3 font-bold text-white">{base}<span className="text-white/45 font-normal">/BZX</span></td>
+                        <td className="px-3 py-3 font-mono tabular-nums">{fmtP(m.price)}</td>
+                        <td className={`px-3 py-3 font-bold tabular-nums ${isUp ? 'text-green-400' : 'text-red-400'}`}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</td>
+                        <td className="px-3 py-3 font-mono text-white/70 tabular-nums">{fmtVol(m.quoteVolume)}</td>
+                        <td className="px-3 py-3 text-right">
+                          <Link to={`/trade/${m.symbol}`} className="text-gold-light text-xs font-bold hover:underline">Trade</Link>
                         </td>
-                        <td className="px-2 md:px-3 py-3 text-white font-mono text-xs md:text-sm font-semibold tabular-nums whitespace-nowrap">
-                          {fmtP(m.price)}
-                        </td>
-                        <td className="px-2 md:px-3 py-3">
-                          <span className={`font-bold text-xs md:text-sm flex items-center gap-0.5 ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-                            {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                            {isUp ? '+' : ''}{pct.toFixed(2)}%
-                          </span>
-                        </td>
-                        <td className="px-1 md:px-2 py-3 hidden md:table-cell">
-                          <RangeBar low={m.lowPrice} high={m.highPrice} price={m.price} />
-                        </td>
-                        <td className="px-2 py-3 text-white/90 font-mono text-[11px] hidden md:table-cell tabular-nums">{fmtP(m.highPrice)}</td>
-                        <td className="px-2 py-3 text-white/90 font-mono text-[11px] hidden md:table-cell tabular-nums">{fmtP(m.lowPrice)}</td>
-                        <td className="px-2 py-3 text-white/85 font-mono text-[11px] hidden xl:table-cell tabular-nums">{fmtP(m.openPrice)}</td>
-                        <td className="px-2 py-3 text-emerald-300/90 font-mono text-[11px] hidden xl:table-cell tabular-nums">{fmtP(m.bidPrice)}</td>
-                        <td className="px-2 py-3 text-rose-300/90 font-mono text-[11px] hidden xl:table-cell tabular-nums">{fmtP(m.askPrice)}</td>
-                        <td className="px-2 py-3 hidden xl:table-cell">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-white/90 font-mono text-[11px]">{spread.abs}</span>
-                            {spread.bps && <span className="text-[9px] text-white/40 font-mono">{spread.bps}</span>}
-                          </div>
-                        </td>
-                        <td className="px-2 md:px-3 py-3 text-white/90 font-mono text-[11px] tabular-nums whitespace-nowrap">{fmtVol(m.volume)}</td>
-                        <td className="px-2 md:px-3 py-3 text-white/90 font-mono text-[11px] hidden md:table-cell tabular-nums whitespace-nowrap">{fmtVol(m.quoteVolume)}</td>
-                        <td className="px-2 md:px-3 py-3 text-right lg:sticky lg:right-0 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-l border-transparent lg:border-white/[0.06]">
-                          <Link to={`/trade/${m.symbol}`}
-                            className="bitzx-hover-scale inline-flex items-center gap-1 bg-gold/10 hover:bg-gold/25 text-gold-light border border-gold/25 text-[10px] md:text-xs font-bold px-2 md:px-3 py-1 md:py-1.5 rounded-lg whitespace-nowrap">
-                            Trade <ArrowRight size={11} />
-                          </Link>
-                        </td>
-                      </motion.tr>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -503,70 +363,37 @@ export default function BZXMarketsPage() {
           </div>
         )}
 
-        {/* ── Mobile cards ───────────────────────────────────────────── */}
         {viewMode !== 'heatmap' && (
-          <div className="md:hidden space-y-3 w-full min-w-0 max-w-full">
-            {loading ? (
-              <div className="py-16 flex justify-center"><div className="w-10 h-10 border-2 border-gold border-t-transparent rounded-full animate-spin" /></div>
-            ) : filtered.length === 0 ? (
-              <p className="text-center text-white/60 py-12">No pairs match your filters.</p>
-            ) : filtered.map((m) => {
-              const pct   = num(m.priceChangePercent);
-              const isUp  = pct >= 0;
-              const base  = m.base || m.symbol?.replace('BZX', '');
-              const icon  = COIN_ICONS[base];
-              const isFav = favorites.includes(m.symbol);
-              const spread = fmtSpread(m.bidPrice, m.askPrice);
+          <div className="md:hidden space-y-3 mb-4">
+            {filtered.map((m) => {
+              const base = m.base || m.symbol?.replace('BZX', '');
+              const pct = num(m.priceChangePercent);
               return (
-                <div key={m.symbol} className="bitzx-hover-lift bitzx-hover-glow rounded-2xl border border-surface-border p-3 min-[400px]:p-4 space-y-2.5 max-w-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                  <div className="flex items-start justify-between gap-2 min-w-0">
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <button type="button" onClick={() => toggleFav(m.symbol)} className="flex-shrink-0 pt-0.5">
-                        <Star size={15} className={isFav ? 'text-gold fill-gold' : 'text-white/25'} />
-                      </button>
-                      {icon ? <img src={icon} alt="" className="w-9 h-9 min-[400px]:w-10 min-[400px]:h-10 rounded-full flex-shrink-0" /> : <div className="w-9 h-9 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-xs font-bold">{base?.slice(0, 2)}</div>}
-                      <div className="min-w-0 flex-1">
-                        <p className="font-extrabold text-white text-sm min-[400px]:text-base truncate">{base}/BZX</p>
-                        <p className="text-base min-[400px]:text-lg font-mono font-bold text-white break-all leading-tight">{fmtP(m.price)}</p>
-                      </div>
-                    </div>
-                    <div className={`text-right font-extrabold text-sm flex-shrink-0 tabular-nums ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-                      {isUp ? '+' : ''}{pct.toFixed(2)}%
-                    </div>
+                <div key={m.symbol} className="rounded-2xl border border-surface-border p-4" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-bold text-white">{base}/BZX</span>
+                    <span className={`font-bold ${pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</span>
                   </div>
-                  <RangeBar low={m.lowPrice} high={m.highPrice} price={m.price} />
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2.5 text-[10px] min-[400px]:text-[11px]">
-                    {[
-                      { l: '24h high',    v: fmtP(m.highPrice) },
-                      { l: '24h low',     v: fmtP(m.lowPrice) },
-                      { l: 'Open',        v: fmtP(m.openPrice) },
-                      { l: 'Bid',         v: fmtP(m.bidPrice),  c: 'text-emerald-400/90' },
-                      { l: 'Ask',         v: fmtP(m.askPrice),  c: 'text-rose-400/90' },
-                      { l: 'Spread',      v: spread.abs },
-                      { l: 'Vol (base)',  v: fmtVol(m.volume) },
-                      { l: 'Vol (BZX)',   v: fmtVol(m.quoteVolume) },
-                    ].map(({ l, v, c }) => (
-                      <div key={l}>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">{l}</p>
-                        <p className={`font-mono ${c || 'text-white'}`}>{v}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <Link to={`/trade/${m.symbol}`}
-                    className="bitzx-hover-scale flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-gold/15 border border-gold/30 text-gold-light font-bold text-sm">
-                    Trade <ArrowRight size={14} />
-                  </Link>
+                  <p className="font-mono text-sm text-white mb-3">{fmtP(m.price)}</p>
+                  <Link to={`/trade/${m.symbol}`} className="block text-center py-2 rounded-xl bg-gold/15 border border-gold/30 text-gold-light text-sm font-bold">Trade</Link>
                 </div>
               );
             })}
           </div>
         )}
 
-        {/* ── Footer note ────────────────────────────────────────────── */}
-        <p className="text-white/45 text-xs sm:text-sm text-center mt-8 px-2">
-          All prices denominated in BZX ($BITZX). Data sourced from the BITZX internal engine. Not financial advice.
-        </p>
+        {hasMore && tier !== 'favorites' ? (
+          <MarketsPagination
+            shown={items.length}
+            total={total}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+          />
+        ) : null}
 
+        <p className="text-white/45 text-xs text-center mt-8">
+          Full Web3 catalog trades vs BZX with synthetic liquidity. Search to find any listed token. Not financial advice.
+        </p>
       </div>
     </div>
   );

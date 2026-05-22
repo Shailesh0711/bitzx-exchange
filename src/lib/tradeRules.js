@@ -3,7 +3,7 @@
  * MIN_BASE_AMOUNT = 0.0001, MIN_ORDER_VALUE_USDT = 1.0,
  * market buy lock ≈ market_price * 1.005
  */
-import { PAIRS } from '@/services/marketApi';
+import { PAIRS, isBzxQuotedRouteSymbol } from '@/services/marketApi';
 
 export const MIN_BASE_AMOUNT = 0.0001;
 export const MIN_ORDER_VALUE_USDT = 1.0;
@@ -19,7 +19,8 @@ const ALLOWED_SYMBOLS = new Set(PAIRS.map(p => p.symbol));
 
 export function isAllowedTradeSymbol(symbol) {
   if (!symbol || typeof symbol !== 'string') return false;
-  return ALLOWED_SYMBOLS.has(symbol.toUpperCase());
+  const sym = symbol.toUpperCase();
+  return ALLOWED_SYMBOLS.has(sym) || isBzxQuotedRouteSymbol(sym);
 }
 
 export function parseAmount(str) {
@@ -61,8 +62,12 @@ export function validateSpotOrder({
   balanceUSDT,
   balanceBase,
   baseAsset,
+  quoteAsset = 'USDT',
+  balanceQuote,
   userLoggedIn,
 }) {
+  const quote = (quoteAsset || 'USDT').toUpperCase();
+  const quoteBal = balanceQuote != null ? Number(balanceQuote) : Number(balanceUSDT);
   const errors = {};
   const sym = (symbol || '').toUpperCase();
 
@@ -100,21 +105,23 @@ export function validateSpotOrder({
   if (qty != null && qty >= MIN_BASE_AMOUNT && effPrice != null && effPrice > 0) {
     const orderValue = effPrice * qty;
     if (orderValue < MIN_ORDER_VALUE_USDT) {
+      const yours = orderValue.toFixed(4);
       errors.total =
-        `Minimum order value is $${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT ` +
-        `(yours ≈ $${orderValue.toFixed(4)}).`;
+        quote === 'USDT'
+          ? `Minimum order value is $${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT (yours ≈ $${yours}).`
+          : `Minimum order value is ${MIN_ORDER_VALUE_USDT.toFixed(2)} ${quote} (yours ≈ ${yours} ${quote}).`;
     }
   }
 
   if (userLoggedIn) {
-    const usdt = Number(balanceUSDT);
     const base = Number(balanceBase);
-    if (side === 'buy' && qty != null && effPrice != null && effPrice > 0 && Number.isFinite(usdt)) {
+    if (side === 'buy' && qty != null && effPrice != null && effPrice > 0 && Number.isFinite(quoteBal)) {
       const lockPx = isMarket ? effPrice * MARKET_BUY_LOCK_BUFFER : effPrice;
       const need = lockPx * qty;
-      if (need > usdt + 1e-12) {
+      if (need > quoteBal + 1e-12) {
         errors.balance =
-          `Insufficient USDT. Need ≈ ${need.toFixed(4)} USDT locked (includes ${((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% buffer on market buys).`;
+          `Insufficient ${quote}. Need ≈ ${need.toFixed(4)} ${quote} locked` +
+          (isMarket ? ` (includes ${((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% buffer on market buys).` : '.');
       }
     }
     if (side === 'sell' && qty != null && Number.isFinite(base)) {

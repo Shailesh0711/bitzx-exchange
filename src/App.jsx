@@ -128,10 +128,14 @@ function useLaunchStatus() {
     let cancelled = false;
 
     async function fetch_status() {
+      const ctrl = new AbortController();
+      const timeout = window.setTimeout(() => ctrl.abort(), 8000);
       try {
-        const res = await fetch(`${API_ORIGIN}/api/platform/launch-status`, { cache: 'no-store' });
+        const res = await fetch(`${API_ORIGIN}/api/platform/launch-status`, {
+          cache: 'no-store',
+          signal: ctrl.signal,
+        });
         if (!res.ok) {
-          // Backend unavailable / error — treat as exchange open (fail open)
           if (!cancelled) setStatus(s => ({ ...s, checked: true, comingSoon: false }));
           return;
         }
@@ -145,8 +149,9 @@ function useLaunchStatus() {
           });
         }
       } catch {
-        // Network error – fail open so users aren't stuck on a spinner
         if (!cancelled) setStatus(s => ({ ...s, checked: true, comingSoon: false }));
+      } finally {
+        window.clearTimeout(timeout);
       }
     }
 
@@ -166,8 +171,9 @@ export default function App() {
   // so we don't flash the full UI before potentially redirecting to Coming Soon.
   if (!launch.checked) {
     return (
-      <div className="min-h-screen bg-surface-dark flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-[#0a0b0d] flex flex-col items-center justify-center gap-4 px-6">
+        <div className="w-10 h-10 border-2 border-[#c9a84c] border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-zinc-400">Loading BITZX Exchange…</p>
       </div>
     );
   }

@@ -12,7 +12,7 @@ import {
   parseMarketReferencePrice,
   parseAmount,
 } from '@/lib/tradeRules';
-import { displayBaseForApiSymbol } from '@/services/marketApi';
+import { parsePairFromApiSymbol } from '@/services/marketApi';
 import { useToast, friendlyError } from '@/context/ToastContext';
 
 const API  = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
@@ -43,8 +43,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   const { user, balance, fetchWallet, fetchOrders, fetchLiveSpotPositions, upsertOpenOrder, kyc } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  const apiBase = symbol.replace('USDT', '');
-  const displayBase = displayBaseForApiSymbol(symbol);
+  const { base: apiBase, quote: quoteAsset } = parsePairFromApiSymbol(symbol);
+  const displayBase = apiBase;
+  const isUsdtQuote = quoteAsset === 'USDT';
 
   const [side,    setSide]    = useState(
     initialSide === 'sell' ? 'sell' : initialSide === 'buy' ? 'buy' : 'buy',
@@ -122,7 +123,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   const limitPx  = parseLimitPrice(price);
   const effPrice = isMarket ? (markPx ?? 0) : (limitPx ?? 0);
   const notionalUsdt = effPrice * amtNum;
-  const avail    = isBuy ? (balance?.USDT || 0) : (balance?.[apiBase] || 0);
+  const avail    = isBuy ? (balance?.[quoteAsset] || 0) : (balance?.[apiBase] || 0);
 
   const limitRestsOnBook =
     !isMarket && markPx != null && limitPx != null
@@ -149,11 +150,13 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
         priceStr: price,
         currentPrice: lastPrice,
         balanceUSDT: balance?.USDT ?? 0,
+        balanceQuote: balance?.[quoteAsset] ?? 0,
         balanceBase: balance?.[apiBase] ?? 0,
         baseAsset: apiBase,
+        quoteAsset,
         userLoggedIn: !!user,
       }),
-    [symbol, side, type, amount, price, lastPrice, balance, apiBase, user],
+    [symbol, side, type, amount, price, lastPrice, balance, apiBase, quoteAsset, user],
   );
 
   const setPct = pct => {
@@ -345,7 +348,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-white font-mono font-bold text-base tabular-nums">
               {isBuy
-                ? `${avail.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT`
+                ? `${avail.toLocaleString(undefined, { maximumFractionDigits: quoteAsset === 'BZX' ? 4 : 2 })} ${quoteAsset}`
                 : `${avail.toFixed(6)} ${displayBase}`}
             </span>
             <Link
@@ -368,7 +371,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 Limit price
               </label>
               <p className="text-[10px] text-white/55 mb-2 px-0.5">
-                USDT you pay per 1 {displayBase} (quote per base).
+                {quoteAsset} you pay per 1 {displayBase} (quote per base).
               </p>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
                 shouldShowError('price') ? 'border-red-500/50' : 'border-surface-border focus-within:border-gold/60'
@@ -380,9 +383,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                   onBlur={() => markTouched('price')}
                   placeholder={markPx != null ? String(markPx) : '0'}
                   className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
-                  aria-label="Limit price in USDT"
+                  aria-label={`Limit price in ${quoteAsset}`}
                 />
-                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
+                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{quoteAsset}</span>
               </div>
               {shouldShowError('price') && (
                 <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.price}</p>
@@ -397,9 +400,11 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 Reference for sizing &amp; previews (updates with each ticker). Order fills at actual book prices.
               </p>
               <div className="bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 flex justify-between items-center">
-                <span className="text-sm text-white font-bold">USDT</span>
+                <span className="text-sm text-white font-bold">{quoteAsset}</span>
                 <span className="text-lg text-white font-mono font-bold tabular-nums">
-                  {markPx != null && markPx > 0 ? `$${fmtLiveUsdt(markPx)}` : '—'}
+                  {markPx != null && markPx > 0
+                    ? (isUsdtQuote ? `$${fmtLiveUsdt(markPx)}` : fmtLiveUsdt(markPx))
+                    : '—'}
                 </span>
               </div>
               {shouldShowError('price') && (
@@ -416,7 +421,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
             {!(isMarket && isBuy) && (
               <p className="text-[10px] text-white/70 px-0.5 mb-2 leading-relaxed">
                 Order size in <span className="text-white font-semibold">{displayBase}</span>
-                {' '}· Min {MIN_BASE_AMOUNT} {displayBase} · Min notional ${MIN_ORDER_VALUE_USDT.toFixed(2)} USDT
+                {' '}· Min {MIN_BASE_AMOUNT} {displayBase} · Min notional {MIN_ORDER_VALUE_USDT.toFixed(2)} {quoteAsset}
                 {isMarket && isBuy && (
                   <> · Buy locks ≈ {((MARKET_BUY_LOCK_BUFFER - 1) * 100).toFixed(1)}% above last for slippage</>
                 )}
@@ -452,7 +457,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
           {isMarket && isBuy && (
             <div>
               <label className="block text-xs text-white mb-1 uppercase tracking-widest font-extrabold">
-                Amount of USDT
+                Amount of {quoteAsset}
               </label>
               <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 transition-colors focus-within:border-gold/60">
                 <input
@@ -463,9 +468,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                   onChange={onMarketSpendUsdtChange}
                   placeholder="0.00"
                   className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
-                  aria-label="Market buy spend in USDT"
+                  aria-label={`Market buy spend in ${quoteAsset}`}
                 />
-                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
+                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{quoteAsset}</span>
               </div>
             </div>
           )}
@@ -476,7 +481,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 Total
               </label>
               <p className="text-[10px] text-white/70 px-0.5 mb-2 leading-relaxed">
-                Order value in <span className="text-white font-semibold">USDT</span>
+                Order value in <span className="text-white font-semibold">{quoteAsset}</span>
                 {' '}(updates live with limit price and {displayBase} size). Edit total to size by quote; edit {displayBase} to size by base.
               </p>
               <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 transition-colors ${
@@ -491,9 +496,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                   onBlur={() => markTouched('total')}
                   placeholder="0.00"
                   className="flex-1 bg-transparent text-lg text-white outline-none font-mono font-semibold"
-                  aria-label="Limit order total in USDT"
+                  aria-label={`Limit order total in ${quoteAsset}`}
                 />
-                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">USDT</span>
+                <span className="text-sm text-white ml-2 font-bold flex-shrink-0">{quoteAsset}</span>
               </div>
               {shouldShowError('total') && (
                 <p className="text-xs text-red-400 mt-1.5 font-semibold">{spotCheck.errors.total}</p>
@@ -544,7 +549,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
             <div className="flex items-center justify-between text-sm">
               <span className="text-white/80 font-semibold">Last price</span>
               <span className="text-white font-mono font-bold tabular-nums">
-                {markPx != null && markPx > 0 ? `$${fmtLiveUsdt(markPx)}` : '—'}
+                {markPx != null && markPx > 0
+                  ? (isUsdtQuote ? `$${fmtLiveUsdt(markPx)}` : `${fmtLiveUsdt(markPx)} ${quoteAsset}`)
+                  : '—'}
               </span>
             </div>
 
@@ -552,7 +559,11 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
               <div className="flex items-center justify-between text-sm">
                 <span className="text-white/80 font-semibold">Your limit</span>
                 <span className="text-gold-light font-mono font-bold tabular-nums">
-                  {limitPx != null ? `$${limitPx.toLocaleString(undefined, { maximumFractionDigits: 8 })}` : '—'}
+                  {limitPx != null
+                    ? (isUsdtQuote
+                      ? `$${limitPx.toLocaleString(undefined, { maximumFractionDigits: 8 })}`
+                      : `${limitPx.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${quoteAsset}`)
+                    : '—'}
                 </span>
               </div>
             )}
@@ -565,16 +576,20 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <span className="text-white/80 font-semibold">{isMarket ? 'Est. total (USDT)' : 'Total (USDT)'}</span>
+              <span className="text-white/80 font-semibold">{isMarket ? `Est. total (${quoteAsset})` : `Total (${quoteAsset})`}</span>
               <span className="text-white font-mono font-bold tabular-nums">
-                {amtNum > 0 && effPrice > 0 ? `$${notionalUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : '—'}
+                {amtNum > 0 && effPrice > 0
+                  ? (isUsdtQuote
+                    ? `$${notionalUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+                    : `${notionalUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${quoteAsset}`)
+                  : '—'}
               </span>
             </div>
 
             {isBuy && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-white/80 font-semibold">
-                  {isMarket ? 'USDT reserved (incl. buffer)' : 'USDT reserved (locked)'}
+                  {isMarket ? `${quoteAsset} reserved (incl. buffer)` : `${quoteAsset} reserved (locked)`}
                 </span>
                 <span className="text-white font-mono font-bold tabular-nums">
                   {isMarket
@@ -603,7 +618,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
                 <span className="font-mono font-bold text-white">
                   {isBuy
                     ? `${estFeeBuyBase.toFixed(6)} ${displayBase}`
-                    : `${estFeeSellUsdt.toFixed(4)} USDT`}
+                    : `${estFeeSellUsdt.toFixed(4)} ${quoteAsset}`}
                 </span>
               </div>
             )}

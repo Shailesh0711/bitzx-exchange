@@ -6,7 +6,13 @@ import {
   memo,
 } from 'react';
 import { Columns2, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
-import { exchangeWsPath, displayBaseForApiSymbol } from '@/services/marketApi';
+import { exchangeWsPath, displayBaseForApiSymbol, parsePairFromApiSymbol } from '@/services/marketApi';
+import {
+  isSyntheticSpotSymbol,
+  synthesizeOrderBook,
+  recenterOrderBook,
+  jitterOrderBook,
+} from '@/lib/syntheticMarket';
 
 const API_LIMIT = 100;
 const DEPTHS = [10, 14, 20];
@@ -135,6 +141,8 @@ const Row = memo(function Row({ price, qty, side, pct, cumPct, tickSize, onPrice
 
 export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }) {
   const displayBase = displayBaseForApiSymbol(symbol);
+  const { quote: quoteAsset } = parsePairFromApiSymbol(symbol);
+  const synthetic = isSyntheticSpotSymbol(symbol);
   const [book, setBook] = useState({ asks: [], bids: [] });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -145,6 +153,8 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
   const [wsKick, setWsKick] = useState(0);
 
   const tickRef = useRef(null);
+  const lastPriceRef = useRef(lastPrice);
+  lastPriceRef.current = lastPrice;
 
   useEffect(() => {
     setLoading(true);
@@ -161,7 +171,12 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
         try {
           const j = JSON.parse(ev.data);
           if (j.type === 'exchange_orderbook' && j.book) {
-            setBook(typeof j.book === 'object' ? j.book : { asks: [], bids: [] });
+            let next = typeof j.book === 'object' ? j.book : { asks: [], bids: [] };
+            const lp = parseFloat(lastPriceRef.current);
+            if (synthetic && Number.isFinite(lp) && lp > 0) {
+              next = recenterOrderBook(next, lp);
+            }
+            setBook(next);
             setLoadError(null);
             setLoading(false);
           }
@@ -190,12 +205,34 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
         }
       }
     };
-  }, [symbol, wsKick]);
+  }, [symbol, wsKick, synthetic]);
+
+  useEffect(() => {
+    if (!synthetic) return undefined;
+    const lp = parseFloat(lastPrice);
+    if (!Number.isFinite(lp) || lp <= 0) return undefined;
+
+    setBook((prev) => {
+      const hasDepth = (prev?.asks?.length || 0) + (prev?.bids?.length || 0) > 0;
+      const base = hasDepth ? recenterOrderBook(prev, lp) : synthesizeOrderBook(lp, API_LIMIT);
+      return jitterOrderBook(base);
+    });
+    setLoadError(null);
+    setLoading(false);
+
+    const id = window.setInterval(() => {
+      const px = parseFloat(lastPrice);
+      if (!Number.isFinite(px) || px <= 0) return;
+      setBook((prev) => jitterOrderBook(recenterOrderBook(prev, px)));
+    }, 2000);
+
+    return () => window.clearInterval(id);
+  }, [symbol, synthetic, lastPrice]);
 
   useEffect(() => {
     const p = parseFloat(lastPrice);
     if (Number.isFinite(p) && p > 0) setTickSize(pickDefaultTick(p));
-  }, [symbol]);
+  }, [symbol, lastPrice]);
 
   useEffect(() => {
     const el = e => {
@@ -344,9 +381,9 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
       </div>
 
       <div className="flex px-3 py-2.5 text-[11px] text-white uppercase tracking-wider font-bold flex-shrink-0 border-b border-surface-border/50">
-        <span className="w-1/3">Price (USDT)</span>
+        <span className="w-1/3">Price ({quoteAsset})</span>
         <span className="w-1/3 text-right">Amt ({displayBase})</span>
-        <span className="w-1/3 text-right">Total (USDT)</span>
+        <span className="w-1/3 text-right">Total ({quoteAsset})</span>
       </div>
 
       {loading ? (

@@ -8,10 +8,17 @@ import {
   Cpu, Eye, Sparkles, ArrowUpRight,
   LayoutDashboard, LineChart, Flame, Snowflake, Coins,
 } from 'lucide-react';
-import { COIN_ICONS, PAIRS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
+import { COIN_ICONS, PAIRS } from '@/services/marketApi';
+import MarketCoinCell from '@/components/markets/MarketCoinCell';
+import TopCoinsShowcase from '@/components/markets/TopCoinsShowcase';
+import LiveMarketsSection from '@/components/markets/LiveMarketsSection';
+import BscTokenDirectory from '@/components/markets/BscTokenDirectory';
+import { useLiveMarkets } from '@/hooks/useLiveMarkets';
+import { computeMarketBreadth, hasLive24hStats } from '@/lib/marketStats';
 import MobileAppDownload from '@/components/ui/MobileAppDownload';
 import LandingPromoModal from '@/components/ui/LandingPromoModal';
 import MobileAppStickyBar from '@/components/ui/MobileAppStickyBar';
+import LandingPlatformFlow from '@/components/landing/LandingPlatformFlow';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -25,11 +32,6 @@ const FEATURES = [
   { icon: Lock,      color: '#ec4899', title: 'Fully KYC Compliant',   desc: 'Regulated platform serving 100+ countries. Identity verified, funds protected.' },
 ];
 
-const HOW_STEPS = [
-  { n: '01', icon: Users,      title: 'Create Account',  desc: 'Sign up free in under 2 minutes. Complete KYC verification to unlock all features.' },
-  { n: '02', icon: Wallet,     title: 'Deposit Funds',   desc: 'Add USDT or crypto via wallet transfer. Funds appear instantly in your account.' },
-  { n: '03', icon: TrendingUp, title: 'Start Trading',   desc: 'Pick a pair, set your price, and execute orders with professional tools.' },
-];
 
 const TESTIMONIALS = [
   { name: 'Alex R.',     role: 'Day Trader',         avatar: 'A', text: 'BITZX execution speed is unreal. My limit orders fill almost instantly and the fees are the lowest I have seen on any exchange.', rating: 5 },
@@ -43,6 +45,8 @@ const VS_TABLE = [
   { feature: 'Charting',           bitzx: 'TradingView-grade', other: 'Basic' },
   { feature: 'Portfolio & P&amp;L', bitzx: 'Unified dashboard', other: 'Split tools' },
   { feature: 'Quick trade',        bitzx: 'Dedicated flow',   other: 'Not always' },
+  { feature: 'BEP-20 deposit search', bitzx: 'Full Web3 catalog', other: 'Limited' },
+  { feature: 'BZX-quoted markets', bitzx: 'BZX Markets hub', other: 'USDT only' },
   { feature: 'KYC & withdrawals', bitzx: 'Guided, secure', other: 'Slow / opaque' },
 ];
 
@@ -70,39 +74,18 @@ const num = v => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/** Live market intelligence: volume, top movers, breadth — from API tickers */
+/** Live market intelligence: volume, top movers, breadth — Binance 24h only */
 function useMarketIntel(markets) {
   return useMemo(() => {
-    if (!markets?.length) {
-      return {
-        totalQuoteVol: 0,
-        pairCount: 0,
-        gainers: [],
-        losers: [],
-        upCount: 0,
-        downCount: 0,
-        flatCount: 0,
-      };
-    }
-    const totalQuoteVol = markets.reduce((s, m) => s + num(m.quoteVolume), 0);
-    const gainers = [...markets]
-      .filter(m => num(m.priceChangePercent) > 0)
-      .sort((a, b) => num(b.priceChangePercent) - num(a.priceChangePercent))
-      .slice(0, 5);
-    const losers = [...markets]
-      .filter(m => num(m.priceChangePercent) < 0)
-      .sort((a, b) => num(a.priceChangePercent) - num(b.priceChangePercent))
-      .slice(0, 5);
-    const upCount = markets.filter(m => num(m.priceChangePercent) > 0).length;
-    const downCount = markets.filter(m => num(m.priceChangePercent) < 0).length;
-    const flatCount = markets.filter(m => num(m.priceChangePercent) === 0).length;
+    const b = computeMarketBreadth(markets, { usdtSpotOnly: true });
+    const flatCount = b.liveMarkets.filter((m) => num(m.priceChangePercent) === 0).length;
     return {
-      totalQuoteVol,
-      pairCount: markets.length,
-      gainers,
-      losers,
-      upCount,
-      downCount,
+      totalQuoteVol: b.totalQuoteVol,
+      pairCount: b.pairCount,
+      gainers: b.gainers.slice(0, 5),
+      losers: b.losers.slice(0, 5),
+      upCount: b.upCount,
+      downCount: b.downCount,
       flatCount,
     };
   }, [markets]);
@@ -112,21 +95,15 @@ function PulsePairRow({ market, rank }) {
   const pct = num(market.priceChangePercent);
   const up = pct >= 0;
   const base = market.base || market.symbol?.replace('USDT', '');
-  const icon = COIN_ICONS[base];
   return (
     <Link
       to={`/trade/${market.symbol}`}
       className="group flex items-center gap-3 py-3 px-3 -mx-1 rounded-xl border border-transparent hover:border-white/[0.08] hover:bg-white/[0.04] transition-all"
     >
       <span className="text-[10px] font-mono text-white/30 w-4 tabular-nums">{rank}</span>
-      {icon ? (
-        <img src={icon} alt="" className="w-8 h-8 rounded-full ring-1 ring-white/10 flex-shrink-0" />
-      ) : (
-        <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-[10px] font-bold text-gold-light flex-shrink-0">{base?.slice(0, 2)}</div>
-      )}
       <div className="flex-1 min-w-0">
-        <p className="text-[15px] font-semibold text-white truncate">{base}<span className="text-zinc-500 font-normal">/USDT</span></p>
-        <p className="text-[12px] font-mono text-zinc-500">${fmtLandingPrice(market.price, base)}</p>
+        <MarketCoinCell market={market} size={32} />
+        <p className="text-[12px] font-mono text-zinc-500 mt-1 pl-11">${fmtLandingPrice(market.price, base)}</p>
       </div>
       <span className={`text-[15px] font-semibold tabular-nums flex-shrink-0 ${up ? 'text-emerald-400' : 'text-red-400'}`}>
         {up ? '+' : ''}{pct.toFixed(2)}%
@@ -259,135 +236,11 @@ function HeroVideoBackground() {
   );
 }
 
-// ── Market row (CoinSwitch-style dense table: OHLC + volumes) ────────────────
-function MarketRow({ market, i }) {
-  const pct = parseFloat(market.priceChangePercent ?? 0);
-  const isUp = pct >= 0;
-  const base = market.base || market.symbol?.replace('USDT', '');
-  const icon = COIN_ICONS[base];
-  const price = market.price;
-
-  return (
-    <motion.tr
-      initial={{ opacity: 0, x: -12 }} whileInView={{ opacity: 1, x: 0 }}
-      viewport={{ once: true }} transition={{ delay: Math.min(i * 0.04, 0.4) }}
-      className="border-b border-white/[0.06] hover:bg-white/[0.04] group transition-colors"
-    >
-      <td className="sticky left-0 z-[1] bg-[#0c0e12] px-3 sm:px-5 py-4 sm:py-4 border-r border-white/[0.04] group-hover:bg-white/[0.04]">
-        <div className="flex items-center gap-3 min-w-[140px] sm:min-w-[180px]">
-          {icon ? (
-            <img src={icon} alt={base} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex-shrink-0 ring-1 ring-white/10" />
-          ) : (
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-xs font-bold flex-shrink-0">
-              {base?.slice(0, 2)}
-            </div>
-          )}
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-white font-semibold text-[15px] sm:text-base">{base}</span>
-              <span className="text-zinc-500 text-xs sm:text-sm font-normal">/ USDT</span>
-              {base === 'BZX' && (
-                <span className="text-[10px] bg-gold/15 text-gold-light px-1.5 py-0.5 rounded font-bold border border-gold/25">BITZX</span>
-              )}
-            </div>
-            <p className="text-[10px] text-white/35 font-medium mt-0.5 hidden sm:block">Spot</p>
-          </div>
-        </div>
-      </td>
-      <td className="px-3 sm:px-4 py-4 font-mono font-semibold text-white text-sm sm:text-base whitespace-nowrap tabular-nums">
-        ${fmtLandingPrice(price, base)}
-      </td>
-      <td className="px-3 sm:px-4 py-4 whitespace-nowrap">
-        <span className={`inline-flex items-center gap-1 font-semibold text-[15px] sm:text-base tabular-nums ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-          {isUp ? <TrendingUp size={14} className="flex-shrink-0 opacity-90" /> : <TrendingDown size={14} className="flex-shrink-0 opacity-90" />}
-          {isUp ? '+' : ''}{pct.toFixed(2)}%
-        </span>
-      </td>
-      <td className="hidden md:table-cell px-3 sm:px-4 py-4 font-mono text-sm text-white/90 tabular-nums whitespace-nowrap">
-        ${fmtLandingPrice(market.highPrice, base)}
-      </td>
-      <td className="hidden md:table-cell px-3 sm:px-4 py-4 font-mono text-sm text-white/90 tabular-nums whitespace-nowrap">
-        ${fmtLandingPrice(market.lowPrice, base)}
-      </td>
-      <td className="hidden lg:table-cell px-3 sm:px-4 py-4 font-mono text-sm text-white/80 tabular-nums whitespace-nowrap">
-        {fmtLandingVol(market.volume)} <span className="text-white/35 text-xs ml-1">{base}</span>
-      </td>
-      <td className="px-3 sm:px-4 py-4 font-mono text-sm text-white/90 tabular-nums whitespace-nowrap">
-        ${fmtLandingVol(market.quoteVolume)}
-      </td>
-      <td className="sticky right-0 z-[1] bg-[#0c0e12] px-3 sm:px-5 py-4 text-right border-l border-white/[0.04] group-hover:bg-white/[0.04]">
-        <Link
-          to={`/trade/${market.symbol}`}
-          className="inline-flex items-center gap-1.5 text-[13px] sm:text-sm font-medium text-gold-light bg-gold/10 hover:bg-gold/20 border border-gold/25 hover:border-gold/40 px-3 sm:px-4 py-2 rounded-lg transition-colors"
-        >
-          Trade <ArrowRight size={14} />
-        </Link>
-      </td>
-    </motion.tr>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function LandingPage() {
-  const [markets, setMarkets] = useState([]);
-  const [liveMarketFilter, setLiveMarketFilter] = useState('all');
-
-  useEffect(() => {
-    const url = exchangeWsPath('/api/ws/exchange/markets');
-    let closed = false;
-    let reconnectTimer = null;
-    let ws = null;
-    const connect = () => {
-      if (closed) return;
-      ws = new WebSocket(url);
-      ws.onmessage = (ev) => {
-        try {
-          const j = JSON.parse(ev.data);
-          if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
-            setMarkets(normalizeMarketsList(j.markets));
-          }
-        } catch {
-          /* ignore */
-        }
-      };
-      ws.onclose = () => {
-        ws = null;
-        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
-      };
-    };
-    connect();
-    return () => {
-      closed = true;
-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
-      if (ws) {
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-  }, []);
+  const { markets, featured, loading: marketsLoading } = useLiveMarkets();
 
   const marketIntel = useMarketIntel(markets);
-
-  const filteredLandingMarkets = useMemo(() => {
-    if (!markets.length) return [];
-    if (liveMarketFilter === 'gainers') {
-      return [...markets]
-        .filter(m => num(m.priceChangePercent) > 0)
-        .sort((a, b) => num(b.priceChangePercent) - num(a.priceChangePercent));
-    }
-    if (liveMarketFilter === 'losers') {
-      return [...markets]
-        .filter(m => num(m.priceChangePercent) < 0)
-        .sort((a, b) => num(a.priceChangePercent) - num(b.priceChangePercent));
-    }
-    if (liveMarketFilter === 'volume') {
-      return [...markets].sort((a, b) => num(b.quoteVolume) - num(a.quoteVolume));
-    }
-    return markets;
-  }, [markets, liveMarketFilter]);
 
   const heroStatCards = useMemo(() => {
     const volDisplay =
@@ -458,10 +311,10 @@ export default function LandingPage() {
                 >
                   <Sparkles size={14} className="text-gold-light shrink-0" />
                   <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.2em] text-zinc-300">
-                    Spot · USDT · Pro charts
+                    BZX · USDT · BEP-20 deposits
                   </span>
                   <span className="hidden sm:inline w-px h-3.5 bg-white/15" />
-                  <span className="hidden sm:inline text-[11px] font-medium text-emerald-400/95 tracking-wide">Live matching engine</span>
+                  <span className="hidden sm:inline text-[11px] font-medium text-emerald-400/95 tracking-wide">Deposit → trade → portfolio</span>
                 </motion.div>
 
                 <div className="mb-6 sm:mb-8 space-y-4">
@@ -471,15 +324,15 @@ export default function LandingPage() {
                     transition={{ duration: 0.65, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
                     className="bitzx-display [text-shadow:0_4px_48px_rgba(0,0,0,0.85)]"
                   >
-                    Buy &amp; sell crypto on one exchange
+                    Deposit, trade &amp; grow on BitZX Exchange
                   </motion.h1>
                   <motion.p
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: 0.12 }}
-                    className="text-lg sm:text-xl md:text-2xl font-semibold text-gradient leading-snug tracking-tight max-w-[22ch]"
+                    className="text-lg sm:text-xl md:text-2xl font-semibold text-gradient leading-snug tracking-tight max-w-[28ch] sm:max-w-none"
                   >
-                    Spot markets, depth &amp; full 24h stats
+                    BZX token · USDT majors · Web3 on BNB Chain
                   </motion.p>
                 </div>
 
@@ -487,10 +340,10 @@ export default function LandingPage() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.25 }}
-                  className="bitzx-lead mb-9 sm:mb-10"
+                  className="bitzx-lead mb-9 sm:mb-10 max-w-2xl"
                 >
-                  Trade USDT pairs with live order books, full 24h OHLC, volumes in base &amp; quote, TradingView charts,
-                  portfolio P&amp;L, and bank-grade security — everything you need in a single professional terminal.
+                  Fund your wallet with USDT or search any supported BEP-20 token, then trade on USDT pairs or
+                  BZX Markets with live books, TradingView charts, and portfolio P&amp;L — one professional platform on web and mobile.
                 </motion.p>
 
                 <motion.div
@@ -512,6 +365,10 @@ export default function LandingPage() {
                   >
                     <Zap size={18} className="text-gold-light" />
                     Quick trade
+                  </Link>
+                  <Link to="/wallet" className="bitzx-hover-border inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.05] px-6 py-3.5 text-[15px] font-medium text-white sm:hidden">
+                    <Wallet size={18} className="text-gold-light" />
+                    Deposit
                   </Link>
                   <Link to="/markets" className="group bitzx-footer-link inline-flex items-center justify-center gap-1.5 py-3.5 text-[15px] font-medium text-gold-light/95">
                     Browse markets <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
@@ -573,16 +430,16 @@ export default function LandingPage() {
       >
         <div className="bitzx-landing-container py-8 md:py-10">
           <p className="text-center bitzx-eyebrow bitzx-muted mb-6 tracking-[0.22em]">
-            One platform — spot trading, markets &amp; portfolio
+            Deposit · trade · track — one platform
           </p>
           <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
             {[
+              { to: '/wallet', label: 'Deposit', sub: 'USDT · BEP-20 search', icon: Wallet },
               { to: '/trade/BZXUSDT', label: 'Spot trade', sub: 'Limit · Market · Charts', icon: BarChart2 },
-              { to: '/markets', label: 'Markets', sub: 'All pairs · 24h data', icon: Globe },
+              { to: '/bzx-markets', label: 'BZX Markets', sub: 'Web3 · BZX quote', icon: Coins },
+              { to: '/markets', label: 'USDT Markets', sub: 'Majors · 24h data', icon: Globe },
               { to: '/dashboard', label: 'Portfolio', sub: 'P&L · Balances', icon: LayoutDashboard },
-              { to: '/portfolio', label: 'Analytics', sub: 'Fills · Performance', icon: LineChart },
-              { to: '/wallet', label: 'Wallet', sub: 'Deposit · Withdraw', icon: Wallet },
-              { to: '/list-coin', label: 'List Your Coin', sub: 'Apply for listing', icon: Coins },
+              { to: '/list-coin', label: 'List your coin', sub: 'Apply for listing', icon: Sparkles },
             ].map(({ to, label, sub, icon: Icon }) => (
               <Link
                 key={to}
@@ -603,10 +460,19 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <LandingPlatformFlow />
+
       {/* APK download — primary banner */}
       <section className="relative z-[3] bitzx-landing-container py-6 md:py-8">
         <MobileAppDownload variant="banner" />
       </section>
+
+      <TopCoinsShowcase
+        markets={markets}
+        featured={featured}
+        title="Featured coins"
+        subtitle="Live markets with real 24h pricing and volume — tap any card to open the trading terminal. List your project to appear here after review."
+      />
 
       {/* ══════════════════════════════════════════════════════════════════
           MARKET PULSE — live gainers / losers (API)
@@ -816,90 +682,31 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           LIVE MARKETS — CoinSwitch-style snapshot (pair · last · 24h · OHLC · vol)
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="w-full bitzx-landing-container pb-20 md:pb-28 pt-4 md:pt-6" style={{ background: 'rgba(10,11,15,0.97)' }}>
-        <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-          className="flex flex-wrap items-end justify-between gap-6 mb-8 md:mb-10">
-          <div className="max-w-2xl">
-            <p className="bitzx-eyebrow mb-3">Markets</p>
-            <h2 className="bitzx-title-lg mb-3">Live USDT pairs</h2>
-            <p className="bitzx-lead text-zinc-500 max-w-none">
-              Last price, 24h change, high / low, volume in coin and in USDT — same fields you expect on a pro markets screen.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <motion.div whileHover={{ x: 3 }} transition={{ type: 'tween', duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
-              <Link to="/list-coin" className="flex items-center gap-2 text-white/80 hover:text-gold-light text-[15px] font-medium">
-                <Coins size={16} /> List your coin
-              </Link>
-            </motion.div>
-            <motion.div whileHover={{ x: 3 }} transition={{ type: 'tween', duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
-              <Link to="/markets" className="flex items-center gap-2 text-gold-light text-[15px] font-medium">
-                Full markets <ArrowRight size={16} />
-              </Link>
-            </motion.div>
-          </div>
-        </motion.div>
+      <section className="bitzx-landing-container pb-20 md:pb-28 pt-4 md:pt-6" style={{ background: 'rgba(10,11,15,0.97)' }}>
+        <LiveMarketsSection
+          markets={markets}
+          loading={marketsLoading}
+          title="Live USDT pairs"
+          subtitle="Last price, 24h change, high / low, and volume — responsive table on desktop, cards on mobile. Load more as you browse."
+          listCoinLink="/list-coin"
+          marketsLink="/markets"
+        />
+      </section>
 
-        <div className="flex flex-wrap gap-2.5 mb-5">
-          {[
-            { id: 'all', label: 'All' },
-            { id: 'gainers', label: '24h Gainers' },
-            { id: 'losers', label: '24h Losers' },
-            { id: 'volume', label: 'By volume' },
-          ].map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setLiveMarketFilter(id)}
-              className={`rounded-full px-5 py-2.5 text-[13px] sm:text-sm font-medium transition-colors ${
-                liveMarketFilter === id
-                  ? 'bg-gold text-surface-dark shadow-md shadow-gold/10'
-                  : 'bg-white/[0.05] text-zinc-300 border border-white/10 hover:border-gold/30'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* No touch-pan-x: it locks touch to horizontal-only and blocks vertical page scroll on mobile. */}
-        <div
-          className="bitzx-hover-lift bitzx-hover-border rounded-2xl overflow-x-auto overscroll-x-contain touch-manipulation [-webkit-overflow-scrolling:touch] [scrollbar-width:thin]"
-          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}
-        >
-          <table className="w-full text-left" style={{ minWidth: 920 }}>
-            <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              <tr className="text-[11px] sm:text-xs text-zinc-400 uppercase tracking-[0.14em] font-semibold">
-                <th className="sticky left-0 z-[2] bg-[#0a0b0f] px-4 sm:px-5 py-4 border-r border-white/[0.06]">Pair</th>
-                <th className="px-3 sm:px-4 py-4 whitespace-nowrap">Last (USDT)</th>
-                <th className="px-3 sm:px-4 py-4 whitespace-nowrap">24h Change</th>
-                <th className="hidden md:table-cell px-3 sm:px-4 py-4 whitespace-nowrap">24h High</th>
-                <th className="hidden md:table-cell px-3 sm:px-4 py-4 whitespace-nowrap">24h Low</th>
-                <th className="hidden lg:table-cell px-3 sm:px-4 py-4 whitespace-nowrap">24h Vol (base)</th>
-                <th className="px-3 sm:px-4 py-4 whitespace-nowrap">24h Vol (USDT)</th>
-                <th className="sticky right-0 z-[2] bg-[#0a0b0f] px-3 sm:px-5 py-3 sm:py-4 text-right border-l border-white/[0.06] w-[100px] sm:w-auto"> </th>
-              </tr>
-            </thead>
-            <tbody>
-              {markets.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="text-center py-16 text-white/50">
-                    <RefreshCw size={28} className="animate-spin text-gold-light mx-auto mb-2" />
-                    Loading markets…
-                  </td>
-                </tr>
-              ) : filteredLandingMarkets.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="text-center py-12 text-white/50 text-sm">
-                    No pairs match this filter.
-                  </td>
-                </tr>
-              ) : (
-                filteredLandingMarkets.map((m, i) => <MarketRow key={m.symbol} market={m} i={i} />)
-              )}
-            </tbody>
-          </table>
-        </div>
+      <section className="bitzx-landing-container pb-16 md:pb-20 pt-2" style={{ background: 'rgba(10,11,15,0.97)' }}>
+        <BscTokenDirectory
+          variant="compact"
+          title="Explore BEP-20 on BNB Chain"
+          subtitle="Search the same token catalog used in Wallet → Deposit: find any supported project, then fund your account before you trade."
+        />
+        <p className="text-center mt-6">
+          <Link
+            to="/markets?tab=web3"
+            className="inline-flex items-center gap-2 text-gold-light font-bold text-sm hover:underline"
+          >
+            View full BEP-20 directory <ArrowRight size={16} />
+          </Link>
+        </p>
       </section>
 
       {/* APK — compact strip before features */}
@@ -950,49 +757,6 @@ export default function LandingPage() {
               </motion.div>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          HOW IT WORKS
-          ══════════════════════════════════════════════════════════════════ */}
-      <section className="w-full bitzx-landing-container bitzx-section-y" style={{ background: 'rgba(10,11,15,0.97)' }}>
-        <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-          className="text-center mb-12 md:mb-16 max-w-2xl mx-auto">
-          <p className="bitzx-eyebrow mb-4">Get started</p>
-          <h2 className="bitzx-title-lg">Start in three simple steps</h2>
-        </motion.div>
-
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-10 md:gap-12 relative">
-          {/* Connector line */}
-          <div className="hidden md:block absolute top-14 left-[calc(16%+48px)] right-[calc(16%+48px)] h-px"
-            style={{ background: 'linear-gradient(90deg, rgba(156,121,65,0.3), rgba(235,211,141,0.5), rgba(156,121,65,0.3))' }} />
-
-          {HOW_STEPS.map((s, i) => (
-            <motion.div key={s.n}
-              initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }} transition={{ delay: i * 0.15 }}
-              whileHover={{ y: -3 }}
-              transition={{ type: 'tween', duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
-              className="relative text-center cursor-default"
-            >
-              <motion.div className="w-24 h-24 rounded-3xl flex flex-col items-center justify-center mx-auto mb-8"
-                style={{ background: 'linear-gradient(135deg, rgba(156,121,65,0.15), rgba(235,211,141,0.08))', border: '1px solid rgba(156,121,65,0.3)' }}
-                whileHover={{ scale: 1.045, rotate: [0, -3, 3, 0] }}
-                transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
-                <span className="text-3xl font-extrabold text-gold leading-none">{s.n}</span>
-              </motion.div>
-              <h3 className="text-white font-semibold text-xl mb-3 tracking-tight">{s.title}</h3>
-              <p className="text-zinc-400 text-[15px] leading-[1.65]">{s.desc}</p>
-
-              <motion.div className="mt-8" whileHover={{ scale: 1.03 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
-                <Link to={i === 0 ? '/register' : i === 1 ? '/wallet' : '/trade/BZXUSDT'}
-                  className="inline-flex items-center gap-1.5 text-[14px] font-medium text-gold-light hover:text-gold transition-colors">
-                  {i === 0 ? 'Sign Up Free' : i === 1 ? 'Go to Wallet' : 'Start Trading'} <ChevronRight size={14} />
-                </Link>
-              </motion.div>
-            </motion.div>
-          ))}
         </div>
       </section>
 
@@ -1123,8 +887,8 @@ export default function LandingPage() {
               <span className="text-gradient">trading?</span>
             </h2>
             <p className="bitzx-lead-wide mx-auto mb-8 sm:mb-10 text-zinc-400 px-2 sm:px-0">
-              Join over 2.5M traders on BITZX Exchange. Get a free demo account with $5,000 USDT
-              instantly — no deposit required.
+              Create your account, deposit USDT or any supported BEP-20 token, and trade USDT or BZX pairs
+              with pro charts — or start with a free demo balance, no deposit required.
             </p>
 
             <div className="max-w-2xl mx-auto mb-10">

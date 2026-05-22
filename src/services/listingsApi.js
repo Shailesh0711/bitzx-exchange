@@ -38,3 +38,10 @@ export async function fetchListedTokensPublic() {
   const data = await res.json();
   return data.items || [];
 }
+
+/** Admin-managed market catalog (metadata + featured; merge with live WS for prices). */
+export async function fetchMarketCatalog() {
+  const res = await fetch(`${API}/api/listings/market-catalog`);
+  if (!res.ok) return { items: [], featured: [], total: 0, categories: {} };
+  return res.json();
+}

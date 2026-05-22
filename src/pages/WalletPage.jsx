@@ -20,10 +20,13 @@ import {
   activeNetworksForAsset,
   plannedNetworksForAsset,
   defaultAssetSelection,
+  isCatalogDepositReady,
 } from '@/lib/walletNetworks';
 import WalletChainsBanner from '@/components/wallet/WalletChainsBanner';
 import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
 import NetworkSelectList from '@/components/wallet/NetworkSelectList';
+import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
+import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
@@ -231,6 +234,27 @@ function DepositTab({ kycBlocked, kyc }) {
   // configuration (which QuickNode URLs are set, mainnet vs testnet, …).
   // ``asset`` / ``network`` are empty strings until the list lands so we
   // never fire a deposit-addresses call with a combo the server can't serve.
+  const [depositMode, setDepositMode] = useState('bsc'); // bsc | all
+  const [depositOnlyFilter, setDepositOnlyFilter] = useState(false);
+  const {
+    query: catalogQuery,
+    setQuery: setCatalogQuery,
+    items: bscCatalog,
+    assets: bscAssets,
+    bep20Meta,
+    loading: catalogLoading,
+    loadingMore: catalogLoadingMore,
+    error: catalogError,
+    total: catalogTotal,
+    counts: catalogCounts,
+    hasMore: catalogHasMore,
+    loadMore: loadMoreCatalog,
+  } = useDepositCatalog({
+    chain: 'bsc',
+    enabled: depositMode === 'bsc',
+    depositOnlyFilter,
+  });
+
   const [supportedAll, setSupportedAll] = useState([]);
   const [netsLoading, setNetsLoading]   = useState(true);
   const [netsError, setNetsError]       = useState(null);
@@ -278,14 +302,19 @@ function DepositTab({ kycBlocked, kyc }) {
   const networksForAssetAll = networksForAsset(supportedAll, asset);
   const networksActive = activeNetworksForAsset(supportedAll, asset);
   const networksPlanned = plannedNetworksForAsset(supportedAll, asset);
-  const hasAnyChains = supportedAll.length > 0;
-  const hasDepositActive = depositActive.length > 0;
+  const hasAnyChains = supportedAll.length > 0 || (depositMode === 'bsc' && bscCatalog.length > 0);
+  const hasDepositActive =
+    depositActive.length > 0
+    || (depositMode === 'bsc' && bscCatalog.some((it) => isCatalogDepositReady(it)));
 
   useEffect(() => {
     // Don't hit the deposit-addresses endpoint until we know which combo
     // the provider supports; otherwise the server just returns 400.
     const sel = networksForAsset(supportedAll, asset).find((n) => n.network === network);
-    const canDeposit = sel?.deposit_enabled && sel?.status === 'active';
+    const catalogSel = bscCatalog.find((it) => it.asset === asset && it.network === network);
+    const canDeposit =
+      (sel?.deposit_enabled && sel?.status === 'active')
+      || isCatalogDepositReady(catalogSel);
     if (!asset || !network || !canDeposit) {
       setDepositAddresses([]);
       setDepAddrError(canDeposit ? null : (sel?.status === 'coming_soon'
@@ -339,7 +368,7 @@ function DepositTab({ kycBlocked, kyc }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [asset, network, supportedAll]);
+  }, [asset, network, supportedAll, bscCatalog]);
 
   const handleAsset = (a) => {
     setAsset(a);
@@ -348,10 +377,40 @@ function DepositTab({ kycBlocked, kyc }) {
     setNetwork(active[0]?.network || nets[0]?.network || '');
   };
 
+  const handleBscToken = (sym, catalogItem) => {
+    setAsset(sym);
+    setNetwork(catalogItem?.network || 'BEP-20 (BNB Chain)');
+  };
+
+  useEffect(() => {
+    if (depositMode !== 'bsc' || bscCatalog.length === 0) return;
+    if (asset && bscCatalog.some((it) => it.asset === asset)) return;
+    const first = bscCatalog.find((it) => isCatalogDepositReady(it)) || bscCatalog[0];
+    if (first) {
+      setAsset(first.asset);
+      setNetwork(first.network);
+    }
+  }, [depositMode, bscCatalog, asset]);
+
+  const selectedCatalogItem = bscCatalog.find((it) => it.asset === asset) ?? null;
+  const showUniversalBanner = Boolean(
+    selectedCatalogItem?.universal_bep20 || bep20Meta?.enabled,
+  );
+
   const personalAddress = depositAddresses[0] || null;
   const hasSupported = hasAnyChains;
-  const selectedNet = networksForAssetAll.find((n) => n.network === network);
-  const depositReady = selectedNet?.deposit_enabled && selectedNet?.status === 'active';
+  const selectedNet = networksForAssetAll.find((n) => n.network === network)
+    || (selectedCatalogItem
+      ? {
+          asset: selectedCatalogItem.asset,
+          network: selectedCatalogItem.network,
+          deposit_enabled: selectedCatalogItem.deposit_enabled,
+          status: selectedCatalogItem.status,
+        }
+      : null);
+  const depositReady =
+    (selectedNet?.deposit_enabled && selectedNet?.status === 'active')
+    || isCatalogDepositReady(selectedCatalogItem);
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
@@ -383,22 +442,92 @@ function DepositTab({ kycBlocked, kyc }) {
         )}
 
         <div className="space-y-4">
+          <div className="flex flex-wrap gap-2 mb-1">
+            {[
+              { id: 'bsc', label: 'BNB Chain (BEP-20)' },
+              { id: 'all', label: 'All networks' },
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setDepositMode(m.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                  depositMode === m.id
+                    ? 'border-gold/50 bg-gold/15 text-gold-light'
+                    : 'border-surface-border text-zinc-400 hover:border-gold/30'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
           <p className="text-[11px] text-white/55 uppercase font-bold tracking-wider -mb-1">Step 1 — Asset &amp; network</p>
 
-          {netsLoading && (
+          {depositMode === 'bsc' && (
+            <DepositTokenSearch
+              items={bscCatalog}
+              assets={bscAssets}
+              value={asset}
+              onChange={handleBscToken}
+              query={catalogQuery}
+              onQueryChange={setCatalogQuery}
+              loading={catalogLoading}
+              loadingMore={catalogLoadingMore}
+              error={catalogError}
+              bep20Note={bep20Meta}
+              disabled={catalogLoading && !bscCatalog.length}
+              label="Search BEP-20 coin"
+              total={catalogTotal}
+              counts={catalogCounts}
+              hasMore={catalogHasMore}
+              onLoadMore={loadMoreCatalog}
+              depositOnlyFilter={depositOnlyFilter}
+              onDepositOnlyFilterChange={setDepositOnlyFilter}
+            />
+          )}
+
+          {depositMode === 'bsc' && showUniversalBanner && personalAddress && (
+            <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-2.5 text-xs text-sky-100">
+              This address accepts any supported <strong className="text-white">BEP-20</strong> token on BNB Chain.
+              Send only <strong className="text-gold-light font-mono">{asset}</strong> — wrong tokens may be lost.
+            </div>
+          )}
+
+          {depositMode === 'all' && netsLoading && (
             <p className="text-xs text-white/45">Loading supported networks…</p>
           )}
-          {netsError && !netsLoading && (
+          {depositMode === 'all' && netsError && !netsLoading && (
             <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
               <span className="font-bold text-amber-200">Could not load networks: </span>{netsError}
             </div>
           )}
-          {!netsLoading && !netsError && !hasSupported && (
+          {depositMode === 'all' && !netsLoading && !netsError && !hasSupported && (
             <div className="rounded-xl border border-surface-border bg-surface-card/50 px-3 py-2.5 text-xs text-white/65">
               No blockchain endpoints are configured. Add QuickNode URLs in the server environment.
             </div>
           )}
-          {hasSupported && (
+          {depositMode === 'bsc' && catalogError && !catalogLoading && (
+            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+              <span className="font-bold text-amber-200">Catalog: </span>{catalogError}
+            </div>
+          )}
+          {depositMode === 'bsc' && selectedCatalogItem && (
+            <NetworkChainDetails
+              network={{
+                asset: selectedCatalogItem.asset,
+                network: selectedCatalogItem.network,
+                label: selectedCatalogItem.label,
+                chain_id: selectedCatalogItem.chain_id,
+                chain_display: selectedCatalogItem.chain_display || 'BNB Smart Chain',
+                deposit_enabled: isCatalogDepositReady(selectedCatalogItem),
+                status: selectedCatalogItem.status,
+                testnet: selectedCatalogItem.testnet,
+              }}
+              mode="deposit"
+            />
+          )}
+          {depositMode === 'all' && hasSupported && (
             <>
               <AssetSelect value={asset} onChange={handleAsset} label="Asset" assets={availableAssets} />
 
@@ -1036,7 +1165,11 @@ function HistoryTab() {
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 
   const fmt = iso => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—');
-  const fmtAmt = (amount, asset) => Number(amount || 0).toFixed(asset === 'USDT' ? 2 : 6);
+  const fmtAmt = (amount, asset) => {
+    const a = (asset || '').toUpperCase();
+    const dec = a === 'USDT' ? 2 : a === 'BZX' ? 4 : 6;
+    return Number(amount || 0).toFixed(dec);
+  };
   const subTabBtn = (id, label) => (
     <button key={id}
       onClick={() => setSubTab(id)}

@@ -53,6 +53,20 @@ export function filterDepositNetworks(list) {
   return (list || []).filter((n) => n.deposit_enabled && n.status === 'active');
 }
 
+/** BEP-20 catalog row (listed, platform, or Web3) — deposit without Token Listings toggle. */
+export function isCatalogDepositReady(item) {
+  if (!item) return false;
+  const status = item.status || 'active';
+  if (status === 'coming_soon') return false;
+  if (item.deposit_enabled && status === 'active') return true;
+  if (item.universal_bep20) {
+    const cid = (item.chain_id || '').toLowerCase();
+    const net = item.network || '';
+    return cid === 'bsc' || net.includes('BEP-20');
+  }
+  return false;
+}
+
 export function filterWithdrawNetworks(list) {
   return (list || []).filter((n) => n.withdraw_enabled && n.status === 'active');
 }

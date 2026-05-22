@@ -71,10 +71,18 @@ export function apiSymbolFromRouteParam(param) {
 
 const SPOT_SYMBOL_SET = new Set(PAIRS.map((p) => p.symbol));
 
+/** BZX-quoted pair from route, e.g. USDDBZX (includes dynamic Web3 catalog pairs). */
+export function isBzxQuotedRouteSymbol(param) {
+  const upper = apiSymbolFromRouteParam(param);
+  return Boolean(upper && /^[A-Z0-9]{2,12}BZX$/.test(upper) && upper !== 'BZXBZX');
+}
+
 /** Valid spot pair from `/trade/:symbol`, or null if unknown / empty. */
 export function tradeSymbolFromRouteParam(param) {
   const upper = apiSymbolFromRouteParam(param);
-  return upper && SPOT_SYMBOL_SET.has(upper) ? upper : null;
+  if (upper && SPOT_SYMBOL_SET.has(upper)) return upper;
+  if (isBzxQuotedRouteSymbol(upper)) return upper;
+  return null;
 }
 
 /** Pretty path segment for `/trade/:symbol`. */
@@ -82,19 +90,34 @@ export function tradePathForApiSymbol(apiSym) {
   return String(apiSym || '').toUpperCase();
 }
 
-/** UI base ticker for an API pair symbol (e.g. BZXUSDT → BZX). */
-export function displayBaseForApiSymbol(apiSym) {
-  const row = PAIRS.find(x => x.symbol === apiSym);
-  return row?.base ?? String(apiSym || '').replace('USDT', '');
+/** Parse API wire symbol → { symbol, base, quote } (static PAIRS + dynamic *BZX). */
+export function parsePairFromApiSymbol(apiSym) {
+  const s = String(apiSym || '').toUpperCase();
+  const row = PAIRS.find((x) => x.symbol === s);
+  if (row) return { symbol: s, base: row.base, quote: row.quote };
+  if (s.endsWith('BZX') && s.length > 3) {
+    return { symbol: s, base: s.slice(0, -3), quote: 'BZX' };
+  }
+  if (s.endsWith('USDT') && s.length > 4) {
+    return { symbol: s, base: s.slice(0, -4), quote: 'USDT' };
+  }
+  return { symbol: s, base: s.replace(/USDT$/, ''), quote: 'USDT' };
 }
 
-/** `BZXUSDT` → `BZX/USDT`, `BTCBZX` → `BTC/BZX` for tables and order rows. */
+/** UI base ticker for an API pair symbol (e.g. DOTBZX → DOT, BZXUSDT → BZX). */
+export function displayBaseForApiSymbol(apiSym) {
+  return parsePairFromApiSymbol(apiSym).base;
+}
+
+/** Quote asset for an API pair symbol (e.g. DOTBZX → BZX, BTCUSDT → USDT). */
+export function quoteForApiSymbol(apiSym) {
+  return parsePairFromApiSymbol(apiSym).quote;
+}
+
+/** `BZXUSDT` → `BZX/USDT`, `DOTBZX` → `DOT/BZX` for header, tables, order rows. */
 export function displayPairSlash(apiSymbol) {
-  const s = String(apiSymbol || '').toUpperCase();
-  const row = PAIRS.find(x => x.symbol === s);
-  if (row) return `${row.base}/${row.quote}`;
-  if (s.endsWith('BZX')) return s.replace(/BZX$/, '/BZX');
-  return s.replace('USDT', '/USDT');
+  const { base, quote } = parsePairFromApiSymbol(apiSymbol);
+  return `${base}/${quote}`;
 }
 
 /** Wallet / balance row: returns the asset label (identity for bitzx). */
@@ -139,6 +162,7 @@ function normalizeMarketRow(m) {
   return {
     symbol: m.symbol,
     base,
+    quote: m.quote ?? m.quoteAsset ?? (m.symbol?.endsWith('BZX') ? 'BZX' : 'USDT'),
     source: src,
     price: m.price,
     priceChange: m.priceChange,
@@ -153,6 +177,21 @@ function normalizeMarketRow(m) {
     askPrice: m.askPrice ?? String(px + spr / 2),
     prevClosePrice: m.prevClosePrice,
     count: m.count != null ? String(m.count) : undefined,
+    project_name: m.project_name,
+    token_name: m.token_name,
+    logo_url: m.logo_url,
+    description: m.description,
+    market_tagline: m.market_tagline,
+    market_category: m.market_category,
+    market_visible: m.market_visible,
+    featured_landing: m.featured_landing,
+    market_sort_order: m.market_sort_order,
+    listed_token_id: m.listed_token_id,
+    is_listed: m.is_listed,
+    stats_source: m.stats_source ?? (src === 'binance' ? 'binance' : src === 'internal' ? 'internal' : ''),
+    is_platform_default: m.is_platform_default,
+    blockchain_network: m.blockchain_network,
+    official_website: m.official_website,
   };
 }
 
@@ -173,12 +212,18 @@ export const marketApi = {
     return normalizeMarketsList(raw);
   },
 
-  /** BZX-quoted pair markets only. Returns { markets: [], bzx_usdt_price }. */
-  async getBZXMarkets() {
-    const raw = await safeFetch(`${BACKEND}/api/trading/bzx-markets`, null);
+  /** Paginated BZX-quoted markets. Params: skip, limit, tier, q */
+  async getBZXMarkets(params = {}) {
+    const q = new URLSearchParams({
+      skip: String(params.skip ?? 0),
+      limit: String(params.limit ?? 40),
+      tier: params.tier ?? 'featured',
+    });
+    if (params.q) q.set('q', params.q);
+    const raw = await safeFetch(`${BACKEND}/api/trading/bzx-markets?${q}`, null);
     if (raw && Array.isArray(raw.markets)) return raw;
-    if (Array.isArray(raw)) return { markets: raw };   // legacy shape
-    return { markets: [] };
+    if (Array.isArray(raw)) return { markets: raw, total: raw.length };
+    return { markets: [], total: 0 };
   },
 
   async getTicker(symbol) {

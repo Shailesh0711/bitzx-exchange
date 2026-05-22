@@ -4,9 +4,20 @@ import { motion } from 'framer-motion';
 import {
   Search, Star, TrendingUp, TrendingDown, ArrowRight, RefreshCw, BarChart2,
   Activity, Flame, Snowflake, LayoutGrid, Table2, ChevronRight,
-  Layers, Sparkles, Clock,
+  Layers, Sparkles, Clock, Coins,
 } from 'lucide-react';
-import { COIN_ICONS, exchangeWsPath, normalizeMarketsList, marketApi } from '@/services/marketApi';
+import BscTokenDirectory from '@/components/markets/BscTokenDirectory';
+import { COIN_ICONS, marketApi } from '@/services/marketApi';
+import MarketCoinCell from '@/components/markets/MarketCoinCell';
+import MarketsSpotMobileCard from '@/components/markets/MarketsSpotMobileCard';
+import MarketsPagination from '@/components/markets/MarketsPagination';
+import { useLiveMarkets } from '@/hooks/useLiveMarkets';
+import {
+  computeMarketBreadth,
+  hasLive24hStats,
+  isUsdtSpotMarket,
+  marketsWithLiveStats,
+} from '@/lib/marketStats';
 import { futuresApi, openMarketsWs } from '@/services/futuresApi';
 import { optionsApi } from '@/services/optionsApi';
 import { useAuth } from '@/context/AuthContext';
@@ -83,6 +94,7 @@ const MAJOR_BASES = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP']);
 
 const MARKET_MODES = [
   { id: 'spot', label: 'Spot', desc: 'USDT pairs' },
+  { id: 'web3', label: 'BEP-20 / Web3', desc: 'Full token directory' },
   { id: 'futures', label: 'Futures', desc: 'USDT perpetuals' },
   { id: 'options', label: 'Options', desc: 'USDT · v1 long-only' },
   { id: 'bzx', label: 'BZX Markets', desc: 'BZX-quoted pairs' },
@@ -92,6 +104,7 @@ const CATEGORY_TABS = [
   { id: 'all', label: 'All markets', short: 'All' },
   { id: 'major', label: 'Major', short: 'Major' },
   { id: 'alt', label: 'Altcoins', short: 'Alts' },
+  { id: 'listed', label: 'Listed', short: 'Listed' },
   { id: 'bzx', label: 'BZX', short: 'BZX' },
   { id: 'favorites', label: 'Watchlist', short: '★', icon: Star },
   { id: 'gainers', label: '24h Gainers', short: '▲' },
@@ -123,8 +136,8 @@ export default function MarketsPage() {
   const location = useLocation();
   const { user } = useAuth();
   const [showVerify, setShowVerify] = useState(false);
-  const [markets, setMarkets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { markets, loading } = useLiveMarkets();
+  const [spotDisplayLimit, setSpotDisplayLimit] = useState(60);
   const [search, setSearch] = useState('');
   const [marketMode, setMarketMode] = useState('spot');
   const [category, setCategory] = useState('all');
@@ -456,50 +469,16 @@ export default function MarketsPage() {
   };
 
   useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'web3') setMarketMode('web3');
+  }, [location.search]);
+
+  useEffect(() => {
     if (marketMode !== 'futures') {
       setFuturesSearch('');
       setFuturesCategory('all');
     }
   }, [marketMode]);
-
-  useEffect(() => {
-    setLoading(true);
-    const url = exchangeWsPath('/api/ws/exchange/markets');
-    let closed = false;
-    let reconnectTimer = null;
-    let ws = null;
-    const connect = () => {
-      if (closed) return;
-      ws = new WebSocket(url);
-      ws.onmessage = (ev) => {
-        try {
-          const j = JSON.parse(ev.data);
-          if (j.type === 'exchange_markets' && Array.isArray(j.markets)) {
-            setMarkets(normalizeMarketsList(j.markets));
-            setLoading(false);
-          }
-        } catch {
-          /* ignore */
-        }
-      };
-      ws.onclose = () => {
-        ws = null;
-        if (!closed) reconnectTimer = window.setTimeout(connect, 3000);
-      };
-    };
-    connect();
-    return () => {
-      closed = true;
-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
-      if (ws) {
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-  }, []);
 
   const toggleFav = sym => {
     const next = favorites.includes(sym) ? favorites.filter(f => f !== sym) : [...favorites, sym];
@@ -516,18 +495,26 @@ export default function MarketsPage() {
     }
   };
 
-  const { minPct, maxPct, gainers, losers, totalQuoteVol, upCount, downCount } = useMemo(() => {
-    const pcts = markets.map(m => num(m.priceChangePercent));
-    const minP = pcts.length ? Math.min(...pcts) : 0;
-    const maxP = pcts.length ? Math.max(...pcts) : 0;
-    const sorted = [...markets].sort((a, b) => num(b.priceChangePercent) - num(a.priceChangePercent));
-    const gain = sorted.filter(m => num(m.priceChangePercent) > 0).slice(0, 6);
-    const lose = [...markets].sort((a, b) => num(a.priceChangePercent) - num(b.priceChangePercent)).filter(m => num(m.priceChangePercent) < 0).slice(0, 6);
-    const tqv = markets.reduce((s, m) => s + num(m.quoteVolume), 0);
-    const up = markets.filter(m => num(m.priceChangePercent) > 0).length;
-    const down = markets.filter(m => num(m.priceChangePercent) < 0).length;
-    return { minPct: minP, maxPct: maxP, gainers: gain, losers: lose, totalQuoteVol: tqv, upCount: up, downCount: down };
-  }, [markets]);
+  const { minPct, maxPct, gainers, losers, totalQuoteVol, upCount, downCount } = useMemo(
+    () => {
+      const b = computeMarketBreadth(markets, { usdtSpotOnly: true });
+      return {
+        minPct: b.minPct,
+        maxPct: b.maxPct,
+        gainers: b.gainers,
+        losers: b.losers,
+        totalQuoteVol: b.totalQuoteVol,
+        upCount: b.upCount,
+        downCount: b.downCount,
+      };
+    },
+    [markets],
+  );
+
+  const heatmapMarkets = useMemo(
+    () => marketsWithLiveStats(markets, { usdtSpotOnly: true }),
+    [markets],
+  );
 
   const selectCategory = id => {
     setCategory(id);
@@ -539,14 +526,16 @@ export default function MarketsPage() {
 
   const filtered = useMemo(() => {
     if (marketMode !== 'spot') return [];
-    let list = markets.filter(m => {
+    let list = markets.filter(m => m.market_visible !== false).filter(m => {
       const base = m.base || m.symbol?.replace('USDT', '');
+      if (category !== 'bzx' && !isUsdtSpotMarket(m)) return false;
+      if (category === 'listed') return m.is_listed || m.source === 'listed';
       if (category === 'favorites') return favorites.includes(m.symbol);
       if (category === 'bzx') return base === 'BZX';
       if (category === 'major') return MAJOR_BASES.has(base);
       if (category === 'alt') return !MAJOR_BASES.has(base) && base !== 'BZX';
-      if (category === 'gainers') return num(m.priceChangePercent) > 0;
-      if (category === 'losers') return num(m.priceChangePercent) < 0;
+      if (category === 'gainers') return hasLive24hStats(m) && num(m.priceChangePercent) > 0;
+      if (category === 'losers') return hasLive24hStats(m) && num(m.priceChangePercent) < 0;
       return true;
     });
     list = list.filter(m =>
@@ -567,6 +556,15 @@ export default function MarketsPage() {
     }
     return list;
   }, [markets, marketMode, category, favorites, search, sortKey, sortDir]);
+
+  const visibleSpot = useMemo(
+    () => filtered.slice(0, spotDisplayLimit),
+    [filtered, spotDisplayLimit],
+  );
+
+  useEffect(() => {
+    setSpotDisplayLimit(60);
+  }, [category, search, sortKey, sortDir, marketMode]);
 
   const SortTh = ({ label, field, className = '' }) => (
     <th
@@ -606,7 +604,13 @@ export default function MarketsPage() {
             )}
             {marketMode === 'spot' && (
               <>
-                Spot markets with last price, 24h OHLC, weighted average, best bid/ask, spread, volumes, and trade count — refreshed every 5s.
+                Spot markets with last price, 24h OHLC, weighted average, best bid/ask, spread, volumes, and trade count — live from Binance.
+                Project names, taglines, and listed badges are managed in the admin Market Catalog.
+              </>
+            )}
+            {marketMode === 'web3' && (
+              <>
+                Every BEP-20 token in the wallet deposit catalog — deposit any coin, trade vs BZX where shown (Web3 + listed). Prices from Binance or CoinGecko.
               </>
             )}
             {marketMode === 'bzx' && (
@@ -618,7 +622,7 @@ export default function MarketsPage() {
         </motion.div>
 
         {/* Market type: Spot | Futures | Options */}
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2 sm:gap-3 mb-5 sm:mb-6">
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2 sm:gap-3 mb-5 sm:mb-6">
           {MARKET_MODES.map(({ id, label, desc, soon }) => (
             <button
               key={id}
@@ -1318,12 +1322,19 @@ export default function MarketsPage() {
           </div>
         )}
 
+        {marketMode === 'web3' && (
+          <BscTokenDirectory
+            title="BEP-20 / Web3 token directory"
+            subtitle="Same tokens as Wallet → Deposit on BNB Chain. Search, filter, and deposit — live USD prices where CoinGecko provides them."
+          />
+        )}
+
         {marketMode === 'spot' && (
         <>
         {/* Summary stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4 mb-6 sm:mb-8">
           {[
-            { label: 'Pairs listed', value: String(markets.length), sub: 'USDT markets', icon: Activity },
+            { label: 'Pairs (live 24h)', value: String(marketsWithLiveStats(markets, { usdtSpotOnly: true }).length), sub: 'USDT spot', icon: Activity },
             { label: '24h volume (USDT)', value: `$${fmtVol(totalQuoteVol)}`, sub: 'Quote volume', icon: BarChart2 },
             { label: 'Gainers', value: String(upCount), sub: '24h ▲', icon: Flame, accent: 'text-green-400' },
             { label: 'Losers', value: String(downCount), sub: '24h ▼', icon: Snowflake, accent: 'text-red-400' },
@@ -1437,7 +1448,7 @@ export default function MarketsPage() {
               {loading ? (
                 <div className="col-span-full py-12 text-center text-white/50">Loading heatmap…</div>
               ) : (
-                markets.map(m => {
+                heatmapMarkets.slice(0, 84).map(m => {
                   const pct = num(m.priceChangePercent);
                   const base = m.base || m.symbol?.replace('USDT', '');
                   const bg = heatBg(pct, minPct, maxPct);
@@ -1467,7 +1478,7 @@ export default function MarketsPage() {
               <Clock size={12} className="flex-shrink-0" /> Categories
             </p>
             <div className="-mx-3 px-3 sm:mx-0 sm:px-0 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:thin] [scrollbar-color:rgba(156,121,65,0.45)_transparent]">
-              <div className="flex flex-nowrap gap-2 pb-1.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
+              <div className="flex flex-nowrap gap-2 pb-1.5 sm:flex-wrap sm:overflow-visible sm:pb-0 items-center">
                 {CATEGORY_TABS.map(({ id, label, short, icon: Icon }) => (
                   <button
                     key={id}
@@ -1484,6 +1495,9 @@ export default function MarketsPage() {
                     <span className="hidden min-[400px]:inline">{label}</span>
                   </button>
                 ))}
+                <span className="flex-shrink-0 text-[10px] text-white/40 font-mono pl-1 sm:ml-2">
+                  {loading ? '…' : `${filtered.length} pairs`}
+                </span>
               </div>
             </div>
           </div>
@@ -1513,9 +1527,10 @@ export default function MarketsPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { setLoading(true); load(); }}
+                onClick={() => setSpotDisplayLimit(60)}
                 className="p-2.5 rounded-xl border border-surface-border text-white hover:bg-white/[0.06] flex-shrink-0"
-                aria-label="Refresh markets"
+                aria-label="Reset list view"
+                title="Live prices update automatically via WebSocket"
               >
                 <RefreshCw size={17} />
               </button>
@@ -1567,7 +1582,7 @@ export default function MarketsPage() {
                       <td colSpan={17} className="py-16 text-center text-white/60">No pairs match your filters.</td>
                     </tr>
                   ) : (
-                    filtered.map((m, i) => {
+                    visibleSpot.map((m, i) => {
                       const pct = num(m.priceChangePercent);
                       const isUp = pct >= 0;
                       const base = m.base || m.symbol?.replace('USDT', '');
@@ -1586,7 +1601,7 @@ export default function MarketsPage() {
                           key={m.symbol}
                           initial={{ opacity: 0, y: 4 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: Math.min(i * 0.02, 0.4) }}
+                          transition={{ delay: i < 24 ? Math.min(i * 0.02, 0.35) : 0 }}
                           className="bitzx-hover-table-row border-b border-surface-border/50 group"
                         >
                           <td className="px-1.5 md:px-2 py-3 md:py-3.5 lg:sticky lg:left-0 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-r border-transparent lg:border-white/[0.06]">
@@ -1594,23 +1609,8 @@ export default function MarketsPage() {
                               <Star size={15} className={isFav ? 'text-gold fill-gold' : 'text-white/25 group-hover:text-white/50'} />
                             </button>
                           </td>
-                          <td className="px-2 md:px-3 py-3 md:py-3.5 lg:sticky lg:left-10 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-r border-transparent lg:border-white/[0.06] min-w-[118px] xl:min-w-[138px]">
-                            <div className="flex items-center gap-2 md:gap-3">
-                              {icon ? (
-                                <img src={icon} alt="" className="w-8 h-8 md:w-9 md:h-9 rounded-full flex-shrink-0" />
-                              ) : (
-                                <div className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-[10px] md:text-xs font-bold flex-shrink-0">{base?.slice(0, 2)}</div>
-                              )}
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="text-white font-bold text-xs md:text-sm">{base}</span>
-                                  <span className="text-white/50 text-[11px] md:text-sm">/USDT</span>
-                                  {base === 'BZX' && (
-                                    <span className="text-[9px] bg-gold/20 text-gold-light px-1 py-0.5 rounded font-bold">BZX</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
+                          <td className="px-2 md:px-3 py-3 md:py-3.5 lg:sticky lg:left-10 lg:z-[1] bg-[#12141a] lg:group-hover:bg-white/[0.04] border-r border-transparent lg:border-white/[0.06] min-w-[140px] xl:min-w-[200px]">
+                            <MarketCoinCell market={m} size={36} />
                           </td>
                           <td className="px-2 md:px-3 py-3 md:py-3.5 text-white font-mono text-xs md:text-sm font-semibold tabular-nums whitespace-nowrap">${fmtP(m.price, base)}</td>
                           <td className="px-2 md:px-3 py-3 md:py-3.5">
@@ -1659,10 +1659,19 @@ export default function MarketsPage() {
                 </tbody>
               </table>
             </div>
+            {filtered.length > 0 ? (
+              <MarketsPagination
+                shown={visibleSpot.length}
+                total={filtered.length}
+                pageSize={60}
+                onLoadMore={() => setSpotDisplayLimit((n) => n + 60)}
+                className="border-t border-white/[0.06] bg-white/[0.02]"
+              />
+            ) : null}
           </div>
         )}
 
-        {/* Mobile / narrow — card list (full data, stacked) */}
+        {/* Mobile — optimized cards */}
         {viewMode !== 'heatmap' && (
           <div className="md:hidden space-y-3 w-full min-w-0 max-w-full">
             {loading ? (
@@ -1672,98 +1681,21 @@ export default function MarketsPage() {
             ) : filtered.length === 0 ? (
               <p className="text-center text-white/60 py-12">No pairs match your filters.</p>
             ) : (
-              filtered.map(m => {
-                const pct = num(m.priceChangePercent);
-                const isUp = pct >= 0;
-                const base = m.base || m.symbol?.replace('USDT', '');
-                const icon = COIN_ICONS[base];
-                const isFav = favorites.includes(m.symbol);
-                return (
-                  <div
-                    key={m.symbol}
-                    className="bitzx-hover-lift bitzx-hover-glow rounded-2xl border border-surface-border p-3 min-[400px]:p-4 space-y-2.5 min-[400px]:space-y-3 max-w-full overflow-hidden"
-                    style={{ background: 'rgba(255,255,255,0.03)' }}
-                  >
-                    <div className="flex items-start justify-between gap-2 min-w-0">
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <button type="button" onClick={() => toggleFav(m.symbol)} className="flex-shrink-0 pt-0.5" aria-label="Watchlist">
-                          <Star size={15} className={isFav ? 'text-gold fill-gold' : 'text-white/25'} />
-                        </button>
-                        {icon ? <img src={icon} alt="" className="w-9 h-9 min-[400px]:w-10 min-[400px]:h-10 rounded-full flex-shrink-0" /> : <div className="w-9 h-9 min-[400px]:w-10 min-[400px]:h-10 rounded-full bg-gold/20 flex items-center justify-center text-gold-light text-xs font-bold flex-shrink-0">{base?.slice(0, 2)}</div>}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-extrabold text-white text-sm min-[400px]:text-base truncate">{base}/USDT</p>
-                          <p className="text-base min-[400px]:text-lg font-mono font-bold text-white break-all leading-tight">${fmtP(m.price, base)}</p>
-                        </div>
-                      </div>
-                      <div className={`text-right font-extrabold text-sm min-[400px]:text-base flex-shrink-0 tabular-nums ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-                        {isUp ? '+' : ''}{pct.toFixed(2)}%
-                      </div>
-                    </div>
-                    <RangeBar low={m.lowPrice} high={m.highPrice} price={m.price} />
-                    <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2.5 text-[10px] min-[400px]:text-[11px] sm:text-xs">
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">24h high</p>
-                        <p className="text-white font-mono">${fmtP(m.highPrice, base)}</p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">24h low</p>
-                        <p className="text-white font-mono">${fmtP(m.lowPrice, base)}</p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">Open</p>
-                        <p className="text-white font-mono">${fmtP(m.openPrice, base)}</p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">Wtd avg</p>
-                        <p className="text-white font-mono">${fmtP(m.weightedAvgPrice, base)}</p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">Bid / Ask</p>
-                        <p className="text-white font-mono">
-                          <span className="text-emerald-400/90">${fmtP(m.bidPrice, base)}</span>
-                          <span className="text-white/35"> · </span>
-                          <span className="text-rose-400/90">${fmtP(m.askPrice, base)}</span>
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">Spread</p>
-                        <p className="text-white font-mono">
-                          {(() => {
-                            const s = fmtSpread(m.bidPrice, m.askPrice, base);
-                            return (
-                              <>
-                                {s.abs}
-                                {s.bps && <span className="block text-[10px] text-white/40">{s.bps}</span>}
-                              </>
-                            );
-                          })()}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">Vol (USDT)</p>
-                        <p className="text-white font-mono">${fmtVol(m.quoteVolume)}</p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">Vol (base)</p>
-                        <p className="text-white font-mono">{fmtVol(m.volume)}</p>
-                      </div>
-                      <div>
-                        <p className="text-white/45 uppercase tracking-wider font-bold">Trades</p>
-                        <p className="text-white font-mono tabular-nums">
-                          {m.count != null ? parseInt(m.count, 10).toLocaleString() : '—'}
-                        </p>
-                      </div>
-                    </div>
-                    <Link
-                      to={`/trade/${m.symbol}`}
-                      className="bitzx-hover-scale flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-gold/15 border border-gold/30 text-gold-light font-bold text-sm"
-                    >
-                      Trade <ArrowRight size={14} />
-                    </Link>
-                  </div>
-                );
-              })
+              visibleSpot.map((m) => (
+                <MarketsSpotMobileCard
+                  key={m.symbol}
+                  market={m}
+                  isFavorite={favorites.includes(m.symbol)}
+                  onToggleFavorite={toggleFav}
+                />
+              ))
             )}
+            <MarketsPagination
+              shown={visibleSpot.length}
+              total={filtered.length}
+              pageSize={60}
+              onLoadMore={() => setSpotDisplayLimit((n) => n + 60)}
+            />
           </div>
         )}
 

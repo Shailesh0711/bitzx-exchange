@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import QrImagePreview from '@/components/ui/QrImagePreview';
 import {
@@ -28,6 +28,16 @@ import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
+import { fetchInrDeposits } from '@/services/inrApi';
+import {
+  formatInrAmount,
+  formatWalletTxnRef,
+  formatInrDepositRefTitle,
+  getInrRefDisplay,
+  formatLedgerAmount,
+  ledgerTypeLabel,
+  mergeLedgerWithInrDeposits,
+} from '@/lib/inrDisplay';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
@@ -59,6 +69,7 @@ const STATUS_STYLES = {
   broadcasted:      { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'In mempool' },
   confirmed:        { color: 'text-green-400',  bg: 'bg-green-400/10 border-green-400/20',    icon: CheckCircle, label: 'Confirmed' },
   failed:           { color: 'text-red-400',    bg: 'bg-red-400/10 border-red-400/20',        icon: XCircle,     label: 'Failed' },
+  approving:        { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'Processing' },
 };
 
 function StatusBadge({ status }) {
@@ -424,20 +435,12 @@ function DepositTab({ kycBlocked, kyc }) {
             Pay in Indian Rupees, upload your transfer proof, and receive tokens after admin approval.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            to="/wallet/deposit/inr"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-gold to-gold-light text-surface-dark"
-          >
-            Deposit INR
-          </Link>
-          <Link
-            to="/wallet/deposits"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-surface-border text-white hover:border-gold/40"
-          >
-            INR history
-          </Link>
-        </div>
+        <Link
+          to="/wallet/deposit/inr"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-gold to-gold-light text-surface-dark"
+        >
+          Deposit INR
+        </Link>
       </div>
 
     <div className="grid md:grid-cols-2 gap-8">
@@ -1134,12 +1137,10 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
 // ── History Tab ───────────────────────────────────────────────────────────────
 
 function HistoryTab() {
-  // Phase 6 — two sub-tabs. Deposits come from ``/api/wallet/deposit-events``
-  // (blockchain sightings), withdrawals from ``/api/wallet/withdrawals``
-  // (user-initiated on-chain sends). Status badge + confirmation progress
-  // are shared across both, so this stays one component.
+  // On-chain deposits, INR fiat requests, and withdrawals.
   const [subTab, setSubTab]   = useState('deposits');
   const [events,  setEvents]  = useState([]);
+  const [inrRows, setInrRows] = useState([]);
   const [wds,     setWds]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
@@ -1149,9 +1150,10 @@ function HistoryTab() {
     setError(null);
     const issues = [];
     try {
-      const [dRes, wRes] = await Promise.all([
+      const [dRes, wRes, inrData] = await Promise.all([
         authFetch(`${API}/api/wallet/deposit-events?limit=200`),
         authFetch(`${API}/api/wallet/withdrawals?limit=200`),
+        fetchInrDeposits({ limit: 100 }).catch((e) => ({ error: e.message || 'INR deposits' })),
       ]);
 
       if (dRes.ok) {
@@ -1161,6 +1163,13 @@ function HistoryTab() {
         const j = await dRes.json().catch(() => ({}));
         setEvents([]);
         issues.push(j?.detail || `deposits (HTTP ${dRes.status})`);
+      }
+
+      if (inrData?.error) {
+        setInrRows([]);
+        issues.push(inrData.error);
+      } else {
+        setInrRows(Array.isArray(inrData?.items) ? inrData.items : []);
       }
 
       if (wRes.ok) {
@@ -1178,6 +1187,7 @@ function HistoryTab() {
     } catch (e) {
       setError(e.message || 'Could not load history.');
       setEvents([]);
+      setInrRows([]);
       setWds([]);
     } finally {
       setLoading(false);
@@ -1187,6 +1197,9 @@ function HistoryTab() {
   useEffect(() => { load(); }, [load]);
 
   const depositRows = events
+    .slice()
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  const inrDepositRows = inrRows
     .slice()
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   const withdrawRows = wds
@@ -1212,8 +1225,9 @@ function HistoryTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 border border-surface-border rounded-xl p-1 bg-surface-DEFAULT">
-          {subTabBtn('deposits', 'Deposits')}
+        <div className="flex flex-wrap gap-1 border border-surface-border rounded-xl p-1 bg-surface-DEFAULT">
+          {subTabBtn('deposits', 'On-chain')}
+          {subTabBtn('inr', 'INR (₹)')}
           {subTabBtn('withdrawals', 'Withdrawals')}
         </div>
         <button onClick={load} disabled={loading}
@@ -1286,6 +1300,69 @@ function HistoryTab() {
                         )}
                       </td>
                       <td className="px-5 py-3 text-right"><StatusBadge status={r.status || 'pending'} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {subTab === 'inr' && (
+        <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl overflow-hidden">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 gap-3 text-white">
+              <RefreshCw size={20} className="animate-spin" /> Loading INR deposits…
+            </div>
+          ) : inrDepositRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-white px-4">
+              <IndianRupee size={32} className="text-gold-light/80" />
+              <p>No INR deposit requests yet</p>
+              <p className="text-xs text-white/50 max-w-sm text-center">
+                Bank transfers from Deposit INR appear here (pending, approved, or rejected).
+                Approved credits also show on the Ledger tab.
+              </p>
+              <Link
+                to="/wallet/deposit/inr"
+                className="mt-2 text-xs font-bold text-gold-light border border-gold/30 px-3 py-1.5 rounded-lg hover:bg-gold/10"
+              >
+                Deposit INR
+              </Link>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
+                    {['Date', 'Asset', 'Amount (INR)', 'BZX credited', 'UTR / ref', 'Method', 'Status'].map(h => (
+                      <th key={h} className={`px-5 py-3 ${h === 'Status' ? 'text-right' : 'text-left'}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {inrDepositRows.map((r) => (
+                    <tr key={r.id} className="border-b border-surface-border/40 hover:bg-white/[.02] transition-colors">
+                      <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{fmt(r.created_at)}</td>
+                      <td className="px-5 py-3 text-sm text-white font-bold">INR</td>
+                      <td className="px-5 py-3 text-sm text-white font-mono">{formatInrAmount(r.amount_inr)}</td>
+                      <td className="px-5 py-3 text-sm text-white/80 font-mono">
+                        {r.status === 'approved' && r.amount_bzx != null
+                          ? `${Number(r.amount_bzx).toFixed(4)} BZX`
+                          : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-white font-mono">
+                        <span className="flex items-center gap-1">
+                          {(r.utr_number || '—').slice(0, 20)}
+                          {r.utr_number && <CopyBtn text={r.utr_number} />}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-white/70 max-w-[140px] truncate" title={r.payment_method_label}>
+                        {r.payment_method_label || r.payment_method_type || '—'}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <StatusBadge status={r.status || 'pending'} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1376,7 +1453,7 @@ function HistoryTab() {
 }
 
 const LEDGER_TYPES = [
-  '', 'deposit', 'withdraw', 'trade', 'fee', 'adjustment',
+  '', 'deposit', 'inr_deposit', 'withdraw', 'trade', 'fee', 'adjustment',
   'lock', 'unlock', 'seed', 'opening_balance',
 ];
 
@@ -1384,8 +1461,7 @@ const LEDGER_TYPES = [
 
 function LedgerTab() {
   const { fetchWalletTransactions } = useAuth();
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
+  const [mergedAll, setMergedAll] = useState([]);
   const [skip, setSkip] = useState(0);
   const [limit] = useState(40);
   const [loading, setLoading] = useState(true);
@@ -1400,30 +1476,76 @@ function LedgerTab() {
     setLoading(true);
     setErr(null);
     try {
-      const params = { skip, limit };
-      if (asset.trim()) params.asset = asset.trim();
-      if (type) params.type = type;
+      const params = { skip: 0, limit: 250 };
+      if (asset.trim() && asset.trim().toUpperCase() !== 'INR') params.asset = asset.trim();
+      if (type && type !== 'inr_deposit') params.type = type;
       if (refId.trim()) params.ref_id = refId.trim();
       if (dateFrom) params.date_from = `${dateFrom}T00:00:00`;
       if (dateTo) params.date_to = `${dateTo}T23:59:59`;
-      const data = await fetchWalletTransactions(params);
-      setItems(Array.isArray(data.items) ? data.items : []);
-      setTotal(Number(data.total) || 0);
+
+      const [walletData, inrData] = await Promise.all([
+        fetchWalletTransactions(params),
+        fetchInrDeposits({ limit: 100 }).catch(() => ({ items: [] })),
+      ]);
+
+      let rows = mergeLedgerWithInrDeposits(walletData.items, inrData.items);
+
+      const assetU = asset.trim().toUpperCase();
+      if (assetU === 'INR') {
+        rows = rows.filter((r) => r._ledgerKind === 'inr_request' || r.asset === 'INR');
+      } else if (assetU) {
+        rows = rows.filter((r) => r._ledgerKind !== 'inr_request' && String(r.asset || '').toUpperCase() === assetU);
+      }
+
+      if (type === 'inr_deposit') {
+        rows = rows.filter((r) => r._ledgerKind === 'inr_request' || r.ref_type === 'inr_deposit');
+      } else if (type === 'deposit') {
+        rows = rows.filter((r) =>
+          r._ledgerKind === 'inr_request'
+          || (r.type === 'deposit' && r.ref_type !== 'inr_deposit')
+          || (r.ref_type === 'inr_deposit' && r.type === 'deposit'),
+        );
+      } else if (type) {
+        rows = rows.filter((r) => r._ledgerKind !== 'inr_request' && r.type === type);
+      }
+
+      if (refId.trim()) {
+        const needle = refId.trim().toLowerCase();
+        rows = rows.filter((r) => String(r.ref_id || '').toLowerCase().includes(needle));
+      }
+
+      if (dateFrom) {
+        const from = new Date(`${dateFrom}T00:00:00`).getTime();
+        rows = rows.filter((r) => !r.created_at || new Date(r.created_at).getTime() >= from);
+      }
+      if (dateTo) {
+        const to = new Date(`${dateTo}T23:59:59`).getTime();
+        rows = rows.filter((r) => !r.created_at || new Date(r.created_at).getTime() <= to);
+      }
+
+      setMergedAll(rows);
     } catch (e) {
       setErr(e.message || 'Could not load ledger.');
-      setItems([]);
-      setTotal(0);
+      setMergedAll([]);
     } finally {
       setLoading(false);
     }
-  }, [fetchWalletTransactions, skip, limit, asset, type, refId, dateFrom, dateTo]);
+  }, [fetchWalletTransactions, asset, type, refId, dateFrom, dateTo]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const total = mergedAll.length;
+  const items = mergedAll.slice(skip, skip + limit);
   const pages = Math.max(1, Math.ceil(total / limit));
   const page = Math.floor(skip / limit) + 1;
+
+  const ledgerAssets = useMemo(() => {
+    const set = new Set(SUPPORTED_ASSETS);
+    set.add('INR');
+    return [...set];
+  }, []);
 
   const fmtBal = (b) => {
     if (!b || typeof b !== 'object') return '—';
@@ -1442,7 +1564,7 @@ function LedgerTab() {
               <ScrollText size={18} className="text-gold-light shrink-0" /> Activity ledger
             </p>
             <p className="text-sm text-white/55 mt-1 max-w-2xl">
-              Every balance movement on your account (trades, fees, deposits, withdrawals, locks, and adjustments). Newest first.
+              Balance movements and INR deposit requests (pending, approved, rejected). Approved INR credits appear as BZX deposits. Newest first.
             </p>
           </div>
           <button
@@ -1464,7 +1586,7 @@ function LedgerTab() {
               className="w-full bg-surface-card border border-surface-border rounded-xl px-4 py-3 text-sm text-white focus:border-gold/50 outline-none"
             >
               <option value="">All assets</option>
-              {SUPPORTED_ASSETS.map((a) => (
+              {ledgerAssets.map((a) => (
                 <option key={a} value={a}>{a}</option>
               ))}
             </select>
@@ -1545,30 +1667,67 @@ function LedgerTab() {
               </thead>
               <tbody>
                 {items.map((row) => {
+                  const isInrRequest = row._ledgerKind === 'inr_request';
+                  const isInr = isInrRequest || row.ref_type === 'inr_deposit';
+                  const inrRef = isInr ? getInrRefDisplay(row) : null;
                   const dir = String(row.direction || '').toLowerCase();
                   const positive = dir === 'credit' || dir === 'unlock';
+                  const amountClass = isInrRequest
+                    ? 'text-amber-100'
+                    : (positive ? 'text-green-400' : 'text-red-300');
                   return (
                     <tr key={row.id} className="border-b border-surface-border/40 hover:bg-white/[.02]">
                       <td className="px-5 py-3 text-xs text-white/70 whitespace-nowrap">
                         {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
                       </td>
                       <td className="px-5 py-3 text-sm text-white font-bold">{row.asset}</td>
-                      <td className="px-5 py-3 text-xs font-mono text-white/80">{row.type}</td>
+                      <td className="px-5 py-3 text-xs font-mono text-white/80">{ledgerTypeLabel(row)}</td>
                       <td className="px-5 py-3">
-                        <span className={`text-xs font-bold uppercase ${positive ? 'text-green-400' : 'text-amber-200'}`}>
-                          {row.direction}
-                        </span>
+                        {isInrRequest ? (
+                          <span className="text-xs font-bold uppercase text-amber-200/90">request</span>
+                        ) : (
+                          <span className={`text-xs font-bold uppercase ${positive ? 'text-green-400' : 'text-amber-200'}`}>
+                            {row.direction}
+                          </span>
+                        )}
                       </td>
-                      <td className={`px-5 py-3 text-right text-sm font-mono font-semibold ${positive ? 'text-green-400' : 'text-red-300'}`}>
-                        {positive ? '+' : '−'}{Number(row.amount || 0).toFixed(row.asset === 'USDT' ? 4 : 6)}
+                      <td className={`px-5 py-3 text-right text-sm font-mono font-semibold ${amountClass}`}>
+                        {formatLedgerAmount(row)}
                       </td>
                       <td className="px-5 py-3 text-right text-xs font-mono text-white/65 whitespace-nowrap" title="available / locked">
-                        {fmtBal(row.balance_after)}
+                        {isInrRequest ? '—' : fmtBal(row.balance_after)}
                       </td>
-                      <td className="px-5 py-3 text-xs font-mono text-white/55 max-w-[220px] truncate" title={`${row.ref_type || ''} ${row.ref_id || ''}`.trim()}>
-                        {[row.ref_type, row.ref_id].filter(Boolean).join(' · ') || '—'}
+                      <td
+                        className="px-5 py-3 text-xs max-w-[260px] min-w-0"
+                        title={isInr ? formatInrDepositRefTitle(row) : formatWalletTxnRef(row)}
+                      >
+                        {isInr ? (
+                          <div className="min-w-0 max-w-[280px]" title={formatInrDepositRefTitle(row)}>
+                            {inrRef.utr ? (
+                              <p className="font-mono text-xs sm:text-sm text-white/90 truncate leading-snug">{inrRef.utr}</p>
+                            ) : (
+                              <p className="text-xs text-white/45 italic">UTR not recorded</p>
+                            )}
+                            {inrRef.depositId ? (
+                              <p
+                                className="font-mono text-[10px] text-amber-200/35 truncate mt-0.5 leading-tight"
+                                title={`Internal deposit ID: ${inrRef.depositId}`}
+                              >
+                                {inrRef.depositId}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="font-mono text-white/55 truncate block">{formatWalletTxnRef(row)}</span>
+                        )}
                       </td>
-                      <td className="px-5 py-3 text-xs text-white/60">{row.status || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-white/60">
+                        {isInrRequest ? (
+                          <StatusBadge status={row.status || 'pending'} />
+                        ) : (
+                          row.status || '—'
+                        )}
+                      </td>
                     </tr>
                   );
                 })}

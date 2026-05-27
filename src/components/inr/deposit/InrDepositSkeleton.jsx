@@ -19,7 +19,7 @@ export default function InrDepositSkeleton() {
           <Bone className="h-12 w-full" />
           <Bone className="h-12 w-full" />
           <Bone className="h-32 w-full" />
-          <Bone className="h-14 w-full rounded-[18px]" />
+          <Bone className="h-14 w-full rounded-2xl" />
         </div>
       </div>
     </div>

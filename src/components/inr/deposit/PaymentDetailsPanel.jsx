@@ -1,14 +1,21 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  QrCode, Smartphone, Building2, Download, ExternalLink, AlertTriangle,
+  QrCode, Smartphone, Building2, Download, AlertTriangle,
 } from 'lucide-react';
 import QrEnlargeable from '@/components/ui/QrEnlargeable';
 import { useToast } from '@/context/ToastContext';
 import { downloadUploadAsset, uploadUrl } from '@/services/inrApi';
-import { methodSelectLabel, parseAmount } from './utils';
+import { methodSelectLabel } from './utils';
 import CopyField from './CopyField';
-import { INR_CARD, INR_CARD_GLOW, INR_TAB_ACTIVE, INR_TAB_IDLE } from './styles';
+import {
+  INR_CARD,
+  INR_CARD_GLOW,
+  INR_GOLD,
+  INR_INNER_PANEL,
+  INR_TAB_ACTIVE,
+  INR_TAB_IDLE,
+} from './styles';
 
 const TYPE_META = {
   qr: { tab: 'QR Code', icon: QrCode },
@@ -61,7 +68,7 @@ function QrPanel({ method }) {
         </div>
       )}
       {label ? (
-        <div className="rounded-xl border border-white/[0.06] bg-[#070A12]/60 px-4">
+        <div className={INR_INNER_PANEL}>
           <CopyField label="Label" value={label} mono={false} />
         </div>
       ) : null}
@@ -70,7 +77,7 @@ function QrPanel({ method }) {
           type="button"
           disabled={downloading}
           onClick={onDownloadQr}
-          className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl border border-white/[0.12] bg-white/[0.04] text-sm font-bold text-white hover:border-[#CDA45E]/30 transition-colors disabled:opacity-50"
+          className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl border border-surface-border bg-surface-dark text-sm text-white hover:border-gold/30 transition-colors disabled:opacity-50"
         >
           <Download size={16} /> {downloading ? 'Downloading…' : 'Download QR'}
         </button>
@@ -79,17 +86,10 @@ function QrPanel({ method }) {
   );
 }
 
-function UpiPanel({ method, amountInr }) {
+function UpiPanel({ method }) {
   const d = method.details || {};
   const upiId = d.upi_id;
   const payee = d.display_name;
-
-  const openUpi = () => {
-    if (!upiId) return;
-    const amt = parseAmount(amountInr);
-    const amParam = Number.isFinite(amt) && amt > 0 ? `&am=${amt}` : '';
-    window.location.href = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payee || '')}${amParam}`;
-  };
 
   return (
     <motion.div
@@ -99,17 +99,10 @@ function UpiPanel({ method, amountInr }) {
       exit={{ opacity: 0, y: -8 }}
       className="space-y-5"
     >
-      <div className="rounded-xl border border-white/[0.06] bg-[#070A12]/60 px-4">
+      <div className={INR_INNER_PANEL}>
         <CopyField label="UPI ID" value={upiId} />
         <CopyField label="Merchant name" value={payee} mono={false} />
       </div>
-      <button
-        type="button"
-        onClick={openUpi}
-        className="w-full py-3.5 rounded-xl font-bold text-[#070A12] bg-gradient-to-r from-[#CDA45E] to-[#E5B86C] flex items-center justify-center gap-2 hover:shadow-[0_4px_24px_rgba(205,164,94,0.35)] transition-shadow"
-      >
-        <ExternalLink size={18} /> Open UPI App
-      </button>
     </motion.div>
   );
 }
@@ -132,7 +125,7 @@ function BankPanel({ method }) {
       exit={{ opacity: 0, y: -8 }}
       className="space-y-4"
     >
-      <div className="rounded-xl border border-white/[0.06] bg-[#070A12]/60 px-4">
+      <div className={INR_INNER_PANEL}>
         {rows.map(([label, value]) => (
           <CopyField key={label} label={label} value={value} copyable={!!value} />
         ))}
@@ -151,7 +144,6 @@ export default function PaymentDetailsPanel({
   onTypeChange,
   activeMethod,
   onMethodChange,
-  amountInr,
   collapsed,
   onToggleCollapse,
   showMobileCollapse,
@@ -168,12 +160,12 @@ export default function PaymentDetailsPanel({
 
   const header = (
     <div className="flex items-center justify-between gap-3 mb-5">
-      <h2 className="text-lg sm:text-xl font-bold text-white">Payment details</h2>
+      <h2 className="text-lg sm:text-xl font-normal text-white">Payment details</h2>
       {showMobileCollapse && (
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="lg:hidden text-xs font-bold text-[#CDA45E] uppercase tracking-wider"
+          className={`lg:hidden text-xs font-normal ${INR_GOLD} uppercase tracking-wider`}
         >
           {collapsed ? 'Show' : 'Hide'}
         </button>
@@ -192,11 +184,11 @@ export default function PaymentDetailsPanel({
             key={type}
             type="button"
             onClick={() => onTypeChange(type)}
-            className={`flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-[14px] border text-sm sm:text-base font-bold transition-all duration-200 ${
+            className={`flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-[14px] border text-sm sm:text-base font-normal transition-all duration-200 ${
               isActive ? INR_TAB_ACTIVE : INR_TAB_IDLE
             }`}
           >
-            <Icon size={20} className={isActive ? 'text-[#E5B86C]' : 'text-white/50'} />
+            <Icon size={20} className={isActive ? 'text-gold-light' : 'text-white/50'} />
             {Meta.tab}
           </button>
         );
@@ -211,10 +203,10 @@ export default function PaymentDetailsPanel({
           key={m.id}
           type="button"
           onClick={() => onMethodChange(m.id)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-normal border transition-colors ${
             activeMethod?.id === m.id
-              ? 'border-[#CDA45E]/50 bg-[#CDA45E]/15 text-[#E5B86C]'
-              : 'border-white/10 text-white/55 hover:border-[#CDA45E]/25'
+              ? 'border-gold/50 bg-gold/10 text-gold-light'
+              : 'border-surface-border text-white/55 hover:border-gold/25'
           }`}
         >
           {methodSelectLabel(m, methods)}
@@ -228,7 +220,7 @@ export default function PaymentDetailsPanel({
       {activeMethod.type === 'qr' && (
         <QrPanel method={activeMethod} />
       )}
-      {activeMethod.type === 'upi' && <UpiPanel method={activeMethod} amountInr={amountInr} />}
+      {activeMethod.type === 'upi' && <UpiPanel method={activeMethod} />}
       {activeMethod.type === 'bank' && <BankPanel method={activeMethod} />}
     </AnimatePresence>
   );

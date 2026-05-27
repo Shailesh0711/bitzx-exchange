@@ -67,7 +67,7 @@ export default function SubmitProofForm({
       className={`${INR_CARD} ${INR_CARD_GLOW} p-6 sm:p-8 lg:p-9 flex flex-col h-full`}
     >
       <div className="mb-6">
-        <h2 className="text-lg sm:text-xl font-bold text-white">Submit deposit proof</h2>
+        <h2 className="text-lg sm:text-xl font-normal text-white">Submit deposit proof</h2>
         <p className="text-sm text-white/50 mt-1">
           Complete your transfer first, then upload proof for verification.
         </p>
@@ -77,14 +77,14 @@ export default function SubmitProofForm({
         <div>
           <label className={INR_LABEL}>Amount *</label>
           <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#CDA45E] font-bold text-lg">₹</span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gold-light text-lg">₹</span>
             <input
               type="text"
               inputMode="decimal"
               value={amountInr}
               onChange={handleAmountInput}
               placeholder="0.00"
-              className={`${INR_INPUT} pl-10 text-lg font-semibold`}
+              className={`${INR_INPUT} pl-10 text-lg font-normal`}
               required
             />
           </div>
@@ -99,7 +99,7 @@ export default function SubmitProofForm({
             required
           >
             {methods.map((m) => (
-              <option key={m.id} value={m.id} className="bg-[#0E1320]">
+              <option key={m.id} value={m.id} className="bg-surface-card">
                 {methodSelectLabel(m, methods)}
               </option>
             ))}
@@ -133,19 +133,19 @@ export default function SubmitProofForm({
             onDrop={onDrop}
             className={`relative rounded-xl border-2 border-dashed transition-all duration-200 ${
               dragOver
-                ? 'border-[#CDA45E]/60 bg-[#CDA45E]/8 scale-[1.01]'
-                : 'border-white/[0.12] bg-[#070A12]/40 hover:border-[#CDA45E]/35'
+                ? 'border-gold/60 bg-gold/8 scale-[1.01]'
+                : 'border-surface-border bg-surface-dark/60 hover:border-gold/35'
             }`}
           >
             <label className="flex flex-col items-center justify-center gap-3 px-4 py-8 cursor-pointer">
               <motion.div
                 animate={dragOver ? { scale: 1.1 } : { scale: 1 }}
-                className="p-3 rounded-full bg-[#CDA45E]/10 text-[#CDA45E]"
+                className="p-3 rounded-full bg-gold/10 text-gold-light"
               >
                 <Upload size={28} />
               </motion.div>
               <div className="text-center">
-                <p className="text-sm font-bold text-white">
+                <p className="text-sm font-normal text-white">
                   {screenshot ? screenshot.name : 'Drag & drop or click to upload'}
                 </p>
                 <p className="text-xs text-white/45 mt-1">Accepted: PNG, JPG, WEBP (Max 5MB)</p>
@@ -160,7 +160,7 @@ export default function SubmitProofForm({
             {uploadProgress > 0 && uploadProgress < 100 && (
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10 rounded-b-xl overflow-hidden">
                 <motion.div
-                  className="h-full bg-[#CDA45E]"
+                  className="h-full bg-gold"
                   initial={{ width: 0 }}
                   animate={{ width: `${uploadProgress}%` }}
                 />
@@ -205,7 +205,7 @@ export default function SubmitProofForm({
         </div>
       </div>
 
-      <div className="mt-8 space-y-3 lg:sticky lg:bottom-0 lg:pt-4 lg:bg-gradient-to-t lg:from-[#0E1320] lg:via-[#0E1320] lg:to-transparent">
+      <div className="mt-8 space-y-3 lg:sticky lg:bottom-0 lg:pt-4 lg:bg-gradient-to-t lg:from-surface-card lg:via-surface-card lg:to-transparent">
         <button type="submit" disabled={submitting} className={INR_BTN_PRIMARY}>
           {submitting ? (
             <span className="inline-flex items-center justify-center gap-2">
@@ -217,7 +217,7 @@ export default function SubmitProofForm({
           )}
         </button>
         <p className="flex items-center justify-center gap-2 text-xs text-white/45">
-          <Lock size={14} className="text-[#CDA45E]/80" />
+          <Lock size={14} className="text-gold-light/80" />
           Secure verification — your data is encrypted in transit
         </p>
       </div>

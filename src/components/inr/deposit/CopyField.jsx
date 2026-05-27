@@ -21,11 +21,11 @@ export default function CopyField({ label, value, mono = true, copyable = true }
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 py-3 border-b border-white/[0.06] last:border-0">
+    <div className="flex items-center justify-between gap-3 py-3 border-b border-surface-border/60 last:border-0">
       <span className="text-sm text-white/50 shrink-0">{label}</span>
       <div className="flex items-center gap-2 min-w-0">
         <span
-          className={`text-sm font-semibold text-white truncate ${mono ? 'font-mono' : ''}`}
+          className={`text-sm font-normal text-white truncate ${mono ? 'font-mono' : ''}`}
           title={String(value)}
         >
           {value}
@@ -34,7 +34,7 @@ export default function CopyField({ label, value, mono = true, copyable = true }
           <button
             type="button"
             onClick={onCopy}
-            className="shrink-0 p-2 rounded-lg border border-white/[0.08] bg-white/[0.04] text-[#CDA45E] hover:bg-[#CDA45E]/10 hover:border-[#CDA45E]/30 transition-colors"
+            className="shrink-0 p-2 rounded-lg border border-surface-border bg-surface-dark text-gold-light hover:bg-gold/10 hover:border-gold/30 transition-colors"
             aria-label={`Copy ${label}`}
           >
             <AnimatePresence mode="wait" initial={false}>

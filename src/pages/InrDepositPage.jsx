@@ -15,7 +15,7 @@ import PaymentDetailsPanel from '@/components/inr/deposit/PaymentDetailsPanel';
 import SubmitProofForm from '@/components/inr/deposit/SubmitProofForm';
 import { parseAmount, UTR_PATTERN } from '@/components/inr/deposit/utils';
 import InrDepositSkeleton from '@/components/inr/deposit/InrDepositSkeleton';
-import { INR_CONTAINER, INR_PAGE_BG } from '@/components/inr/deposit/styles';
+import { INR_BTN_PRIMARY, INR_CONTAINER, INR_INPUT, INR_PAGE_BG } from '@/components/inr/deposit/styles';
 
 const TYPE_ORDER = ['qr', 'upi', 'bank'];
 
@@ -235,14 +235,14 @@ export default function InrDepositPage() {
         >
           <Link
             to="/wallet?tab=deposit"
-            className="inline-flex items-center gap-2 text-sm text-white/55 hover:text-[#E5B86C] mb-5 transition-colors"
+            className="inline-flex items-center gap-2 text-sm text-white/55 hover:text-gold-light mb-5 transition-colors"
           >
             <ArrowLeft size={18} /> Back to wallet
           </Link>
           <div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight flex items-center gap-3">
-              <span className="flex h-12 w-12 items-center justify-center rounded-[14px] bg-[#CDA45E]/15 border border-[#CDA45E]/25">
-                <IndianRupee className="text-[#E5B86C]" size={26} />
+            <h1 className="text-3xl sm:text-4xl font-normal text-white tracking-tight flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gold/15 border border-gold/25">
+                <IndianRupee className="text-gold-light" size={26} />
               </span>
               Deposit INR
             </h1>
@@ -271,15 +271,15 @@ export default function InrDepositPage() {
               className="mb-6 rounded-[18px] border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-100"
             >
               {ok}{' '}
-              <Link to="/wallet/deposits" className="font-bold text-[#E5B86C] underline">
-                View history →
+              <Link to="/wallet?tab=ledger" className="text-gold-light underline">
+                View in activity ledger →
               </Link>
             </motion.div>
           )}
         </AnimatePresence>
 
         {!gatewayOnlyPending && methods.length === 0 && (
-          <div className="rounded-[18px] border border-white/[0.08] bg-[#0E1320] p-8 text-white/65 text-center">
+          <div className="rounded-2xl border border-surface-border bg-surface-card p-8 text-white/65 text-center">
             INR deposits are not available right now. Please use on-chain deposit from your wallet.
           </div>
         )}
@@ -300,21 +300,21 @@ export default function InrDepositPage() {
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-8 rounded-[18px] border border-cyan-500/25 bg-[#0E1320] p-6 sm:p-8 space-y-4"
+            className="mb-8 rounded-2xl border border-surface-border bg-surface-card p-6 sm:p-8 space-y-4"
           >
-            <h2 className="text-xl font-bold text-white">Pay with payment gateway</h2>
+            <h2 className="text-xl font-normal text-white">Pay with payment gateway</h2>
             <p className="text-sm text-white/50">Redirect to checkout — no screenshot required.</p>
             <div className="max-w-md">
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/50 mb-2">
+              <label className="block text-[11px] font-normal uppercase tracking-wider text-white/50 mb-2">
                 Amount (INR)
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#CDA45E] font-bold">₹</span>
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gold-light">₹</span>
                 <input
                   type="text"
                   value={amountInr}
                   onChange={(e) => setAmountInr(e.target.value)}
-                  className="w-full bg-[#070A12]/80 border border-white/[0.1] rounded-xl pl-10 pr-4 py-3.5 text-white"
+                  className={`${INR_INPUT} pl-10`}
                 />
               </div>
             </div>
@@ -322,7 +322,7 @@ export default function InrDepositPage() {
               type="button"
               onClick={handleGatewayPay}
               disabled={gatewayPaying}
-              className="px-8 py-3.5 rounded-[18px] font-bold bg-gradient-to-r from-cyan-600 to-cyan-400 text-white disabled:opacity-50"
+              className={`px-8 py-3.5 ${INR_BTN_PRIMARY} w-auto inline-flex`}
             >
               {gatewayPaying ? 'Starting checkout…' : 'Continue to payment'}
             </button>
@@ -332,7 +332,7 @@ export default function InrDepositPage() {
         {!gatewayOnlyPending && manualEnabled && methods.length > 0 && (
           <>
             {gatewayEnabled && gatewayReady && (
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/35 mb-4">
+              <p className="text-xs font-normal uppercase tracking-[0.2em] text-white/35 mb-4">
                 Or pay manually
               </p>
             )}
@@ -344,7 +344,6 @@ export default function InrDepositPage() {
                 onTypeChange={onTypeChange}
                 activeMethod={activeMethod}
                 onMethodChange={onPaymentMethodChange}
-                amountInr={amountInr}
                 collapsed={detailsCollapsed}
                 onToggleCollapse={() => setDetailsCollapsed((c) => !c)}
                 showMobileCollapse
@@ -376,12 +375,12 @@ export default function InrDepositPage() {
 
         {/* Mobile sticky CTA */}
         {!gatewayOnlyPending && manualEnabled && methods.length > 0 && (
-          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 p-4 bg-gradient-to-t from-[#070A12] via-[#070A12] to-transparent pointer-events-none">
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 p-4 bg-gradient-to-t from-surface-dark via-surface-dark to-transparent pointer-events-none">
             <button
               type="button"
               onClick={() => document.getElementById('inr-submit-form')?.requestSubmit()}
               disabled={submitting}
-              className="pointer-events-auto w-full py-4 rounded-[18px] font-bold text-[#070A12] bg-gradient-to-r from-[#CDA45E] to-[#E5B86C] shadow-[0_4px_32px_rgba(205,164,94,0.4)] disabled:opacity-50"
+              className={`pointer-events-auto ${INR_BTN_PRIMARY}`}
             >
               {submitting ? 'Submitting…' : 'Submit Deposit Request'}
             </button>

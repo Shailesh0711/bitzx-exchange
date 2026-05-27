@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import QrImagePreview from '@/components/ui/QrImagePreview';
 import {
-  Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
+  Wallet,   ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
   CheckCircle, XCircle, AlertCircle, ChevronDown, Copy, Check,
-  ExternalLink, Info, Shield, ScrollText, TrendingUp,
+  ExternalLink, Info, Shield, ScrollText, TrendingUp, IndianRupee,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -413,6 +413,33 @@ function DepositTab({ kycBlocked, kyc }) {
     || isCatalogDepositReady(selectedCatalogItem);
 
   return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-gold/25 bg-gradient-to-r from-gold/10 to-transparent p-5 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-white font-bold flex items-center gap-2">
+            <IndianRupee size={18} className="text-gold-light" />
+            Deposit via INR (Bank / UPI / QR)
+          </p>
+          <p className="text-sm text-white/60 mt-1 max-w-xl">
+            Pay in Indian Rupees, upload your transfer proof, and receive tokens after admin approval.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to="/wallet/deposit/inr"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-gold to-gold-light text-surface-dark"
+          >
+            Deposit INR
+          </Link>
+          <Link
+            to="/wallet/deposits"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-surface-border text-white hover:border-gold/40"
+          >
+            INR history
+          </Link>
+        </div>
+      </div>
+
     <div className="grid md:grid-cols-2 gap-8">
       {/* Address panel (left column — was the manual submit form) */}
       <div className="bg-surface-DEFAULT border border-surface-border rounded-2xl p-6">
@@ -571,11 +598,12 @@ function DepositTab({ kycBlocked, kyc }) {
           )}
           {hasSupported && !depAddrLoading && !depAddrError && personalAddress && (
             <div className="rounded-xl border border-gold/30 bg-gold/5 p-4 flex flex-col sm:flex-row gap-4 items-start">
-              <div className="shrink-0 bg-white p-2 rounded-xl">
+              <div className="shrink-0">
                 <QrImagePreview
                   key={`${personalAddress.id}-${(personalAddress.qr_payload || personalAddress.address || '').slice(0, 96)}`}
                   value={personalAddress.qr_payload || personalAddress.address}
-                  size={128}
+                  size={200}
+                  modalSize={400}
                 />
               </div>
               <div className="min-w-0 flex-1">
@@ -634,6 +662,7 @@ function DepositTab({ kycBlocked, kyc }) {
           </ul>
         </div>
       </div>
+    </div>
     </div>
   );
 }

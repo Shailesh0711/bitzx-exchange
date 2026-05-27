@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import QrEnlargeable from '@/components/ui/QrEnlargeable';
 
 const QR_VALUE_MAX = 1800;
 
@@ -13,7 +14,15 @@ function safeQrPayload(raw) {
 /**
  * Renders a QR as a PNG data URL (avoids react-qr-code SVG crashes on React 19).
  */
-export default function QrImagePreview({ value, size = 112, className = '' }) {
+export default function QrImagePreview({
+  value,
+  size = 200,
+  modalSize = 400,
+  className = '',
+  enlarge = true,
+  hint = 'Tap to enlarge',
+  modalHint = 'Scan with your wallet app',
+}) {
   const [dataUrl, setDataUrl] = useState('');
   const [failed, setFailed] = useState(false);
   const safe = useMemo(() => safeQrPayload(value), [value]);
@@ -61,10 +70,24 @@ export default function QrImagePreview({ value, size = 112, className = '' }) {
       />
     );
   }
+  if (enlarge) {
+    return (
+      <QrEnlargeable
+        src={dataUrl}
+        alt="Deposit address QR code"
+        size={size}
+        modalSize={modalSize}
+        className={className}
+        hint={hint}
+        modalHint={modalHint}
+      />
+    );
+  }
+
   return (
     <img
       src={dataUrl}
-      alt=""
+      alt="Deposit address QR code"
       width={size}
       height={size}
       className={`block max-w-full rounded ${className}`}

@@ -1,7 +1,12 @@
 import { authFetch } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
+import { formatApiDetail } from '@/lib/authValidation';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
+
+function inrApiError(data, fallback) {
+  return new Error(formatApiDetail(data?.detail) || fallback);
+}
 
 export function uploadUrl(path) {
   if (!path) return '';
@@ -119,6 +124,53 @@ export async function submitInrDeposit(formData) {
     body: formData,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `Submit failed (HTTP ${res.status})`);
+  if (!res.ok) throw inrApiError(data, `Submit failed (HTTP ${res.status})`);
+  return data;
+}
+
+export async function fetchInrPayoutProfile() {
+  const res = await authFetch(`${API}/api/inr/withdrawals/payout-profile`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw inrApiError(data, `Could not load payout details (HTTP ${res.status})`);
+  return data;
+}
+
+export async function saveInrPayoutProfile(body) {
+  const res = await authFetch(`${API}/api/inr/withdrawals/payout-profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw inrApiError(data, `Could not save payout details (HTTP ${res.status})`);
+  return data;
+}
+
+export async function fetchInrWithdrawalEligibility() {
+  const res = await authFetch(`${API}/api/inr/withdrawals/eligibility`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Could not load withdrawal eligibility (HTTP ${res.status})`);
+  return data;
+}
+
+export async function fetchInrWithdrawals(params = {}) {
+  const u = new URLSearchParams();
+  if (params.skip != null) u.set('skip', String(params.skip));
+  if (params.limit != null) u.set('limit', String(params.limit));
+  const qs = u.toString();
+  const res = await authFetch(`${API}/api/inr/withdrawals${qs ? `?${qs}` : ''}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Could not load withdrawals (HTTP ${res.status})`);
+  return data;
+}
+
+export async function submitInrWithdrawal(body) {
+  const res = await authFetch(`${API}/api/inr/withdrawals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw inrApiError(data, `Submit failed (HTTP ${res.status})`);
   return data;
 }

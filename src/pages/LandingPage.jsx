@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useInView, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import {
-  ArrowRight, Shield, Zap, BarChart2, Wallet, Lock,
+  ArrowRight, Shield, Zap, BarChart2, Wallet, Lock, IndianRupee,
   TrendingUp, TrendingDown, Globe, Star, ChevronRight,
   Users, Activity, Award, RefreshCw, CheckCircle, X,
   Cpu, Eye, Sparkles, ArrowUpRight,
@@ -19,6 +19,7 @@ import MobileAppDownload from '@/components/ui/MobileAppDownload';
 import LandingPromoModal from '@/components/ui/LandingPromoModal';
 import MobileAppStickyBar from '@/components/ui/MobileAppStickyBar';
 import LandingPlatformFlow from '@/components/landing/LandingPlatformFlow';
+import LandingInrFiat from '@/components/landing/LandingInrFiat';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -28,8 +29,9 @@ const FEATURES = [
   { icon: Shield,    color: '#22c55e', title: 'Bank-Grade Security',   desc: '95% cold wallet storage, 2FA, whitelisting, and real-time threat monitoring.' },
   { icon: BarChart2, color: '#60a5fa', title: 'TradingView Charts',    desc: 'Full-feature charts with 100+ indicators, drawing tools, and multi-timeframe analysis.' },
   { icon: Globe,     color: '#a78bfa', title: 'Global Liquidity',      desc: 'Deep order books aggregated across providers for tight spreads around the clock.' },
-  { icon: Wallet,    color: '#f97316', title: 'Multi-Asset Portfolio', desc: 'Trade 100+ pairs. Manage, deposit and withdraw all your assets in one place.' },
+  { icon: Wallet,    color: '#f97316', title: 'Multi-Asset Portfolio', desc: 'Trade 100+ pairs. Manage USDT, crypto assets, and INR deposit/withdraw flow in one place.' },
   { icon: Lock,      color: '#ec4899', title: 'Fully KYC Compliant',   desc: 'Regulated platform serving 100+ countries. Identity verified, funds protected.' },
+  { icon: IndianRupee, color: '#22c55e', title: 'INR Deposit & Payout', desc: 'Deposit INR via bank or UPI; sell BZX and withdraw INR to your bank or UPI account.' },
 ];
 
 
@@ -48,6 +50,7 @@ const VS_TABLE = [
   { feature: 'BEP-20 deposit search', bitzx: 'Full Web3 catalog', other: 'Limited' },
   { feature: 'BZX-quoted markets', bitzx: 'BZX Markets hub', other: 'USDT only' },
   { feature: 'KYC & withdrawals', bitzx: 'Guided, secure', other: 'Slow / opaque' },
+  { feature: 'INR fiat (India)', bitzx: 'Deposit & INR payout', other: 'Crypto-only' },
 ];
 
 /** Landing market table — volume helpers */
@@ -311,7 +314,7 @@ export default function LandingPage() {
                 >
                   <Sparkles size={14} className="text-gold-light shrink-0" />
                   <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.2em] text-zinc-300">
-                    BZX · USDT · BEP-20 deposits
+                    BZX · USDT · INR · BEP-20
                   </span>
                   <span className="hidden sm:inline w-px h-3.5 bg-white/15" />
                   <span className="hidden sm:inline text-[11px] font-medium text-emerald-400/95 tracking-wide">Deposit → trade → portfolio</span>
@@ -342,8 +345,8 @@ export default function LandingPage() {
                   transition={{ delay: 0.25 }}
                   className="bitzx-lead mb-9 sm:mb-10 max-w-2xl"
                 >
-                  Fund your wallet with USDT or search any supported BEP-20 token, then trade on USDT pairs or
-                  BZX Markets with live books, TradingView charts, and portfolio P&amp;L — one professional platform on web and mobile.
+                  Fund with USDT, deposit INR via bank or UPI, or search any supported BEP-20 token — then trade on
+                  USDT pairs or BZX Markets. Sell BZX for INR when you are ready to withdraw to your bank or UPI.
                 </motion.p>
 
                 <motion.div
@@ -461,6 +464,8 @@ export default function LandingPage() {
       </section>
 
       <LandingPlatformFlow />
+
+      <LandingInrFiat />
 
       {/* APK download — primary banner */}
       <section className="relative z-[3] bitzx-landing-container py-6 md:py-8">

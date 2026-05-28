@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowRight, ArrowDownToLine, Search, LineChart, ShieldCheck,
-  Wallet, Coins, TrendingUp, ChevronRight, Sparkles, Layers,
+  Wallet, Coins, TrendingUp, ChevronRight, Sparkles, Layers, Banknote,
 } from 'lucide-react';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
@@ -41,6 +41,16 @@ const DEPOSIT_PATHS = [
     link: '/list-coin',
     cta: 'Apply to list',
   },
+  {
+    icon: Banknote,
+    color: '#22c55e',
+    title: 'INR (Indian Rupees)',
+    desc: 'Deposit INR by bank or UPI and receive BZX. Sell BZX and withdraw INR to your linked bank or UPI.',
+    link: '/wallet/deposit/inr',
+    cta: 'Deposit INR',
+    altLink: '/wallet/withdraw/inr',
+    altCta: 'Sell for INR',
+  },
 ];
 
 const JOURNEY_STEPS = [
@@ -56,7 +66,7 @@ const JOURNEY_STEPS = [
     n: '02',
     icon: ArrowDownToLine,
     title: 'Deposit funds',
-    desc: 'Open Wallet → Deposit. Pick USDT or search any supported BEP-20. Copy your personal address and send from your wallet app.',
+    desc: 'Open Wallet → Deposit. Add INR (bank/UPI), USDT, or any supported BEP-20, then copy your address and send.',
     to: '/wallet',
     cta: 'Go to wallet',
   },
@@ -103,6 +113,9 @@ function StepCard({ step, index }) {
       </div>
       <h3 className="text-white font-semibold text-lg sm:text-xl mb-2 tracking-tight">{step.title}</h3>
       <p className="text-zinc-400 text-[14px] sm:text-[15px] leading-[1.65] flex-1">{step.desc}</p>
+      {step.note ? (
+        <p className="mt-2 text-[12px] sm:text-[13px] text-gold-light/90">{step.note}</p>
+      ) : null}
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <Link
           to={step.to}
@@ -205,12 +218,12 @@ export default function LandingPlatformFlow() {
           <p className="bitzx-eyebrow mb-3">Fund your account</p>
           <h2 className="bitzx-title-lg mb-4">How deposits work</h2>
           <p className="bitzx-lead-wide text-zinc-400 mx-auto">
-            One wallet for everything — stablecoins, chain-native assets, and the full BEP-20 catalog.
-            Search, select network, copy your address, and send from any compatible wallet.
+            One wallet for everything — INR via bank or UPI, stablecoins, chain-native assets, and the full BEP-20 catalog.
+            Search tokens, copy your address, or submit an INR deposit with UTR and proof.
           </p>
         </motion.div>
 
-        <div className="grid gap-4 sm:gap-5 md:grid-cols-3">
+        <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {DEPOSIT_PATHS.map((d, i) => (
             <motion.div
               key={d.title}
@@ -228,12 +241,22 @@ export default function LandingPlatformFlow() {
               </div>
               <h3 className="text-white font-semibold text-[17px] mb-2">{d.title}</h3>
               <p className="text-zinc-400 text-[14px] leading-[1.65] flex-1">{d.desc}</p>
-              <Link
-                to={d.link}
-                className="mt-5 inline-flex items-center gap-1.5 text-[14px] font-semibold text-gold-light hover:text-gold"
-              >
-                {d.cta} <ChevronRight size={14} />
-              </Link>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <Link
+                  to={d.link}
+                  className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-gold-light hover:text-gold"
+                >
+                  {d.cta} <ChevronRight size={14} />
+                </Link>
+                {d.altLink ? (
+                  <Link
+                    to={d.altLink}
+                    className="inline-flex items-center gap-1.5 text-[13px] font-medium text-zinc-400 hover:text-white"
+                  >
+                    {d.altCta} <ArrowRight size={13} />
+                  </Link>
+                ) : null}
+              </div>
             </motion.div>
           ))}
         </div>

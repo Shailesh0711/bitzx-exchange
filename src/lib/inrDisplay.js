@@ -1,4 +1,4 @@
-/** Shared INR deposit / ledger display helpers for wallet UI. */
+/** Shared INR deposit / withdrawal / ledger display helpers for wallet UI. */
 
 export const INR_STATUS_LABELS = {
   pending: 'Pending review',
@@ -26,6 +26,35 @@ export function getInrRefDisplay(row) {
   return { utr, depositId };
 }
 
+/** UTR / payout ref on top, internal withdrawal id below (ledger Reference column). */
+export function getInrWithdrawalRefDisplay(row) {
+  if (!row) return { utr: null, withdrawalId: null };
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  const utr = String(
+    meta.payout_reference || row.payout_reference || '',
+  ).trim() || null;
+  const withdrawalId = row.ref_id ? String(row.ref_id) : null;
+  return { utr, withdrawalId };
+}
+
+export function isInrWithdrawalRow(row) {
+  return row?.ref_type === 'inr_withdrawal'
+    || row?._ledgerKind === 'inr_withdrawal_request'
+    || row?._ledgerKind === 'inr_withdrawal_outcome'
+    || row?.type === 'inr_withdrawal';
+}
+
+export function ledgerStatusLabel(row) {
+  if (row?.inr_request_status) return inrStatusLabel(row.inr_request_status);
+  if (row?._ledgerKind === 'inr_request' || row?._ledgerKind === 'inr_withdrawal_request' || row?._ledgerKind === 'inr_withdrawal_outcome') {
+    return inrStatusLabel(row.status);
+  }
+  if (row?.ref_type === 'inr_withdrawal' && row.inr_request_status) {
+    return inrStatusLabel(row.inr_request_status);
+  }
+  return row?.status || '—';
+}
+
 /** Short ref for ledger tables (UTR only; full context in tooltip). */
 export function formatInrDepositRef(row) {
   const { utr, depositId } = getInrRefDisplay(row);
@@ -48,17 +77,50 @@ export function formatInrDepositRefTitle(row) {
   return lines.join('\n') || formatInrDepositRef(row);
 }
 
+export function formatInrWithdrawalRefTitle(row) {
+  if (!row) return '';
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  const lines = [];
+  if (row.ref_id) lines.push(`Request ID: ${row.ref_id}`);
+  if (meta.amount_inr != null) lines.push(`INR: ${formatInrAmount(meta.amount_inr)}`);
+  const utr = meta.payout_reference || row.payout_reference;
+  if (utr) lines.push(`Payout UTR: ${utr}`);
+  if (meta.payout_type) lines.push(`Payout: ${meta.payout_type}`);
+  if (row.status) lines.push(`Status: ${row.status}`);
+  return lines.join('\n') || 'INR withdrawal';
+}
+
 export function formatWalletTxnRef(row) {
   if (!row) return '—';
   if (row._ledgerKind === 'inr_request' || row.ref_type === 'inr_deposit') {
     return formatInrDepositRef(row);
+  }
+  if (isInrWithdrawalRow(row)) {
+    const { utr } = getInrWithdrawalRefDisplay(row);
+    if (utr) return utr;
+    if (row.ref_id) return row.ref_id.length > 14 ? `${row.ref_id.slice(0, 12)}…` : row.ref_id;
+    return '—';
   }
   return [row.ref_type, row.ref_id].filter(Boolean).join(' · ') || '—';
 }
 
 export function ledgerTypeLabel(row) {
   if (row?._ledgerKind === 'inr_request' || row?.type === 'inr_deposit') return 'INR deposit';
+  if (row?._ledgerKind === 'inr_withdrawal_outcome') {
+    return row.status === 'rejected' ? 'INR sell rejected' : 'INR payout';
+  }
+  if (row?._ledgerKind === 'inr_withdrawal_request' || row?.type === 'inr_withdrawal') {
+    return 'INR withdrawal';
+  }
   if (row?.ref_type === 'inr_deposit' && row?.type === 'deposit') return 'INR deposit';
+  if (row?.ref_type === 'inr_withdrawal') {
+    const dir = String(row.direction || '').toLowerCase();
+    const kind = row.meta?.ledger_kind;
+    if (kind === 'inr_sell' || row.type === 'lock') return 'INR sell';
+    if (kind === 'inr_payout' || (row.type === 'withdraw' && dir === 'debit')) return 'INR payout';
+    if (kind === 'inr_sell_cancel' || row.type === 'unlock') return 'INR sell cancel';
+    return 'INR withdrawal';
+  }
   return row?.type || '—';
 }
 
@@ -87,11 +149,65 @@ export function inrDepositToLedgerRow(dep) {
   };
 }
 
-/** Merge wallet_txns with INR requests; skip INR rows already credited on-chain ledger. */
-function enrichInrLedgerRow(row, inrById) {
+/** Fiat withdrawal request (pending / rejected — not yet paid out). */
+export function inrWithdrawalToLedgerRow(wd) {
+  if (!wd?.id) return null;
+  const status = wd.status || 'pending';
+  if (status === 'approved') return null;
+  return {
+    id: `inr-wd-${wd.id}`,
+    _ledgerKind: 'inr_withdrawal_request',
+    created_at: wd.created_at,
+    asset: 'INR',
+    type: 'inr_withdrawal',
+    direction: 'request',
+    amount: wd.amount_inr,
+    balance_after: null,
+    ref_type: 'inr_withdrawal',
+    ref_id: wd.id,
+    status,
+    inr_request_status: status,
+    payout_reference: wd.payout_reference,
+    meta: {
+      amount_inr: wd.amount_inr,
+      payout_reference: wd.payout_reference,
+      payout_type: wd.payout_type,
+      rejection_reason: wd.rejection_reason,
+    },
+  };
+}
+
+function inrWithdrawalOutcomeRow(wd) {
+  if (!wd?.id) return null;
+  const status = String(wd.status || '').toLowerCase();
+  if (status !== 'approved' && status !== 'rejected') return null;
+  return {
+    id: `inr-wd-outcome-${wd.id}`,
+    _ledgerKind: 'inr_withdrawal_outcome',
+    created_at: wd.reviewed_at || wd.updated_at || wd.created_at,
+    asset: 'INR',
+    type: 'inr_withdrawal',
+    direction: status,
+    amount: wd.amount_inr,
+    balance_after: null,
+    ref_type: 'inr_withdrawal',
+    ref_id: wd.id,
+    status,
+    inr_request_status: status,
+    payout_reference: wd.payout_reference,
+    meta: {
+      amount_inr: wd.amount_inr,
+      payout_reference: wd.payout_reference,
+      payout_type: wd.payout_type,
+      rejection_reason: wd.rejection_reason,
+    },
+  };
+}
+
+function enrichInrDepositLedgerRow(row, inrById) {
   if (!row || !inrById) return row;
-  const isInr = row._ledgerKind === 'inr_request' || row.ref_type === 'inr_deposit';
-  if (!isInr || !row.ref_id) return row;
+  const isDep = row._ledgerKind === 'inr_request' || row.ref_type === 'inr_deposit';
+  if (!isDep || !row.ref_id) return row;
   const dep = inrById.get(String(row.ref_id));
   if (!dep) return row;
   const meta = { ...(row.meta && typeof row.meta === 'object' ? row.meta : {}) };
@@ -101,28 +217,76 @@ function enrichInrLedgerRow(row, inrById) {
   return { ...row, meta };
 }
 
-export function mergeLedgerWithInrDeposits(walletItems, inrDeposits) {
+function enrichInrWithdrawalLedgerRow(row, wdById) {
+  if (!row || !wdById || row.ref_type !== 'inr_withdrawal' || !row.ref_id) return row;
+  const wd = wdById.get(String(row.ref_id));
+  if (!wd) return row;
+  const meta = { ...(row.meta && typeof row.meta === 'object' ? row.meta : {}) };
+  if (!meta.payout_reference && wd.payout_reference) {
+    meta.payout_reference = wd.payout_reference;
+  }
+  if (meta.amount_inr == null && wd.amount_inr != null) meta.amount_inr = wd.amount_inr;
+  if (!meta.payout_type && wd.payout_type) meta.payout_type = wd.payout_type;
+  return {
+    ...row,
+    meta,
+    payout_reference: meta.payout_reference || wd.payout_reference,
+    inr_request_status: wd.status,
+  };
+}
+
+export function mergeLedgerWithInrDeposits(walletItems, inrDeposits, inrWithdrawals = []) {
   const wallet = Array.isArray(walletItems) ? walletItems : [];
   const inr = Array.isArray(inrDeposits) ? inrDeposits : [];
+  const wds = Array.isArray(inrWithdrawals) ? inrWithdrawals : [];
   const inrById = new Map(inr.filter((d) => d?.id).map((d) => [String(d.id), d]));
-  const creditedIds = new Set(
+  const wdById = new Map(wds.filter((d) => d?.id).map((d) => [String(d.id), d]));
+
+  const creditedDepIds = new Set(
     wallet
       .filter((w) => w.ref_type === 'inr_deposit' && w.ref_id)
       .map((w) => String(w.ref_id)),
   );
-  const supplemental = inr
-    .filter((d) => d?.id && !creditedIds.has(String(d.id)))
+  const supplementalDeps = inr
+    .filter((d) => d?.id && !creditedDepIds.has(String(d.id)))
     .map(inrDepositToLedgerRow)
     .filter(Boolean);
-  const merged = [...supplemental, ...wallet].sort((a, b) =>
+
+  const activeWdIds = new Set(
+    wallet
+      .filter((w) => w.ref_type === 'inr_withdrawal' && w.ref_id)
+      .map((w) => String(w.ref_id)),
+  );
+  const supplementalWds = wds
+    .filter((d) => d?.id && !activeWdIds.has(String(d.id)))
+    .map(inrWithdrawalToLedgerRow)
+    .filter(Boolean);
+  const outcomeWds = wds.map(inrWithdrawalOutcomeRow).filter(Boolean);
+
+  const merged = [...supplementalDeps, ...supplementalWds, ...outcomeWds, ...wallet].sort((a, b) =>
     (b.created_at || '').localeCompare(a.created_at || ''),
   );
-  return merged.map((row) => enrichInrLedgerRow(row, inrById));
+  return merged.map((row) => {
+    let r = enrichInrDepositLedgerRow(row, inrById);
+    r = enrichInrWithdrawalLedgerRow(r, wdById);
+    return r;
+  });
 }
 
 export function formatLedgerAmount(row) {
-  if (row?._ledgerKind === 'inr_request') {
+  if (
+    row?._ledgerKind === 'inr_request'
+    || row?._ledgerKind === 'inr_withdrawal_request'
+    || row?._ledgerKind === 'inr_withdrawal_outcome'
+  ) {
     return formatInrAmount(row.amount);
+  }
+  if (isInrWithdrawalRow(row) && row.meta?.amount_inr != null) {
+    const n = formatInrAmount(row.meta.amount_inr);
+    const dir = String(row.direction || '').toLowerCase();
+    if (dir === 'unlock') return `+${n}`;
+    if (dir === 'lock' || dir === 'debit') return `−${n}`;
+    return n;
   }
   const positive = ['credit', 'unlock'].includes(String(row.direction || '').toLowerCase());
   const dec = row.asset === 'USDT' ? 4 : 6;

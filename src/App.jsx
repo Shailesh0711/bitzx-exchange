@@ -18,6 +18,7 @@ import EmailVerificationPage      from '@/pages/EmailVerificationPage';
 import DashboardPage from '@/pages/DashboardPage';
 import WalletPage    from '@/pages/WalletPage';
 import InrDepositPage from '@/pages/InrDepositPage';
+import InrWithdrawPage from '@/pages/InrWithdrawPage';
 import ProfilePage      from '@/pages/ProfilePage';
 import KYCPage          from '@/pages/KYCPage';
 import QuickTradePage   from '@/pages/QuickTradePage';
@@ -219,6 +220,12 @@ export default function App() {
         } />
         <Route path="/wallet/deposit/inr" element={
           <ProtectedRoute><InrDepositPage /></ProtectedRoute>
+        } />
+        <Route path="/wallet/withdraw/inr" element={
+          <ProtectedRoute><InrWithdrawPage /></ProtectedRoute>
+        } />
+        <Route path="/wallet/withdrawals/inr" element={
+          <Navigate to="/wallet?tab=history&inr=withdraw" replace />
         } />
         <Route path="/wallet/deposits" element={<Navigate to="/wallet?tab=ledger" replace />} />
         <Route path="/portfolio" element={

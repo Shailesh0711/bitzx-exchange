@@ -26,8 +26,11 @@ import {
 } from 'lucide-react';
 import {
   COIN_ICONS,
+  coinIconUrl,
   exchangeWsPath,
   INTERNAL_SPOT_SYMBOL,
+  isBzxMockMarketSymbol,
+  marketApi,
   tradePathForApiSymbol,
   tradeSymbolFromRouteParam,
   displayBaseForApiSymbol,
@@ -35,6 +38,9 @@ import {
   parsePairFromApiSymbol,
   walletAssetLabel,
 } from '@/services/marketApi';
+import { useBZXMarket } from '@/hooks/useBZXMarket';
+import BZXChart from '@/components/BZXChart/BZXChart';
+import BZXTrades from '@/components/BZXTrades/BZXTrades';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 import { useToast, friendlyError } from '@/context/ToastContext';
@@ -954,6 +960,13 @@ export default function TradePage() {
     () => tradeSymbolFromRouteParam(routeParam) ?? INTERNAL_SPOT_SYMBOL,
     [routeParam],
   );
+  const isBzxMock = isBzxMockMarketSymbol(symbol);
+  const [bzxInterval, setBzxInterval] = useState('1m');
+  const { candles: bzxCandles, orderbook: bzxOrderbook, trades: bzxTrades, ticker: bzxTicker, loading: bzxLoading } = useBZXMarket({
+    symbol,
+    interval: bzxInterval,
+    enabled: isBzxMock,
+  });
   const [ticker,        setTicker]        = useState(null);
   const [pairOpen,      setPairOpen]      = useState(false);
   const [formPrice,     setFormPrice]     = useState('');
@@ -961,9 +974,62 @@ export default function TradePage() {
 
   const { base: apiBase, quote: apiQuote } = parsePairFromApiSymbol(symbol);
   const displayBase = apiBase;
-  const icon = COIN_ICONS[displayBase] ?? COIN_ICONS[apiBase];
+  const [bzxLogoUrl, setBzxLogoUrl] = useState(null);
 
   useEffect(() => {
+    if (apiQuote !== 'BZX') {
+      setBzxLogoUrl(null);
+      return undefined;
+    }
+    let cancelled = false;
+    marketApi
+      .getBZXMarkets({ tier: 'all', q: displayBase, limit: 40 })
+      .then((data) => {
+        if (cancelled) return;
+        const hit = (data?.markets || []).find((m) => String(m.symbol).toUpperCase() === symbol);
+        setBzxLogoUrl(hit?.logo_url || null);
+      })
+      .catch(() => {
+        if (!cancelled) setBzxLogoUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, displayBase, apiQuote]);
+
+  const icon = coinIconUrl(displayBase, apiQuote === 'BZX' ? bzxLogoUrl : null)
+    ?? coinIconUrl(apiBase, null);
+
+  const bzxHl = useMemo(() => {
+    if (!isBzxMock || !bzxCandles?.length) return null;
+    let high = 0;
+    let low = Infinity;
+    for (const c of bzxCandles) {
+      const h = Number(c.high);
+      const l = Number(c.low);
+      if (Number.isFinite(h)) high = Math.max(high, h);
+      if (Number.isFinite(l)) low = Math.min(low, l);
+    }
+    if (!Number.isFinite(low) || low === Infinity) return null;
+    return { high, low };
+  }, [isBzxMock, bzxCandles]);
+
+  const activeTicker = useMemo(() => {
+    if (!isBzxMock) return ticker;
+    if (!bzxTicker) return null;
+    const px = Number(bzxTicker.price ?? 0);
+    return {
+      price: px,
+      priceChangePercent: Number(bzxTicker.change24h ?? 0),
+      volume: Number(bzxTicker.volume24h ?? 0),
+      quoteVolume: Number(bzxTicker.volume24h ?? 0),
+      highPrice: bzxHl?.high ?? px,
+      lowPrice: bzxHl?.low ?? px,
+    };
+  }, [isBzxMock, ticker, bzxTicker, bzxHl]);
+
+  useEffect(() => {
+    if (isBzxMock) return undefined;
     setTicker(null);
     const qs = new URLSearchParams({ symbol });
     const url = exchangeWsPath(`/api/ws/exchange/ticker?${qs.toString()}`);
@@ -998,7 +1064,7 @@ export default function TradePage() {
         }
       }
     };
-  }, [symbol]);
+  }, [symbol, isBzxMock]);
 
   useEffect(() => {
     if (!routeParam) {
@@ -1025,9 +1091,9 @@ export default function TradePage() {
     setMobilePanelTab('trade');
   }, []);
 
-  const pct       = parseFloat(ticker?.priceChangePercent ?? 0);
+  const pct       = parseFloat(activeTicker?.priceChangePercent ?? 0);
   const isUp      = pct >= 0;
-  const livePrice = ticker?.price ?? null;
+  const livePrice = activeTicker?.price ?? null;
 
   const pairPicker = (
     <TradePairPicker
@@ -1058,7 +1124,7 @@ export default function TradePage() {
             className="scrollbar-hide">
             {pairPicker}
 
-            {ticker ? (
+            {activeTicker ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: 20, fontWeight: 900, fontFamily: 'monospace', color: isUp ? '#22c55e' : '#ef4444', letterSpacing: '-0.5px', flexShrink: 0 }}>
                   ${fmtP(livePrice, apiBase)}
@@ -1078,7 +1144,16 @@ export default function TradePage() {
 
         {/* Mobile Chart — explicit pixel height so TradingView renders */}
         <div style={{ height: 280, position: 'relative', overflow: 'hidden', pointerEvents: pairOpen ? 'none' : 'auto' }}>
-          <TradingChart key={symbol} symbol={symbol} />
+          {isBzxMock ? (
+            <BZXChart
+              candles={bzxCandles}
+              interval={bzxInterval}
+              onIntervalChange={setBzxInterval}
+              fill
+            />
+          ) : (
+            <TradingChart key={symbol} symbol={symbol} />
+          )}
         </div>
 
         <div style={{
@@ -1110,6 +1185,7 @@ export default function TradePage() {
                   baseAsset={apiBase}
                   lastPrice={livePrice}
                   onPriceClick={onOrderBookPriceMobile}
+                  bookOverride={isBzxMock ? bzxOrderbook : null}
                 />
               </div>
           }
@@ -1139,7 +1215,7 @@ export default function TradePage() {
             className="scrollbar-hide">
             {pairPicker}
 
-            {ticker ? (
+            {activeTicker ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, overflowX: 'auto' }}
                 className="scrollbar-hide">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 20, flexShrink: 0 }}>
@@ -1152,10 +1228,10 @@ export default function TradePage() {
                   </span>
                 </div>
                 <div className="hidden lg:flex">
-                  <StatItem label="24h High"   value={`$${fmtP(ticker.highPrice, apiBase)}`}  color="text-green-300" />
-                  <StatItem label="24h Low"    value={`$${fmtP(ticker.lowPrice, apiBase)}`}   color="text-red-300" />
-                  <StatItem label="24h Volume" value={`${fmtVol(ticker.volume)} ${displayBase}`} />
-                  <StatItem label="Quote Vol"  value={apiQuote === 'BZX' ? `${fmtVol(ticker.quoteVolume)} BZX` : `$${fmtVol(ticker.quoteVolume)}`} />
+                  <StatItem label="24h High"   value={`$${fmtP(activeTicker.highPrice, apiBase)}`}  color="text-green-300" />
+                  <StatItem label="24h Low"    value={`$${fmtP(activeTicker.lowPrice, apiBase)}`}   color="text-red-300" />
+                  <StatItem label="24h Volume" value={`${fmtVol(activeTicker.volume)} ${displayBase}`} />
+                  <StatItem label="Quote Vol"  value={apiQuote === 'BZX' ? `${fmtVol(activeTicker.quoteVolume)} BZX` : `$${fmtVol(activeTicker.quoteVolume)}`} />
                 </div>
               </div>
             ) : (
@@ -1169,17 +1245,29 @@ export default function TradePage() {
         {/* Desktop three columns */}
         <div style={{ display: 'flex', flex: '1 1 0', minHeight: 0 }}>
           <div style={{ flex: '1 1 0', minWidth: 0, position: 'relative', overflow: 'hidden', borderRight: '1px solid rgba(255,255,255,0.06)', pointerEvents: pairOpen ? 'none' : 'auto' }}>
-            <TradingChart key={symbol} symbol={symbol} />
+            {isBzxMock ? (
+              <BZXChart
+                candles={bzxCandles}
+                interval={bzxInterval}
+                onIntervalChange={setBzxInterval}
+                fill
+              />
+            ) : (
+              <TradingChart key={symbol} symbol={symbol} />
+            )}
           </div>
           <div
             className="flex min-h-0 w-[340px] shrink-0 flex-col overflow-hidden border-r border-white/[0.06]"
           >
-            <OrderBook
-              symbol={symbol}
-              baseAsset={apiBase}
-              lastPrice={livePrice}
-              onPriceClick={onOrderBookPrice}
-            />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <OrderBook
+                symbol={symbol}
+                baseAsset={apiBase}
+                lastPrice={livePrice}
+                onPriceClick={onOrderBookPrice}
+                bookOverride={isBzxMock ? bzxOrderbook : null}
+              />
+            </div>
           </div>
           <div style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ flex: '1 1 0', overflowY: 'auto' }} className="scrollbar-hide">

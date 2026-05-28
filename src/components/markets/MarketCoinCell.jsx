@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { COIN_ICONS } from '@/services/marketApi';
+import { coinIconUrl } from '@/services/marketApi';
 
 /**
  * Consistent coin identity cell for markets tables (admin-managed metadata).
@@ -7,7 +7,7 @@ import { COIN_ICONS } from '@/services/marketApi';
 export default function MarketCoinCell({ market, size = 40, showQuote = true, linkToTrade = false }) {
   const base = market?.base || market?.symbol?.replace(/USDT$/, '').replace(/BZX$/, '') || '';
   const quote = market?.quote || market?.quoteAsset || (market?.symbol?.endsWith('BZX') ? 'BZX' : 'USDT');
-  const icon = market?.logo_url || COIN_ICONS[base];
+  const icon = coinIconUrl(base, market?.logo_url);
   const name = market?.token_name || market?.project_name || base;
   const tagline = market?.market_tagline;
   const category = market?.market_category;

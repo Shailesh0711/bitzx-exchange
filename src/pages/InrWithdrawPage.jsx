@@ -159,10 +159,22 @@ export default function InrWithdrawPage() {
   }, [payoutType, hasSavedForType]);
 
   const amt = parseAmount(amountInr);
+  const maxWithdrawInr = useMemo(() => {
+    const fromApi = Number(eligibility?.max_withdrawal_inr);
+    if (Number.isFinite(fromApi) && fromApi >= 0) return fromApi;
+    const depositCap = Number(eligibility?.available_inr_limit);
+    return Number.isFinite(depositCap) ? depositCap : 0;
+  }, [eligibility]);
+
   const previewBzx = useMemo(() => {
     if (!Number.isFinite(amt) || amt <= 0 || !rate?.bzx_per_inr) return null;
     return amt * Number(rate.bzx_per_inr);
   }, [amt, rate]);
+
+  const bzxAvailable = Number(eligibility?.bzx_balance_available);
+  const bzxBlocksMax = Number.isFinite(bzxAvailable)
+    && Number(eligibility?.inr_limit_from_bzx_balance) + 0.01
+      < Number(eligibility?.available_inr_limit);
 
   const onSavePayoutOnly = async () => {
     setErr('');
@@ -201,8 +213,26 @@ export default function InrWithdrawPage() {
       setErr('Enter a valid INR amount');
       return;
     }
-    if (amt > (eligibility.available_inr_limit || 0) + 0.01) {
-      setErr(`Amount exceeds your limit (${fmtInr(eligibility.available_inr_limit)} remaining)`);
+    if (amt > maxWithdrawInr + 0.01) {
+      if (bzxBlocksMax) {
+        setErr(
+          `Amount exceeds what your available BZX can sell (${fmtInr(maxWithdrawInr)} max; `
+          + `${bzxAvailable.toLocaleString('en-IN', { maximumFractionDigits: 8 })} BZX free)`,
+        );
+      } else {
+        setErr(`Amount exceeds your limit (${fmtInr(maxWithdrawInr)} remaining)`);
+      }
+      return;
+    }
+    if (
+      Number.isFinite(bzxAvailable)
+      && previewBzx != null
+      && previewBzx > bzxAvailable + 1e-8
+    ) {
+      setErr(
+        `This amount needs ${previewBzx.toLocaleString('en-IN', { maximumFractionDigits: 8 })} BZX `
+        + `but only ${bzxAvailable.toLocaleString('en-IN', { maximumFractionDigits: 8 })} is available.`,
+      );
       return;
     }
 
@@ -429,7 +459,18 @@ export default function InrWithdrawPage() {
                 )}
 
                 <div>
-                  <label className={INR_LABEL}>Amount to receive (INR) *</label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className={INR_LABEL}>Amount to receive (INR) *</label>
+                    {maxWithdrawInr > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setAmountInr(String(maxWithdrawInr))}
+                        className="text-xs font-bold text-gold-light hover:text-gold"
+                      >
+                        Max
+                      </button>
+                    )}
+                  </div>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gold font-bold">₹</span>
                     <input
@@ -440,8 +481,14 @@ export default function InrWithdrawPage() {
                     />
                   </div>
                   <p className="text-xs text-white/40 mt-2">
-                    Min ₹{eligibility.min_withdrawal_inr || 100}. Limit remaining:{' '}
-                    {fmtInr(eligibility.available_inr_limit)}
+                    Min ₹{eligibility.min_withdrawal_inr || 100}. You can withdraw up to{' '}
+                    {fmtInr(maxWithdrawInr)}
+                    {bzxBlocksMax && (
+                      <>
+                        {' '}
+                        (deposit limit {fmtInr(eligibility.available_inr_limit)}; capped by available BZX)
+                      </>
+                    )}
                   </p>
                 </div>
 
@@ -473,9 +520,21 @@ export default function InrWithdrawPage() {
                     <dt className="text-white/50">Already withdrawn</dt>
                     <dd className="text-white font-mono">{fmtInr(eligibility.approved_withdrawal_inr_total)}</dd>
                   </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-white/50">From deposits</dt>
+                    <dd className="text-white font-mono">{fmtInr(eligibility.available_inr_limit)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-white/50">BZX available to sell</dt>
+                    <dd className="text-white font-mono">
+                      {Number.isFinite(bzxAvailable)
+                        ? bzxAvailable.toLocaleString('en-IN', { maximumFractionDigits: 8 })
+                        : '—'}
+                    </dd>
+                  </div>
                   <div className="flex justify-between gap-2 border-t border-white/10 pt-2">
-                    <dt className="text-gold-light font-bold">Available INR</dt>
-                    <dd className="text-gold-light font-mono font-bold">{fmtInr(eligibility.available_inr_limit)}</dd>
+                    <dt className="text-gold-light font-bold">Max payout now</dt>
+                    <dd className="text-gold-light font-mono font-bold">{fmtInr(maxWithdrawInr)}</dd>
                   </div>
                 </dl>
               </div>

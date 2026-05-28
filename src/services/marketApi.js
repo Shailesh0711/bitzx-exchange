@@ -45,6 +45,14 @@ export const PAIRS = [
   { symbol: 'DOGEBZX', base: 'DOGE', quote: 'BZX',  source: 'internal' },
 ];
 
+/** Resolve coin logo: API/catalog URL first, then static majors map. */
+export function coinIconUrl(base, logoUrl) {
+  const url = logoUrl != null ? String(logoUrl).trim() : '';
+  if (url) return url;
+  const b = String(base || '').toUpperCase();
+  return COIN_ICONS[b] || null;
+}
+
 export const COIN_ICONS = {
   BZX:  'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png',
   BTC:  'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
@@ -63,6 +71,19 @@ export const COIN_ICONS = {
 
 /** Backend wire symbol for the internal BZX pair. */
 export const INTERNAL_SPOT_SYMBOL = 'BZXUSDT';
+
+/** Core pairs pre-seeded by the mock engine at startup (matches backend bootstrap). */
+export const BZX_MOCK_MARKET_SYMBOLS = new Set([
+  'BZXUSDT',
+  ...PAIRS.filter((p) => p.quote === 'BZX').map((p) => p.symbol),
+]);
+
+/** Chart / depth / tape use the BZX mock engine for BZXUSDT and every *BZX pair (incl. Web3 catalog). */
+export function isBzxMockMarketSymbol(sym) {
+  const upper = String(sym || '').trim().toUpperCase();
+  if (upper === 'BZXUSDT') return true;
+  return isBzxQuotedRouteSymbol(upper);
+}
 
 /** Route `/trade/BZXUSDT` → API symbol (identity for bitzx). */
 export function apiSymbolFromRouteParam(param) {
@@ -221,8 +242,10 @@ export const marketApi = {
     });
     if (params.q) q.set('q', params.q);
     const raw = await safeFetch(`${BACKEND}/api/trading/bzx-markets?${q}`, null);
-    if (raw && Array.isArray(raw.markets)) return raw;
-    if (Array.isArray(raw)) return { markets: raw, total: raw.length };
+    if (raw && Array.isArray(raw.markets)) {
+      return { ...raw, markets: normalizeMarketsList(raw.markets) };
+    }
+    if (Array.isArray(raw)) return { markets: normalizeMarketsList(raw), total: raw.length };
     return { markets: [], total: 0 };
   },
 
@@ -236,12 +259,14 @@ export const marketApi = {
     while (skip < total) {
       const d = await marketApi.getBZXMarkets({ tier: 'all', skip, limit: PAGE });
       const list = d?.markets ?? [];
-      total = Number(d?.total) ?? skip + list.length;
+      const parsedTotal = Number(d?.total);
+      total = Number.isFinite(parsedTotal) ? parsedTotal : skip + list.length;
       for (const m of list) {
         const sym = String(m?.symbol || '').toUpperCase();
         if (sym && !seen.has(sym)) {
           seen.add(sym);
-          out.push(m);
+          const row = normalizeMarketRow(m);
+          if (row) out.push(row);
         }
       }
       skip += list.length;
@@ -291,5 +316,31 @@ export const marketApi = {
     const sym = symbol.toUpperCase();
     const d = await safeFetch(`${BACKEND}/api/trading/trades/${sym}?limit=${limit}`, []);
     return Array.isArray(d) ? d : [];
+  },
+
+  async getTradingFeeConfig() {
+    const d = await safeFetch(`${BACKEND}/api/trading/fee-config`, null);
+    if (!d || typeof d !== 'object') {
+      return {
+        maker_fee_rate: 0.001,
+        taker_fee_rate: 0.001,
+        fee_asset: 'BZX',
+        bzx_price_usdt: BZX_PRICE,
+        spot: { maker_fee_rate: 0.001, taker_fee_rate: 0.001 },
+        futures: { maker_fee_rate: 0.0002, taker_fee_rate: 0.0005, liquidation_fee_rate: 0.005 },
+        options: { maker_fee_rate: 0.0002, taker_fee_rate: 0.0005, basis: 'premium_notional' },
+      };
+    }
+    const bzxPx = Number(d.bzx_price_usdt ?? BZX_PRICE);
+    return {
+      ...d,
+      maker_fee_rate: Number(d.maker_fee_rate ?? d.spot?.maker_fee_rate ?? 0.001),
+      taker_fee_rate: Number(d.taker_fee_rate ?? d.spot?.taker_fee_rate ?? 0.001),
+      fee_asset: String(d.fee_asset || 'BZX').toUpperCase(),
+      bzx_price_usdt: bzxPx,
+      spot: d.spot || { maker_fee_rate: d.maker_fee_rate, taker_fee_rate: d.taker_fee_rate },
+      futures: d.futures || { maker_fee_rate: 0.0002, taker_fee_rate: 0.0005 },
+      options: d.options || { maker_fee_rate: 0.0002, taker_fee_rate: 0.0005 },
+    };
   },
 };

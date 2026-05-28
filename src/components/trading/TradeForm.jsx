@@ -12,12 +12,13 @@ import {
   parseMarketReferencePrice,
   parseAmount,
 } from '@/lib/tradeRules';
-import { parsePairFromApiSymbol } from '@/services/marketApi';
+import { parsePairFromApiSymbol, marketApi } from '@/services/marketApi';
 import { useToast, friendlyError } from '@/context/ToastContext';
 
 const API  = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const PCTS = [25, 50, 75, 100];
-const FEE_RATE = 0.001;
+const DEFAULT_FEE_RATE = 0.001;
+const DEFAULT_BZX_PRICE_USDT = 0.4523;
 
 /** Format ticker last for display / placeholders (live-updating when `n` changes each tick). */
 function fmtLiveUsdt(n) {
@@ -69,6 +70,8 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   amountRef.current = amount;
   totalUsdtRef.current = totalUsdt;
   const [placing, setPlacing] = useState(false);
+  const [feeRate, setFeeRate] = useState(DEFAULT_FEE_RATE);
+  const [bzxPriceUsdt, setBzxPriceUsdt] = useState(DEFAULT_BZX_PRICE_USDT);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [touched, setTouched] = useState({});
 
@@ -123,6 +126,7 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   const limitPx  = parseLimitPrice(price);
   const effPrice = isMarket ? (markPx ?? 0) : (limitPx ?? 0);
   const notionalUsdt = effPrice * amtNum;
+  const bzxBalance = Number(balance?.BZX || 0);
   const avail    = isBuy ? (balance?.[quoteAsset] || 0) : (balance?.[apiBase] || 0);
 
   const limitRestsOnBook =
@@ -137,8 +141,12 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
   const usdtLockLimit = !isMarket && isBuy && limitPx != null ? limitPx * amtNum : null;
   const usdtLockMarket =
     isMarket && isBuy && markPx != null ? markPx * MARKET_BUY_LOCK_BUFFER * amtNum : null;
-  const estFeeBuyBase = amtNum > 0 ? amtNum * FEE_RATE : 0;
-  const estFeeSellUsdt = notionalUsdt > 0 ? notionalUsdt * FEE_RATE : 0;
+  const estFeeBzx = useMemo(() => {
+    if (!(amtNum > 0 && effPrice > 0)) return 0;
+    if (quoteAsset === 'BZX') return notionalUsdt * feeRate;
+    if (!(bzxPriceUsdt > 0)) return 0;
+    return (notionalUsdt * feeRate) / bzxPriceUsdt;
+  }, [amtNum, effPrice, notionalUsdt, quoteAsset, feeRate, bzxPriceUsdt]);
 
   const spotCheck = useMemo(
     () =>
@@ -151,13 +159,30 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
         currentPrice: lastPrice,
         balanceUSDT: balance?.USDT ?? 0,
         balanceQuote: balance?.[quoteAsset] ?? 0,
+        balanceBZX: bzxBalance,
+        feeRate,
+        bzxPriceUsdt,
         balanceBase: balance?.[apiBase] ?? 0,
         baseAsset: apiBase,
         quoteAsset,
         userLoggedIn: !!user,
       }),
-    [symbol, side, type, amount, price, lastPrice, balance, apiBase, quoteAsset, user],
+    [symbol, side, type, amount, price, lastPrice, balance, apiBase, quoteAsset, bzxBalance, feeRate, bzxPriceUsdt, user],
   );
+
+  useEffect(() => {
+    let alive = true;
+    marketApi.getTradingFeeConfig()
+      .then((cfg) => {
+        if (!alive) return;
+        if (Number.isFinite(cfg?.taker_fee_rate)) setFeeRate(Number(cfg.taker_fee_rate));
+        if (Number.isFinite(cfg?.bzx_price_usdt) && Number(cfg.bzx_price_usdt) > 0) {
+          setBzxPriceUsdt(Number(cfg.bzx_price_usdt));
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const setPct = pct => {
     limitSizeSourceRef.current = 'amount';
@@ -614,11 +639,9 @@ export default function TradeForm({ symbol, lastPrice, limitPriceSeed = '', init
 
             {amtNum > 0 && (
               <div className="flex items-center justify-between text-xs text-white pt-2 border-t border-surface-border/60">
-                <span className="font-semibold">Est. fee ({(FEE_RATE * 100).toFixed(1)}%)</span>
+                <span className="font-semibold">Est. fee ({(feeRate * 100).toFixed(3)}%)</span>
                 <span className="font-mono font-bold text-white">
-                  {isBuy
-                    ? `${estFeeBuyBase.toFixed(6)} ${displayBase}`
-                    : `${estFeeSellUsdt.toFixed(4)} ${quoteAsset}`}
+                  {`${estFeeBzx.toFixed(8)} BZX`}
                 </span>
               </div>
             )}

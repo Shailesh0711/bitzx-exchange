@@ -139,10 +139,11 @@ const Row = memo(function Row({ price, qty, side, pct, cumPct, tickSize, onPrice
   && a.tickSize === b.tickSize,
 );
 
-export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }) {
+export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick, bookOverride = null }) {
   const displayBase = displayBaseForApiSymbol(symbol);
   const { quote: quoteAsset } = parsePairFromApiSymbol(symbol);
-  const synthetic = isSyntheticSpotSymbol(symbol);
+  const synthetic = isSyntheticSpotSymbol(symbol) && !bookOverride;
+  const externalBook = bookOverride && typeof bookOverride === 'object' ? bookOverride : null;
   const [book, setBook] = useState({ asks: [], bids: [] });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -157,6 +158,12 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
   lastPriceRef.current = lastPrice;
 
   useEffect(() => {
+    if (externalBook) {
+      setBook(externalBook);
+      setLoadError(null);
+      setLoading(false);
+      return undefined;
+    }
     setLoading(true);
     setBook({ asks: [], bids: [] });
     const qs = new URLSearchParams({ symbol, limit: String(API_LIMIT) });
@@ -205,7 +212,7 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
         }
       }
     };
-  }, [symbol, wsKick, synthetic]);
+  }, [symbol, wsKick, synthetic, externalBook]);
 
   useEffect(() => {
     if (!synthetic) return undefined;
@@ -229,7 +236,14 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
     return () => window.clearInterval(id);
   }, [symbol, synthetic, lastPrice]);
 
+  const manualTickRef = useRef(false);
+
   useEffect(() => {
+    manualTickRef.current = false;
+  }, [symbol]);
+
+  useEffect(() => {
+    if (manualTickRef.current) return;
     const p = parseFloat(lastPrice);
     if (Number.isFinite(p) && p > 0) setTickSize(pickDefaultTick(p));
   }, [symbol, lastPrice]);
@@ -353,7 +367,11 @@ export default function OrderBook({ symbol, baseAsset, lastPrice, onPriceClick }
                     className={`flex w-full items-center px-3 py-2.5 text-left text-xs font-mono hover:bg-white/[.08] ${
                       t === tickSize ? 'text-gold-light bg-gold/10' : 'text-white'
                     }`}
-                    onClick={() => { setTickSize(t); setTickOpen(false); }}
+                    onClick={() => { 
+                      manualTickRef.current = true;
+                      setTickSize(t); 
+                      setTickOpen(false); 
+                    }}
                   >
                     {tickLabel(t)}
                   </button>

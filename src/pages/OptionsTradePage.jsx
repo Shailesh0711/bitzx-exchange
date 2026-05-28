@@ -13,6 +13,7 @@ import { useAuth } from '@/context/AuthContext';
 import { optionsApi, openOptionsAccountWs, openOptionsDepthWs, openOptionsChainWs } from '@/services/optionsApi';
 import { COIN_ICONS } from '@/services/marketApi';
 import { useToast, friendlyError } from '@/context/ToastContext';
+import { estimateBzxFee, formatBzxFee } from '@/lib/bzxFee';
 
 const DEFAULT_UNDERLYING = 'BTCUSDT';
 
@@ -435,7 +436,7 @@ function StatChip({ label, value, mono }) {
 export default function OptionsTradePage() {
   const { underlying: rawUnderlying } = useParams();
   const navigate = useNavigate();
-  const { user, kyc } = useAuth();
+  const { user, kyc, balance } = useAuth();
   const toast = useToast();
 
   const underlying = (rawUnderlying || DEFAULT_UNDERLYING).toUpperCase().replace(/[^A-Z0-9]/g, '') || DEFAULT_UNDERLYING;
@@ -473,6 +474,28 @@ export default function OptionsTradePage() {
   const [mobilePanelTab, setMobilePanelTab] = useState('chain'); // trade | book | chain — land on chain until a strike is picked
   const [selectedExpiry, setSelectedExpiry] = useState(null);
   const [liveIndexPrice, setLiveIndexPrice] = useState(null);
+
+  const premiumNotional = useMemo(() => {
+    const p = parseFloat(price);
+    const q = parseFloat(qty);
+    if (!Number.isFinite(p) || !Number.isFinite(q) || p <= 0 || q <= 0) return 0;
+    return p * q;
+  }, [price, qty]);
+
+  const estFeeBzx = useMemo(() => {
+    if (!feeRates || premiumNotional <= 0) return 0;
+    const taker = Number(feeRates.taker_fee_rate) || 0;
+    const maker = Number(feeRates.maker_fee_rate) || 0;
+    const rate = Math.max(taker, Math.max(0, maker));
+    return estimateBzxFee({
+      quoteNotional: premiumNotional,
+      feeRate: rate,
+      bzxPriceUsdt: Number(feeRates.bzx_price_usdt) || 0.4523,
+    });
+  }, [feeRates, premiumNotional]);
+
+  const availBzx = Number(balance?.BZX ?? 0);
+  const insufficientBzxFee = !!user && estFeeBzx > 0 && estFeeBzx > availBzx + 1e-12;
 
   const selected = useMemo(
     () => contracts.find((c) => c.id === selectedId) || null,
@@ -732,6 +755,13 @@ export default function OptionsTradePage() {
     }
     if (!Number.isFinite(q) || q <= 0) {
       toast.error('Invalid quantity', 'Enter how many contracts you want to trade (must be greater than 0).');
+      return;
+    }
+    if (insufficientBzxFee) {
+      toast.error(
+        'Insufficient BZX',
+        `Need ~${formatBzxFee(estFeeBzx)} for trading fees (available ${availBzx.toFixed(8)} BZX).`,
+      );
       return;
     }
     setBusy(true);
@@ -1404,6 +1434,22 @@ export default function OptionsTradePage() {
             />
           </div>
 
+          {premiumNotional > 0 && feeRates && (
+            <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2 text-[11px]">
+              <div className="flex justify-between gap-2">
+                <span className="text-white/50">Est. fee (premium × rate)</span>
+                <span className={`font-mono font-bold ${insufficientBzxFee ? 'text-rose-300' : 'text-gold-light/90'}`}>
+                  {formatBzxFee(estFeeBzx)}
+                </span>
+              </div>
+              {insufficientBzxFee && (
+                <p className="text-rose-300/90 mt-1 leading-relaxed">
+                  Spot BZX balance {availBzx.toFixed(8)} — fees are charged only in BZX.
+                </p>
+              )}
+            </div>
+          )}
+
           {user && kyc?.status !== 'approved' && (
             <div className={`rounded-xl p-4 border ${
               kyc?.status === 'pending'
@@ -1476,7 +1522,7 @@ export default function OptionsTradePage() {
       )}
       {feeRates && (
         <StatChip
-          label="Fees (notional)"
+          label="Fees (BZX)"
           value={`T ${(Number(feeRates.taker_fee_rate) * 100).toFixed(3)}% · M ${(Number(feeRates.maker_fee_rate) * 100).toFixed(3)}%`}
         />
       )}

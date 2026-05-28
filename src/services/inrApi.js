@@ -174,3 +174,12 @@ export async function submitInrWithdrawal(body) {
   if (!res.ok) throw inrApiError(data, `Submit failed (HTTP ${res.status})`);
   return data;
 }
+
+export async function cancelInrWithdrawal(withdrawalId) {
+  const res = await authFetch(`${API}/api/inr/withdrawals/${encodeURIComponent(withdrawalId)}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw inrApiError(data, `Cancel failed (HTTP ${res.status})`);
+  return data;
+}

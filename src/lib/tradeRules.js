@@ -64,6 +64,9 @@ export function validateSpotOrder({
   baseAsset,
   quoteAsset = 'USDT',
   balanceQuote,
+  balanceBZX,
+  feeRate,
+  bzxPriceUsdt,
   userLoggedIn,
 }) {
   const quote = (quoteAsset || 'USDT').toUpperCase();
@@ -129,6 +132,26 @@ export function validateSpotOrder({
         errors.balance = `Insufficient ${baseAsset}. Available: ${base.toFixed(8)}.`;
       }
     }
+    if (
+      !errors.balance &&
+      qty != null &&
+      qty > 0 &&
+      effPrice != null &&
+      effPrice > 0 &&
+      Number.isFinite(Number(balanceBZX)) &&
+      Number.isFinite(Number(feeRate))
+    ) {
+      const quoteNotional = effPrice * qty;
+      const q = (quote || 'USDT').toUpperCase();
+      const feeBzx =
+        q === 'BZX'
+          ? quoteNotional * Number(feeRate)
+          : quoteNotional * Number(feeRate) / Math.max(Number(bzxPriceUsdt) || 0, 1e-12);
+      const bzxBal = Number(balanceBZX) || 0;
+      if (feeBzx > bzxBal + 1e-12) {
+        errors.balance = `Insufficient BZX for fee. Need ≈ ${feeBzx.toFixed(8)} BZX, available ${bzxBal.toFixed(8)} BZX.`;
+      }
+    }
   }
 
   const keys = ['symbol', 'amount', 'price', 'total', 'balance'];
@@ -160,6 +183,9 @@ export function validateMarketQuickOrder({
   balanceUSDT,
   balanceBase,
   baseAsset,
+  balanceBZX,
+  feeRate,
+  bzxPriceUsdt,
   userLoggedIn,
 }) {
   return validateSpotOrder({
@@ -172,6 +198,9 @@ export function validateMarketQuickOrder({
     balanceUSDT,
     balanceBase,
     baseAsset,
+    balanceBZX,
+    feeRate,
+    bzxPriceUsdt,
     userLoggedIn,
   });
 }

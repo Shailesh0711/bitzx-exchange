@@ -159,6 +159,7 @@ export default function Navbar() {
   const [userOpen, setUserOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState(null);
   const [moreMenuPos, setMoreMenuPos] = useState(null);
   const userTriggerRef = useRef(null);
@@ -262,8 +263,15 @@ export default function Navbar() {
   }, []);
 
   const handleLogout = () => {
+    setLogoutModalOpen(true);
+  };
+
+  const confirmLogout = () => {
     logout();
     navigate('/');
+    setLogoutModalOpen(false);
+    setUserOpen(false);
+    setMoreOpen(false);
     setMenuOpen(false);
   };
   const navAvatarSrc = user ? userAvatarSrc(user) : null;
@@ -696,6 +704,51 @@ export default function Navbar() {
                 </div>
               </motion.div>
             </div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
+
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {logoutModalOpen && (
+            <motion.div
+              className="fixed inset-0 z-[11000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.97, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.97, y: 8 }}
+                transition={{ duration: 0.16 }}
+                className="w-full max-w-md rounded-2xl border border-surface-border bg-surface-card shadow-2xl"
+              >
+                <div className="px-5 py-4 border-b border-surface-border">
+                  <h3 className="text-white font-bold text-lg">Sign out?</h3>
+                  <p className="text-white/60 text-sm mt-1">
+                    You will be signed out of this device.
+                  </p>
+                </div>
+                <div className="px-5 py-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLogoutModalOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-surface-border text-sm font-semibold text-white/80 hover:bg-white/5"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmLogout}
+                    className="px-4 py-2 rounded-xl border border-red-500/40 bg-red-500/15 text-sm font-semibold text-red-200 hover:bg-red-500/25"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
           )}
         </AnimatePresence>,
         document.body,

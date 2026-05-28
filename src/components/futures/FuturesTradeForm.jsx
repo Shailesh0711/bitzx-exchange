@@ -24,8 +24,10 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useFutures } from '@/context/FuturesContext';
 import { futuresApi } from '@/services/futuresApi';
+import { marketApi } from '@/services/marketApi';
 import LeverageSelector from './LeverageSelector';
 import { useToast, friendlyError } from '@/context/ToastContext';
+import { estimateBzxFee, formatBzxFee, feeRatesForVenue } from '@/lib/bzxFee';
 
 const TYPES = [
   { id: 'limit',      label: 'Limit'  },
@@ -34,9 +36,6 @@ const TYPES = [
 ];
 
 const SIZE_PCTS = [10, 25, 50, 75, 100];
-
-const MAKER_FEE_RATE = 0.0002;
-const TAKER_FEE_RATE = 0.0005;
 
 // ── Liquidation-price helpers (mirrors backend risk.py exactly) ────────────
 // Each tier: [maxNotional, maxLeverage, IMR, MMR]
@@ -260,6 +259,15 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
   const [tif,        setTif]     = useState('GTC');
   const [busy,       setBusy]    = useState(false);
   const [err,        setErr]     = useState(null);
+  const [feeConfig, setFeeConfig] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    marketApi.getTradingFeeConfig()
+      .then((cfg) => { if (!cancelled) setFeeConfig(cfg); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // Tracks which size field the user last touched so that when the price
   // changes (user typing or "Latest" snap) the correct companion field is
@@ -457,8 +465,17 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
     ? (limitRestsBook ? 'maker' : 'taker')
     : null;
 
-  const feeRate = limitRole === 'maker' ? MAKER_FEE_RATE : TAKER_FEE_RATE;
-  const estFee  = notional * feeRate;
+  const futRates = feeRatesForVenue(feeConfig, 'futures');
+  const feeRate = limitRole === 'maker' ? futRates.maker : futRates.taker;
+  const bzxPx = Number(feeConfig?.bzx_price_usdt) || 0.4523;
+  const estFeeBzx = estimateBzxFee({
+    quoteNotional: notional,
+    feeRate,
+    quoteAsset: 'USDT',
+    bzxPriceUsdt: bzxPx,
+  });
+  const availBzx = Number(balance?.BZX ?? 0);
+  const insufficientBzxFee = !!user && estFeeBzx > 0 && estFeeBzx > availBzx + 1e-12;
   // Liq estimate always uses the live index price so it updates in real-time.
   const liqEst = calcLiqPrice(symbol, side, summaryPx, leverage, notional);
 
@@ -488,6 +505,10 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
     setErr(null);
     if (kyc?.status !== 'approved') {
       toast.error('KYC required', 'Complete identity verification before trading futures.');
+      return;
+    }
+    if (insufficientBzxFee) {
+      setErr(`Insufficient BZX for fee (need ~${formatBzxFee(estFeeBzx)}).`);
       return;
     }
     try {
@@ -655,8 +676,8 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
             <p className={`text-[10px] mt-1 ${limitRole === 'maker' ? 'text-emerald-300' : 'text-amber-300'}`}>
               <Info size={10} className="inline mr-1" />
               {limitRole === 'maker'
-                ? `Rests on the book (maker) — fee ${(MAKER_FEE_RATE * 100).toFixed(3)}%.`
-                : `Crosses the book (taker) — fee ${(TAKER_FEE_RATE * 100).toFixed(3)}%.`}
+                ? `Rests on the book (maker) — fee ${(futRates.maker * 100).toFixed(3)}% in BZX.`
+                : `Crosses the book (taker) — fee ${(futRates.taker * 100).toFixed(3)}% in BZX.`}
             </p>
           )}
           {limitRestsBook && (
@@ -778,7 +799,13 @@ export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
           value={initialMargin > 0 ? `${initialMargin.toFixed(2)} USDT` : '—'}
           cls={insufficient ? 'text-rose-300' : 'text-white'} />
         <SummaryRow label={`Est. fee (${(feeRate * 100).toFixed(3)}%)`}
-          value={estFee > 0 ? `${estFee.toFixed(4)} USDT` : '—'} />
+          value={estFeeBzx > 0 ? formatBzxFee(estFeeBzx) : '—'}
+          cls={insufficientBzxFee ? 'text-rose-300' : 'text-white'} />
+        {insufficientBzxFee && (
+          <p className="text-[10px] text-rose-300/90 pt-0.5">
+            Need ~{formatBzxFee(estFeeBzx)} for fees; spot balance {availBzx.toFixed(8)} BZX.
+          </p>
+        )}
 
         {type === 'market' && marketFill && (
           <>

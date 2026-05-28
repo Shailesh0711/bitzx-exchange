@@ -15,7 +15,7 @@ import {
   AlertCircle, CheckCircle, Loader2, ChevronDown,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
-import { COIN_ICONS, PAIRS, exchangeWsPath } from '@/services/marketApi';
+import { COIN_ICONS, PAIRS, exchangeWsPath, marketApi } from '@/services/marketApi';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 import {
   validateMarketQuickOrder,
@@ -23,9 +23,10 @@ import {
   MIN_ORDER_VALUE_USDT,
   MARKET_BUY_LOCK_BUFFER,
 } from '@/lib/tradeRules';
+import { estimateBzxFee, formatBzxFee, maxFeeRate } from '@/lib/bzxFee';
 
 const API  = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
-const FEE  = 0.001; // 0.1%
+const DEFAULT_FEE_RATE = 0.001;
 
 const PCT_PRESETS = [
   { label: '25%', pct: 0.25 },
@@ -53,6 +54,15 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
   const [amount,    setAmount]    = useState('');
   const [loading,   setLoading]   = useState(false);
   const [toast,     setToast]     = useState(null);
+  const [feeConfig, setFeeConfig] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    marketApi.getTradingFeeConfig()
+      .then((cfg) => { if (!cancelled) setFeeConfig(cfg); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const base  = symbol.replace('USDT', '');
   const icon  = COIN_ICONS[base];
@@ -111,12 +121,20 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
 
   const availUSDT = parseFloat(balance?.USDT  ?? 0);
   const availBase = parseFloat(balance?.[base] ?? 0);
+  const availBZX  = parseFloat(balance?.BZX ?? 0);
   const maxBase   = side === 'buy' ? (price > 0 ? availUSDT / price : 0) : availBase;
 
   const qty     = parseFloat(amount) || 0;
   const cost    = qty * price;
-  const fee     = cost * FEE;
-  const receive = side === 'buy' ? qty - qty * FEE : cost - fee;
+  const feeRate = maxFeeRate(feeConfig, 'spot') || DEFAULT_FEE_RATE;
+  const bzxPx   = Number(feeConfig?.bzx_price_usdt) || 0.4523;
+  const feeBzx  = estimateBzxFee({
+    quoteNotional: cost,
+    feeRate,
+    quoteAsset: 'USDT',
+    bzxPriceUsdt: bzxPx,
+  });
+  const receive = side === 'buy' ? qty : cost;
 
   const kycBlocked = user && kyc?.status !== 'approved';
 
@@ -130,9 +148,12 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
         balanceUSDT: availUSDT,
         balanceBase: availBase,
         baseAsset: base,
+        balanceBZX: availBZX,
+        feeRate,
+        bzxPriceUsdt: bzxPx,
         userLoggedIn: !!user,
       }),
-    [symbol, side, amount, price, availUSDT, availBase, base, user],
+    [symbol, side, amount, price, availUSDT, availBase, availBZX, base, user, feeRate, bzxPx],
   );
 
   const applyPct = pct => {
@@ -229,7 +250,7 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
               <div>
                 <p style={{ fontSize: 17, fontWeight: 900, color: '#fff', lineHeight: 1 }}>Quick Trade</p>
                 <p style={{ fontSize: 12, color: '#4A4B50', marginTop: 3, fontWeight: 600 }}>
-                  Instant market order · 0.1% fee
+                  Instant market order · fee in BZX
                 </p>
               </div>
             </div>
@@ -451,9 +472,11 @@ export default function QuickTradeModal({ symbol: initialSymbol = 'BTCUSDT', cur
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span style={{ color: '#4A4B50', fontSize: 13, fontWeight: 600 }}>Fee (0.1%)</span>
+                  <span style={{ color: '#4A4B50', fontSize: 13, fontWeight: 600 }}>
+                    Est. fee ({(feeRate * 100).toFixed(3)}%)
+                  </span>
                   <span style={{ color: '#f59e0b', fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
-                    ${fee.toLocaleString(undefined, { maximumFractionDigits: 4 })} USDT
+                    {formatBzxFee(feeBzx)}
                   </span>
                 </div>
                 <div style={{

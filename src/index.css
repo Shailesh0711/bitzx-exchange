@@ -624,6 +624,15 @@
 .bitzx-tv-chart .tradingview-widget-copyright {
   display: none !important;
 }
+
+/* Hide lightweight-charts free tier attribution logo on BZX charts */
+#tv-attr-logo,
+.tv-lightweight-charts-watermark,
+.tv-lightweight-charts-logo,
+.tv-lightweight-charts-logo-container {
+  display: none !important;
+}
+
 .bitzx-tv-chart .tradingview-widget-container__widget {
   width: 100% !important;
 }

@@ -35,6 +35,7 @@ import P2PMyAdsPage          from '@/pages/p2p/P2PMyAdsPage';
 import P2PPaymentMethodsPage from '@/pages/p2p/P2PPaymentMethodsPage';
 import P2PMerchantPage       from '@/pages/p2p/P2PMerchantPage';
 import BZXMarketsPage        from '@/pages/BZXMarketsPage';
+import BZXMarket             from '@/pages/BZXMarket';
 import ListCoinPage          from '@/pages/ListCoinPage';
 
 /** Surfaces render/import errors instead of a blank screen on the options route. */
@@ -246,6 +247,7 @@ export default function App() {
 
         {/* ── BZX Markets ──────────────────────────────────────────────── */}
         <Route path="/bzx-markets" element={<BZXMarketsPage />} />
+        <Route path="/bzx-market" element={<BZXMarket />} />
 
         {/* ── P2P Trading ──────────────────────────────────────────────── */}
         <Route path="/p2p"                  element={<P2PMarketplacePage />} />

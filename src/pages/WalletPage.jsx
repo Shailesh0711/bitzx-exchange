@@ -28,7 +28,7 @@ import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
-import { fetchInrDeposits, fetchInrWithdrawals } from '@/services/inrApi';
+import { cancelInrWithdrawal, fetchInrDeposits, fetchInrWithdrawals } from '@/services/inrApi';
 import {
   formatInrAmount,
   formatWalletTxnRef,
@@ -74,6 +74,7 @@ const STATUS_STYLES = {
   confirmed:        { color: 'text-green-400',  bg: 'bg-green-400/10 border-green-400/20',    icon: CheckCircle, label: 'Confirmed' },
   failed:           { color: 'text-red-400',    bg: 'bg-red-400/10 border-red-400/20',        icon: XCircle,     label: 'Failed' },
   approving:        { color: 'text-sky-400',    bg: 'bg-sky-400/10 border-sky-400/20',        icon: RefreshCw,   label: 'Processing' },
+  cancelled:        { color: 'text-zinc-200',   bg: 'bg-zinc-500/20 border-zinc-500/30',      icon: XCircle,     label: 'Cancelled' },
 };
 
 function StatusBadge({ status }) {
@@ -85,6 +86,13 @@ function StatusBadge({ status }) {
       <Icon size={11} /> {label}
     </span>
   );
+}
+
+function normalizedInrWithdrawalStatus(status, rejectionReason) {
+  const st = String(status || '').toLowerCase();
+  const reason = String(rejectionReason || '').trim().toLowerCase();
+  if (st === 'rejected' && reason === 'cancelled by user') return 'cancelled';
+  return st || 'pending';
 }
 
 function CopyBtn({ text }) {
@@ -676,7 +684,7 @@ function DepositTab({ kycBlocked, kyc }) {
 
 // ── Withdraw Tab ──────────────────────────────────────────────────────────────
 
-function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
+function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 } }) {
   // Phase 6 — on-chain withdrawals via BlockchainProvider.send_transaction.
   // Only assets the backend can actually broadcast appear in the dropdown;
   // the same ``/api/wallet/supported-networks`` endpoint powers both tabs.
@@ -704,7 +712,9 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
   const [withdrawConfig, setWithdrawConfig] = useState({
     withdraw_fee_rate: 0,
     withdraw_gas_fee_bzx: 0,
+    bzx_price_usdt: 0,
     gas_fee_description: '',
+    platform_fee_description: '',
   });
   useEffect(() => {
     (async () => {
@@ -724,7 +734,9 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
         setWithdrawConfig({
           withdraw_fee_rate: Number(data?.withdraw_fee_rate || 0),
           withdraw_gas_fee_bzx: Number(data?.withdraw_gas_fee_bzx || 0),
+          bzx_price_usdt: Number(data?.bzx_price_usdt || 0),
           gas_fee_description: data?.gas_fee_description || '',
+          platform_fee_description: data?.platform_fee_description || '',
         });
       } catch { /* fee panel stays hidden when config unavailable */ }
     })();
@@ -810,13 +822,25 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
   const bzxRow = (walletAssets || []).find(w => w.asset === 'BZX') || { available: 0, locked: 0 };
   const bzxAvailable = Number(bzxRow.available || 0);
   const amtNum = Number(amount);
-  const platformFee = Number.isFinite(amtNum) && amtNum > 0
-    ? amtNum * withdrawConfig.withdraw_fee_rate
+  const withdrawNotionalUsdt = (() => {
+    if (!Number.isFinite(amtNum) || amtNum <= 0) return 0;
+    const a = String(asset || '').toUpperCase();
+    const px = a === 'USDT' ? 1 : Number(priceByAsset[a] ?? 0);
+    if (px > 0) return amtNum * px;
+    if (a === 'BZX' && withdrawConfig.bzx_price_usdt > 0) {
+      return amtNum * withdrawConfig.bzx_price_usdt;
+    }
+    return 0;
+  })();
+  const platformFeeUsdt = withdrawNotionalUsdt > 0
+    ? withdrawNotionalUsdt * withdrawConfig.withdraw_fee_rate
+    : 0;
+  const platformFeeBzx = platformFeeUsdt > 0 && withdrawConfig.bzx_price_usdt > 0
+    ? platformFeeUsdt / withdrawConfig.bzx_price_usdt
     : 0;
   const bzxGasFee = asset.toUpperCase() === 'BZX' ? 0 : withdrawConfig.withdraw_gas_fee_bzx;
-  const totalAssetDebit = Number.isFinite(amtNum) && amtNum > 0
-    ? amtNum + platformFee
-    : 0;
+  const totalAssetDebit = Number.isFinite(amtNum) && amtNum > 0 ? amtNum : 0;
+  const totalBzxFees = platformFeeBzx + bzxGasFee;
   const showFeePanel = withdrawConfig.withdraw_fee_rate > 0 || bzxGasFee > 0;
 
   const onSubmit = async (e) => {
@@ -846,11 +870,16 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
       return;
     }
     if (totalAssetDebit > availableBalance + 1e-12) {
-      setSubmitError(`Insufficient ${asset} balance (need ${totalAssetDebit.toFixed(8)} including fees).`);
+      setSubmitError(`Insufficient ${asset} balance (need ${totalAssetDebit.toFixed(8)} for withdrawal).`);
       return;
     }
-    if (bzxGasFee > 0 && bzxGasFee > bzxAvailable + 1e-12) {
-      setSubmitError(`Insufficient BZX balance for gas fee (${bzxGasFee} BZX required).`);
+    if (totalBzxFees > 0 && totalBzxFees > bzxAvailable + 1e-12) {
+      setSubmitError(
+        `Insufficient BZX for fees (need ~${totalBzxFees.toFixed(8)} BZX: `
+        + `${platformFeeBzx > 0 ? `platform ~${platformFeeBzx.toFixed(8)}` : ''}`
+        + `${platformFeeBzx > 0 && bzxGasFee > 0 ? ', ' : ''}`
+        + `${bzxGasFee > 0 ? `gas ${bzxGasFee.toFixed(8)}` : ''}).`,
+      );
       return;
     }
     setSubmitting(true);
@@ -1045,8 +1074,12 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
                 <p className="text-[11px] font-bold uppercase tracking-wider text-white/55">Fee summary</p>
                 {withdrawConfig.withdraw_fee_rate > 0 && (
                   <div className="flex justify-between gap-3">
-                    <span>Platform fee ({(withdrawConfig.withdraw_fee_rate * 100).toFixed(2)}%)</span>
-                    <span className="font-mono text-white">{platformFee.toFixed(8)} {asset}</span>
+                    <span>Platform fee ({(withdrawConfig.withdraw_fee_rate * 100).toFixed(2)}% notional)</span>
+                    <span className="font-mono text-white">
+                      {platformFeeBzx > 0
+                        ? `~${platformFeeBzx.toFixed(8)} BZX`
+                        : 'BZX (rate applies to USDT notional)'}
+                    </span>
                   </div>
                 )}
                 {bzxGasFee > 0 && (
@@ -1056,13 +1089,22 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc }) {
                   </div>
                 )}
                 <div className="flex justify-between gap-3 pt-1 border-t border-surface-border/60">
-                  <span className="font-semibold text-white">Total {asset} debited</span>
+                  <span className="font-semibold text-white">{asset} sent on-chain</span>
                   <span className="font-mono font-semibold text-gold-light">{totalAssetDebit.toFixed(8)} {asset}</span>
                 </div>
-                {bzxGasFee > 0 && (
+                {totalBzxFees > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span className="font-semibold text-white">Total BZX fees</span>
+                    <span className="font-mono font-semibold text-gold-light">~{totalBzxFees.toFixed(8)} BZX</span>
+                  </div>
+                )}
+                {(totalBzxFees > 0 || withdrawConfig.platform_fee_description) && (
                   <p className="text-[11px] text-white/50 leading-relaxed">
-                    {withdrawConfig.gas_fee_description || 'BZX gas fee covers on-chain Ethereum network costs.'}
-                    {' '}Your BZX balance: <span className="font-mono text-white/70">{bzxAvailable.toFixed(4)}</span>
+                    {withdrawConfig.platform_fee_description
+                      || 'Platform and gas fees are charged in BZX from your spot wallet.'}
+                    {' '}
+                    {withdrawConfig.gas_fee_description || ''}
+                    {' '}BZX available: <span className="font-mono text-white/70">{bzxAvailable.toFixed(4)}</span>
                   </p>
                 )}
               </div>
@@ -1207,6 +1249,8 @@ function HistoryTab() {
   const [wds, setWds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [cancellingId, setCancellingId] = useState('');
+  const [confirmInrCancelRow, setConfirmInrCancelRow] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1267,6 +1311,21 @@ function HistoryTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const onCancelInrWithdrawal = useCallback(async (row) => {
+    const id = String(row?.id || '');
+    if (!id) return;
+    setError(null);
+    setCancellingId(id);
+    try {
+      await cancelInrWithdrawal(id);
+      await load();
+    } catch (e) {
+      setError(e.message || 'Could not cancel INR withdrawal.');
+    } finally {
+      setCancellingId('');
+    }
+  }, [load]);
 
   useEffect(() => {
     const next = inrHistoryFromSearchParams(searchParams);
@@ -1466,14 +1525,17 @@ function HistoryTab() {
               <table className="w-full min-w-[720px]">
                 <thead>
                   <tr className="text-[11px] text-white uppercase tracking-wider border-b border-surface-border">
-                    {['Date', 'Type', 'Amount (INR)', 'BZX', 'Reference', 'Details', 'Status'].map((h) => (
-                      <th key={h} className={`px-5 py-3 ${h === 'Status' ? 'text-right' : 'text-left'}`}>{h}</th>
+                    {['Date', 'Type', 'Amount (INR)', 'BZX', 'Reference', 'Details', 'Status', 'Action'].map((h) => (
+                      <th key={h} className={`px-5 py-3 ${h === 'Status' || h === 'Action' ? 'text-center' : 'text-left'}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {inrHistoryRows.map((r) => {
                     const isDep = r._inrKind === 'deposit';
+                    const wdStatus = !isDep
+                      ? normalizedInrWithdrawalStatus(r.status, r.rejection_reason)
+                      : (r.status || 'pending');
                     const depRef = isDep ? getInrRefDisplay({ ref_id: r.id, utr_number: r.utr_number, meta: { utr_number: r.utr_number } }) : null;
                     const wdRef = !isDep ? getInrWithdrawalRefDisplay({ ref_id: r.id, payout_reference: r.payout_reference, meta: { payout_reference: r.payout_reference } }) : null;
                     return (
@@ -1543,8 +1605,22 @@ function HistoryTab() {
                               </>
                             )}
                         </td>
-                        <td className="px-5 py-3 text-right">
-                          <StatusBadge status={r.status || 'pending'} />
+                        <td className="px-5 py-3 text-center">
+                          <StatusBadge status={wdStatus} />
+                        </td>
+                        <td className="px-5 py-3 text-center">
+                          {!isDep && wdStatus === 'pending' ? (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmInrCancelRow(r)}
+                              disabled={cancellingId === String(r.id || '')}
+                              className="px-3 py-1.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs font-bold text-red-200 hover:bg-red-500/20 disabled:opacity-60"
+                            >
+                              {cancellingId === String(r.id || '') ? 'Cancelling…' : 'Cancel request'}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-white/35">—</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1632,6 +1708,41 @@ function HistoryTab() {
           )}
         </div>
       )}
+
+      {confirmInrCancelRow ? (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl border border-surface-border bg-surface-card shadow-2xl">
+            <div className="px-5 py-4 border-b border-surface-border">
+              <h3 className="text-white font-bold text-lg">Cancel withdrawal request?</h3>
+              <p className="text-white/60 text-sm mt-1">
+                This will cancel your pending INR withdrawal request and unlock reserved BZX.
+              </p>
+            </div>
+            <div className="px-5 py-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmInrCancelRow(null)}
+                disabled={!!cancellingId}
+                className="px-4 py-2 rounded-xl border border-surface-border text-sm font-semibold text-white/80 hover:bg-white/5 disabled:opacity-50"
+              >
+                Keep request
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const row = confirmInrCancelRow;
+                  setConfirmInrCancelRow(null);
+                  await onCancelInrWithdrawal(row);
+                }}
+                disabled={!!cancellingId}
+                className="px-4 py-2 rounded-xl border border-red-500/40 bg-red-500/15 text-sm font-semibold text-red-200 hover:bg-red-500/25 disabled:opacity-50"
+              >
+                Yes, cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2144,7 +2255,14 @@ export default function WalletPage() {
             {tab === 'balances'  && <BalancesTab walletAssets={walletAssets} walletLoading={walletLoading} fetchWallet={fetchWallet} priceByAsset={priceByAsset} />}
             {tab === 'futures'   && <FuturesWalletTab />}
             {tab === 'deposit'   && <DepositTab kycBlocked={kycBlocked} kyc={kyc} />}
-            {tab === 'withdraw'  && <WithdrawTab walletAssets={walletAssets} kycBlocked={kycBlocked} kyc={kyc} />}
+            {tab === 'withdraw'  && (
+              <WithdrawTab
+                walletAssets={walletAssets}
+                kycBlocked={kycBlocked}
+                kyc={kyc}
+                priceByAsset={priceByAsset}
+              />
+            )}
             {tab === 'history'   && <HistoryTab />}
             {tab === 'ledger'    && <LedgerTab />}
           </motion.div>

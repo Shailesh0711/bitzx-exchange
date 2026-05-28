@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, IndianRupee } from 'lucide-react';
-import { fetchInrWithdrawals } from '@/services/inrApi';
+import { cancelInrWithdrawal, fetchInrWithdrawals } from '@/services/inrApi';
 import { INR_CONTAINER, INR_PAGE_BG } from '@/components/inr/deposit/styles';
 
 function fmtTs(iso) {
@@ -22,13 +22,23 @@ function fmtInr(n) {
 function statusBadge(status) {
   const s = (status || '').toLowerCase();
   if (s === 'approved') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+  if (s === 'cancelled') return 'bg-zinc-500/20 text-zinc-200 border-zinc-500/30';
   if (s === 'rejected') return 'bg-red-500/15 text-red-300 border-red-500/30';
   return 'bg-amber-500/15 text-amber-200 border-amber-500/30';
+}
+
+function effectiveStatus(row) {
+  const st = String(row?.status || '').toLowerCase();
+  const reason = String(row?.rejection_reason || '').trim().toLowerCase();
+  if (st === 'rejected' && reason === 'cancelled by user') return 'cancelled';
+  return st || 'pending';
 }
 
 export default function InrWithdrawalsHistoryPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [cancellingId, setCancellingId] = useState('');
+  const [confirmRow, setConfirmRow] = useState(null);
   const [err, setErr] = useState('');
 
   const load = useCallback(async () => {
@@ -47,6 +57,21 @@ export default function InrWithdrawalsHistoryPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const onCancel = async (row) => {
+    const id = String(row?.id || '');
+    if (!id) return;
+    setErr('');
+    setCancellingId(id);
+    try {
+      await cancelInrWithdrawal(id);
+      await load();
+    } catch (e) {
+      setErr(e.message || 'Could not cancel withdrawal');
+    } finally {
+      setCancellingId('');
+    }
+  };
 
   return (
     <div className={INR_PAGE_BG}>
@@ -83,10 +108,13 @@ export default function InrWithdrawalsHistoryPage() {
                     <th className="px-4 py-3">Amount</th>
                     <th className="px-4 py-3">Payout</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((row) => (
+                  {items.map((row) => {
+                    const st = effectiveStatus(row);
+                    return (
                     <tr key={row.id} className="border-b border-surface-border/60 hover:bg-white/[0.02]">
                       <td className="px-4 py-3 text-white/70 whitespace-nowrap">{fmtTs(row.created_at)}</td>
                       <td className="px-4 py-3 text-white font-mono">{fmtInr(row.amount_inr)}</td>
@@ -95,20 +123,70 @@ export default function InrWithdrawalsHistoryPage() {
                         <div className="text-white/80">{row.payout_label || '—'}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-lg border text-xs font-bold capitalize ${statusBadge(row.status)}`}>
-                          {row.status}
+                        <span className={`inline-block px-2 py-0.5 rounded-lg border text-xs font-bold capitalize ${statusBadge(st)}`}>
+                          {st}
                         </span>
-                        {row.status === 'rejected' && row.rejection_reason && (
+                        {st === 'rejected' && row.rejection_reason && (
                           <p className="text-xs text-red-300/80 mt-1 max-w-xs">{row.rejection_reason}</p>
                         )}
                       </td>
+                      <td className="px-4 py-3">
+                        {st === 'pending' ? (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRow(row)}
+                            disabled={cancellingId === row.id}
+                            className="px-3 py-1.5 rounded-lg border border-red-500/40 bg-red-500/10 text-xs font-bold text-red-200 hover:bg-red-500/20 disabled:opacity-60"
+                          >
+                            {cancellingId === row.id ? 'Cancelling…' : 'Cancel request'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-white/35">—</span>
+                        )}
+                      </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
+
+        {confirmRow ? (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl border border-surface-border bg-surface-card shadow-2xl">
+              <div className="px-5 py-4 border-b border-surface-border">
+                <h3 className="text-white font-bold text-lg">Cancel withdrawal request?</h3>
+                <p className="text-white/60 text-sm mt-1">
+                  This will cancel your pending INR withdrawal request and unlock reserved BZX.
+                </p>
+              </div>
+              <div className="px-5 py-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmRow(null)}
+                  disabled={!!cancellingId}
+                  className="px-4 py-2 rounded-xl border border-surface-border text-sm font-semibold text-white/80 hover:bg-white/5 disabled:opacity-50"
+                >
+                  Keep request
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const row = confirmRow;
+                    setConfirmRow(null);
+                    await onCancel(row);
+                  }}
+                  disabled={!!cancellingId}
+                  className="px-4 py-2 rounded-xl border border-red-500/40 bg-red-500/15 text-sm font-semibold text-red-200 hover:bg-red-500/25 disabled:opacity-50"
+                >
+                  Yes, cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ import {
   Activity, Flame, Snowflake, LayoutGrid, Table2, ChevronRight,
   Layers, Clock, ChevronLeft, Loader2,
 } from 'lucide-react';
-import { COIN_ICONS } from '@/services/marketApi';
+import { coinIconUrl } from '@/services/marketApi';
 import { useBzxMarkets } from '@/hooks/useBzxMarkets';
 import MarketsPagination from '@/components/markets/MarketsPagination';
 
@@ -154,7 +154,7 @@ export default function BZXMarketsPage() {
   const renderMoverRow = (m, i) => {
     const base = m.base || m.symbol?.replace('BZX', '');
     const pct = num(m.priceChangePercent);
-    const icon = COIN_ICONS[base];
+    const icon = coinIconUrl(base, m.logo_url);
     return (
       <button key={m.symbol} type="button" onClick={() => navigate(`/trade/${m.symbol}`)}
         className="group/row w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.055]">
@@ -319,42 +319,108 @@ export default function BZXMarketsPage() {
 
         {viewMode !== 'heatmap' && (
           <div className="hidden md:block w-full min-w-0 rounded-2xl border border-surface-border bg-[#0d0f14] overflow-hidden mb-4">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-sm">
+            <div className="overflow-x-auto relative scrollbar-hide">
+              <table className="w-full min-w-[1200px] text-left text-sm">
                 <thead className="border-b border-surface-border bg-white/[0.02]">
                   <tr>
-                    <th className="w-10 px-2 py-3" />
-                    <th className="px-3 py-3 text-xs text-white uppercase">Pair</th>
+                    <th className="w-10 px-2 py-3 lg:px-4 lg:py-3.5 sticky left-0 z-10 bg-[#0d0f14]" />
+                    <th className="px-3 py-3 lg:px-4 lg:py-3.5 text-xs text-white uppercase sticky left-[40px] z-10 bg-[#0d0f14] shadow-[4px_0_12px_rgba(0,0,0,0.5)]">Pair</th>
                     <SortTh label="Price" field="price" />
                     <SortTh label="24h %" field="priceChangePercent" />
-                    <SortTh label="Vol" field="quoteVolume" />
-                    <th className="px-3 py-3 text-right text-xs text-white uppercase">Trade</th>
+                    <th className="px-3 py-3 lg:px-4 lg:py-3.5 text-xs text-white uppercase tracking-wider text-right">24h Range</th>
+                    <SortTh label="24h High" field="highPrice" className="text-right hidden xl:table-cell" />
+                    <SortTh label="24h Low" field="lowPrice" className="text-right hidden xl:table-cell" />
+                    <SortTh label="Bid" field="bidPrice" className="text-right hidden 2xl:table-cell" />
+                    <SortTh label="Ask" field="askPrice" className="text-right hidden 2xl:table-cell" />
+                    <th className="px-3 py-3 lg:px-4 lg:py-3.5 text-xs text-white uppercase tracking-wider text-right hidden 2xl:table-cell">Spread</th>
+                    <SortTh label="Vol" field="volume" className="text-right" />
+                    <SortTh label="Vol (BZX)" field="quoteVolume" className="text-right hidden lg:table-cell" />
+                    <th className="px-3 py-3 lg:px-4 lg:py-3.5 text-right text-xs text-white uppercase sticky right-0 z-10 bg-[#0d0f14] shadow-[-4px_0_12px_rgba(0,0,0,0.5)]">Trade</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading && !items.length ? (
-                    <tr><td colSpan={6} className="py-16 text-center"><Loader2 className="animate-spin mx-auto text-gold" /></td></tr>
+                    <tr><td colSpan={13} className="py-16 text-center"><Loader2 className="animate-spin mx-auto text-gold" /></td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={6} className="py-12 text-center text-white/50">No pairs match.</td></tr>
-                  ) : filtered.map((m) => {
+                    <tr><td colSpan={13} className="py-12 text-center text-white/50">No pairs match.</td></tr>
+                  ) : filtered.map((m, i) => {
                     const base = m.base || m.symbol?.replace('BZX', '');
                     const pct = num(m.priceChangePercent);
                     const isUp = pct >= 0;
+                    const icon = coinIconUrl(base, m.logo_url);
+                    const { abs, bps } = fmtSpread(m.bidPrice, m.askPrice);
                     return (
-                      <tr key={m.symbol} className="border-b border-surface-border/40 hover:bg-white/[0.03]">
-                        <td className="px-2 py-3">
+                      <motion.tr
+                        key={m.symbol}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.02, duration: 0.2 }}
+                        className="group/row border-b border-surface-border/40 hover:bg-white/[0.03]"
+                      >
+                        <td className="px-2 py-3 lg:px-4 lg:py-3.5 sticky left-0 z-10 bg-[#0d0f14] group-hover/row:bg-[#161820]">
                           <button type="button" onClick={() => toggleFav(m.symbol)}>
-                            <Star size={14} className={favorites.includes(m.symbol) ? 'text-gold fill-gold' : 'text-white/25'} />
+                            <Star size={14} className={favorites.includes(m.symbol) ? 'text-gold fill-gold' : 'text-white/25 hover:text-white/50'} />
                           </button>
                         </td>
-                        <td className="px-3 py-3 font-bold text-white">{base}<span className="text-white/45 font-normal">/BZX</span></td>
-                        <td className="px-3 py-3 font-mono tabular-nums">{fmtP(m.price)}</td>
-                        <td className={`px-3 py-3 font-bold tabular-nums ${isUp ? 'text-green-400' : 'text-red-400'}`}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</td>
-                        <td className="px-3 py-3 font-mono text-white/70 tabular-nums">{fmtVol(m.quoteVolume)}</td>
-                        <td className="px-3 py-3 text-right">
-                          <Link to={`/trade/${m.symbol}`} className="text-gold-light text-xs font-bold hover:underline">Trade</Link>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 sticky left-[40px] z-10 bg-[#0d0f14] group-hover/row:bg-[#161820] shadow-[4px_0_12px_rgba(0,0,0,0.5)]">
+                          <Link to={`/trade/${m.symbol}`} className="flex items-center gap-2 lg:gap-3 group-hover/row:translate-x-1 transition-transform">
+                            {icon ? (
+                              <img src={icon} alt="" className="w-6 h-6 lg:w-8 lg:h-8 rounded-full" />
+                            ) : (
+                              <div className="w-6 h-6 lg:w-8 lg:h-8 rounded-full bg-gold/20 flex items-center justify-center text-[9px] lg:text-[10px] font-bold text-gold-light">
+                                {base?.slice(0, 2)}
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-extrabold text-white text-[13px] lg:text-[15px] leading-tight">
+                                {base}<span className="text-white/45 font-semibold text-[11px] lg:text-[12px]">/BZX</span>
+                              </div>
+                            </div>
+                          </Link>
                         </td>
-                      </tr>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-[13px] lg:text-[15px] font-bold text-white tracking-tight tabular-nums">
+                          {fmtP(m.price)}
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5">
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[12px] lg:text-[14px] font-bold tracking-tight ${isUp ? 'text-green-400 bg-green-400/10' : 'text-red-400 bg-red-400/10'}`}>
+                            {isUp ? '+' : ''}{pct.toFixed(2)}%
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 text-right">
+                          <div className="flex flex-col items-end gap-1">
+                            <RangeBar low={m.lowPrice} high={m.highPrice} price={m.price} />
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-xs text-white/70 text-right hidden xl:table-cell tabular-nums">
+                          {fmtP(m.highPrice)}
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-xs text-white/70 text-right hidden xl:table-cell tabular-nums">
+                          {fmtP(m.lowPrice)}
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-xs text-green-400/80 text-right hidden 2xl:table-cell tabular-nums">
+                          {fmtP(m.bidPrice)}
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-xs text-red-400/80 text-right hidden 2xl:table-cell tabular-nums">
+                          {fmtP(m.askPrice)}
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-[11px] text-right hidden 2xl:table-cell">
+                          <div className="flex flex-col items-end">
+                            <span className="text-white/80">{abs}</span>
+                            <span className="text-white/40">{bps}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-[12px] lg:text-[13px] text-white/70 text-right tabular-nums">
+                          {fmtVol(m.volume)}
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 font-mono text-[12px] lg:text-[13px] text-white/70 text-right hidden lg:table-cell tabular-nums">
+                          {fmtVol(m.quoteVolume)}
+                        </td>
+                        <td className="px-3 py-3 lg:px-4 lg:py-3.5 text-right sticky right-0 z-10 bg-[#0d0f14] group-hover/row:bg-[#161820] shadow-[-4px_0_12px_rgba(0,0,0,0.5)]">
+                          <Link to={`/trade/${m.symbol}`} className="inline-flex items-center gap-1.5 px-3 lg:px-4 py-1.5 lg:py-2 rounded-lg bg-gold/15 text-gold-light hover:bg-gold/25 transition-colors text-xs font-bold whitespace-nowrap">
+                            Trade
+                          </Link>
+                        </td>
+                      </motion.tr>
                     );
                   })}
                 </tbody>
@@ -368,14 +434,54 @@ export default function BZXMarketsPage() {
             {filtered.map((m) => {
               const base = m.base || m.symbol?.replace('BZX', '');
               const pct = num(m.priceChangePercent);
+              const icon = coinIconUrl(base, m.logo_url);
+              const { bps } = fmtSpread(m.bidPrice, m.askPrice);
               return (
-                <div key={m.symbol} className="rounded-2xl border border-surface-border p-4" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-white">{base}/BZX</span>
-                    <span className={`font-bold ${pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</span>
+                <div key={m.symbol} className="rounded-2xl border border-surface-border p-4 bg-[#12141a]">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      {icon ? (
+                        <img src={icon} alt="" className="w-8 h-8 rounded-full" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-gold/20 flex items-center justify-center text-[10px] font-bold text-gold-light">
+                          {base?.slice(0, 2)}
+                        </div>
+                      )}
+                      <div>
+                        <span className="font-extrabold text-white text-[15px]">{base}</span>
+                        <span className="text-white/45 font-semibold text-[12px]">/BZX</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono text-lg font-bold text-white leading-tight tabular-nums">{fmtP(m.price)}</div>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[12px] font-bold mt-1 ${pct >= 0 ? 'text-green-400 bg-green-400/10' : 'text-red-400 bg-red-400/10'}`}>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                      </span>
+                    </div>
                   </div>
-                  <p className="font-mono text-sm text-white mb-3">{fmtP(m.price)}</p>
-                  <Link to={`/trade/${m.symbol}`} className="block text-center py-2 rounded-xl bg-gold/15 border border-gold/30 text-gold-light text-sm font-bold">Trade</Link>
+                  
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4 mb-4 pt-3 border-t border-white/[0.04]">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase text-white/40 font-bold tracking-wider">24h Vol (Base)</span>
+                      <span className="text-xs font-mono text-white/80 tabular-nums">{fmtVol(m.volume)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase text-white/40 font-bold tracking-wider">24h Vol (BZX)</span>
+                      <span className="text-xs font-mono text-white/80 tabular-nums">{fmtVol(m.quoteVolume)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase text-white/40 font-bold tracking-wider">24h Range</span>
+                      <div className="mt-1"><RangeBar low={m.lowPrice} high={m.highPrice} price={m.price} /></div>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase text-white/40 font-bold tracking-wider">Spread</span>
+                      <span className="text-xs font-mono text-white/80 tabular-nums">{bps}</span>
+                    </div>
+                  </div>
+
+                  <Link to={`/trade/${m.symbol}`} className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-gold/10 hover:bg-gold/20 border border-gold/30 text-gold-light text-sm font-bold transition-colors">
+                    Trade Now <ArrowRight size={16} />
+                  </Link>
                 </div>
               );
             })}

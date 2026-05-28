@@ -5,9 +5,26 @@ export const INR_STATUS_LABELS = {
   approving: 'Processing',
   approved: 'Approved',
   rejected: 'Rejected',
+  cancelled: 'Cancelled',
 };
 
-export function inrStatusLabel(status) {
+export function isUserCancelledInrWithdrawal(record) {
+  if (!record || String(record.status || '').toLowerCase() !== 'rejected') return false;
+  const reason = String(
+    record.rejection_reason
+    || record?.meta?.rejection_reason
+    || '',
+  ).trim().toLowerCase();
+  return reason === 'cancelled by user';
+}
+
+export function inrStatusLabel(status, opts = {}) {
+  if (
+    String(status || '').toLowerCase() === 'rejected'
+    && String(opts.rejectionReason || '').trim().toLowerCase() === 'cancelled by user'
+  ) {
+    return INR_STATUS_LABELS.cancelled;
+  }
   const key = String(status || 'pending').toLowerCase();
   return INR_STATUS_LABELS[key] || key.replace(/_/g, ' ');
 }
@@ -45,12 +62,13 @@ export function isInrWithdrawalRow(row) {
 }
 
 export function ledgerStatusLabel(row) {
-  if (row?.inr_request_status) return inrStatusLabel(row.inr_request_status);
+  const rejectionReason = row?.rejection_reason || row?.meta?.rejection_reason;
+  if (row?.inr_request_status) return inrStatusLabel(row.inr_request_status, { rejectionReason });
   if (row?._ledgerKind === 'inr_request' || row?._ledgerKind === 'inr_withdrawal_request' || row?._ledgerKind === 'inr_withdrawal_outcome') {
-    return inrStatusLabel(row.status);
+    return inrStatusLabel(row.status, { rejectionReason });
   }
   if (row?.ref_type === 'inr_withdrawal' && row.inr_request_status) {
-    return inrStatusLabel(row.inr_request_status);
+    return inrStatusLabel(row.inr_request_status, { rejectionReason });
   }
   return row?.status || '—';
 }
@@ -86,7 +104,8 @@ export function formatInrWithdrawalRefTitle(row) {
   const utr = meta.payout_reference || row.payout_reference;
   if (utr) lines.push(`Payout UTR: ${utr}`);
   if (meta.payout_type) lines.push(`Payout: ${meta.payout_type}`);
-  if (row.status) lines.push(`Status: ${row.status}`);
+  if (row.status) lines.push(`Status: ${inrStatusLabel(row.status, { rejectionReason: meta.rejection_reason || row.rejection_reason })}`);
+  if (meta.rejection_reason) lines.push(`Reason: ${meta.rejection_reason}`);
   return lines.join('\n') || 'INR withdrawal';
 }
 
@@ -107,6 +126,7 @@ export function formatWalletTxnRef(row) {
 export function ledgerTypeLabel(row) {
   if (row?._ledgerKind === 'inr_request' || row?.type === 'inr_deposit') return 'INR deposit';
   if (row?._ledgerKind === 'inr_withdrawal_outcome') {
+    if (isUserCancelledInrWithdrawal(row)) return 'INR sell cancelled';
     return row.status === 'rejected' ? 'INR sell rejected' : 'INR payout';
   }
   if (row?._ledgerKind === 'inr_withdrawal_request' || row?.type === 'inr_withdrawal') {

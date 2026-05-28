@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { ChevronDown, Globe, Search, Loader2, X } from 'lucide-react';
-import { PAIRS, COIN_ICONS, marketApi, parsePairFromApiSymbol } from '@/services/marketApi';
+import { PAIRS, coinIconUrl, marketApi, parsePairFromApiSymbol } from '@/services/marketApi';
 
 const USDT_PAIRS = PAIRS.filter((p) => p.quote === 'USDT');
 const STATIC_BZX_PAIRS = PAIRS.filter((p) => p.quote === 'BZX');
@@ -11,7 +11,14 @@ function normalizeBzxMarket(m) {
   if (!m?.symbol) return null;
   const sym = String(m.symbol).toUpperCase();
   const { base } = parsePairFromApiSymbol(sym);
-  return { symbol: sym, base, quote: 'BZX' };
+  return {
+    symbol: sym,
+    base,
+    quote: 'BZX',
+    logo_url: m.logo_url,
+    token_name: m.token_name,
+    project_name: m.project_name,
+  };
 }
 
 function filterPairs(pairs, q) {
@@ -27,6 +34,7 @@ function filterPairs(pairs, q) {
 function PairRow({ pr, active, onPick, accent }) {
   const b = pr.base;
   const q = pr.symbol;
+  const iconSrc = coinIconUrl(b, pr.logo_url);
   const isBzx = pr.quote === 'BZX';
   const activeBg = isBzx ? 'rgba(235,211,141,0.12)' : 'rgba(91,184,255,0.07)';
   const activeColor = isBzx ? '#EBD38D' : '#5BB8FF';
@@ -42,8 +50,8 @@ function PairRow({ pr, active, onPick, accent }) {
         color: q === active ? activeColor : '#fff',
       }}
     >
-      {COIN_ICONS[b] ? (
-        <img src={COIN_ICONS[b]} alt={b} className="w-[26px] h-[26px] rounded-full shrink-0" loading="lazy" />
+      {iconSrc ? (
+        <img src={iconSrc} alt={b} className="w-[26px] h-[26px] rounded-full shrink-0 object-cover" loading="lazy" />
       ) : (
         <div className="w-[26px] h-[26px] rounded-full shrink-0 bg-white/10 flex items-center justify-center text-[10px] font-bold text-white/70">
           {b.slice(0, 2)}

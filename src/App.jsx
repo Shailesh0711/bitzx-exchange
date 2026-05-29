@@ -201,8 +201,7 @@ export default function App() {
         <Route path="/quick-trade"   element={<QuickTradePage />} />
         <Route path="/trade"         element={<TradePage />} />
         <Route path="/trade/:symbol" element={<TradePage />} />
-        <Route path="/futures"           element={<FuturesTradePage />} />
-        <Route path="/futures/:symbol"   element={<FuturesTradePage />} />
+        <Route path="/futures/:symbol?" element={<FuturesTradePage />} />
         <Route path="/options"           element={<Navigate to="/options/BTCUSDT" replace />} />
         <Route
           path="/options/:underlying"

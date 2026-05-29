@@ -1,184 +1,219 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * useBZXMarket — real-time BZX pair market data hook.
+ *
+ * Flow
+ * ────
+ * 1. REST bootstrap loads initial candles / orderbook / trades / ticker.
+ * 2. WebSocket immediately follows for live streaming.
+ * 3. WS snapshot (server sends on connect) replaces REST data if it arrives
+ *    before we finish REST (last-write-wins — both carry same data anyway).
+ *
+ * No price-ratio scaling
+ * ──────────────────────
+ * The backend guarantees that the open candle's close == ticker.price at all
+ * times (the `candles()` API always returns `close = st.price`).  Therefore
+ * there is never a mismatch between candle prices and the live ticker, and we
+ * can use raw prices from the server without any client-side scaling.
+ * Removing the ratio is what makes the chart look identical on every refresh.
+ *
+ * Edge cases handled
+ * ──────────────────
+ * • Symbol / interval change  → abort in-flight requests, close WS, clear state.
+ * • WS close code 4403        → mock market disabled on server; show error, no retry.
+ * • WS close code 4400        → unsupported symbol; show error, no retry.
+ * • Exponential back-off retry with NO hard cap (max 30 s delay).
+ * • `{type:"ping"}` heartbeat → silently ignored.
+ * • Orderbook updates batched via requestAnimationFrame.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 import { exchangeWsPath } from '@/services/marketApi';
+
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const MAX_TRADES = 50;
+const MAX_CANDLES_KEPT = 500;
 
-const scaleNum = (n, ratio) => {
-  if (!ratio || ratio === 1) return Number(n);
-  return Number(n) * ratio;
-};
-
-const scaleCandle = (c, ratio) => {
-  if (!c || ratio === 1 || !ratio) return c;
-  return {
-    ...c,
-    open: scaleNum(c.open, ratio),
-    high: scaleNum(c.high, ratio),
-    low: scaleNum(c.low, ratio),
-    close: scaleNum(c.close, ratio),
-  };
-};
-
-const scaleOb = (ob, ratio) => {
-  if (!ob || ratio === 1 || !ratio) return ob;
-  const scaleRow = (r) => [scaleNum(r[0], ratio).toFixed(8), r[1]];
-  return {
-    asks: (ob.asks || []).map(scaleRow),
-    bids: (ob.bids || []).map(scaleRow),
-  };
-};
-
-const scaleTradesArr = (ts, ratio) => {
-  if (!ts || ratio === 1 || !ratio) return ts;
-  return ts.map((t) => ({ ...t, price: scaleNum(t.price, ratio) }));
-};
-
+// ── Hook ─────────────────────────────────────────────────────────────────────
 export function useBZXMarket({ symbol = 'BZXUSDT', interval = '1m', enabled = true } = {}) {
-  const [candles, setCandles] = useState([]);
+  const [candles,   setCandles]   = useState([]);
   const [orderbook, setOrderbook] = useState({ bids: [], asks: [] });
-  const [trades, setTrades] = useState([]);
-  const [ticker, setTicker] = useState(null);
+  const [trades,    setTrades]    = useState([]);
+  const [ticker,    setTicker]    = useState(null);
   const [connected, setConnected] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
 
-  const wsRef = useRef(null);
+  const wsRef        = useRef(null);
   const reconnectRef = useRef(null);
-  const retryRef = useRef(0);
-  const ratioRef = useRef(1);
+  const retryRef     = useRef(0);
+  // rAF handle for batched orderbook updates
+  const obRafRef     = useRef(null);
+  const pendingObRef = useRef(null);
 
-  // Clear data immediately when symbol/interval changes
+  // Flush pending orderbook update on next animation frame.
+  const scheduleObUpdate = useCallback((ob) => {
+    pendingObRef.current = ob;
+    if (obRafRef.current) return;
+    obRafRef.current = requestAnimationFrame(() => {
+      obRafRef.current = null;
+      if (pendingObRef.current) {
+        setOrderbook(pendingObRef.current);
+        pendingObRef.current = null;
+      }
+    });
+  }, []);
+
+  // ── Clear state on symbol / interval change ───────────────────────────────
   useEffect(() => {
     setCandles([]);
     setOrderbook({ bids: [], asks: [] });
     setTrades([]);
     setTicker(null);
     setError(null);
-    ratioRef.current = 1;
+    if (obRafRef.current) { cancelAnimationFrame(obRafRef.current); obRafRef.current = null; }
+    pendingObRef.current = null;
   }, [symbol, interval]);
 
-  // REST Bootstrap + WS connection in a single effect to handle reconnections properly
+  // ── Bootstrap + WebSocket lifecycle ──────────────────────────────────────
   useEffect(() => {
     if (!enabled) return undefined;
 
     const sym = String(symbol).toUpperCase();
-    const iv = String(interval).toLowerCase();
-    const abortController = new AbortController();
+    const iv  = String(interval).toLowerCase();
+    const ctrl = new AbortController();
     let dead = false;
+    let noRetry = false; // set true on fatal WS close codes
 
+    // ── REST bootstrap ────────────────────────────────────────────────────
     async function bootstrap() {
       setLoading(true);
       setError(null);
       try {
+        const base = `${API}/api/bzx`;
         const [cRes, obRes, trRes, tkRes] = await Promise.all([
-          fetch(`${API}/api/bzx/candles?symbol=${encodeURIComponent(sym)}&interval=${encodeURIComponent(iv)}&limit=200`, { signal: abortController.signal }),
-          fetch(`${API}/api/bzx/orderbook?symbol=${encodeURIComponent(sym)}`, { signal: abortController.signal }),
-          fetch(`${API}/api/bzx/trades?symbol=${encodeURIComponent(sym)}&limit=20`, { signal: abortController.signal }),
-          fetch(`${API}/api/bzx/ticker?symbol=${encodeURIComponent(sym)}`, { signal: abortController.signal }),
+          fetch(`${base}/candles?symbol=${encodeURIComponent(sym)}&interval=${encodeURIComponent(iv)}&limit=200`, { signal: ctrl.signal }),
+          fetch(`${base}/orderbook?symbol=${encodeURIComponent(sym)}`, { signal: ctrl.signal }),
+          fetch(`${base}/trades?symbol=${encodeURIComponent(sym)}&limit=20`,  { signal: ctrl.signal }),
+          fetch(`${base}/ticker?symbol=${encodeURIComponent(sym)}`,  { signal: ctrl.signal }),
         ]);
         if (dead) return;
-        if (!cRes.ok || !obRes.ok || !trRes.ok || !tkRes.ok) {
-          const bad = [cRes, obRes, trRes, tkRes].find((r) => !r.ok);
-          let detail = bad ? `Market API ${bad.status}` : 'Market API error';
+
+        // Surface the first non-OK response as a human-readable error.
+        const bad = [cRes, obRes, trRes, tkRes].find((r) => !r.ok);
+        if (bad) {
+          let msg = `Market API ${bad.status}`;
           try {
-            const errBody = bad ? await bad.json() : null;
-            if (errBody?.detail) detail = typeof errBody.detail === 'string' ? errBody.detail : detail;
-          } catch {
-            // ignore parse errors
-          }
-          throw new Error(detail);
+            const body = await bad.json();
+            if (typeof body?.detail === 'string') msg = body.detail;
+          } catch { /* ignore */ }
+          throw new Error(msg);
         }
+
         const [cData, obData, trData, tkData] = await Promise.all([
-          cRes.json(),
-          obRes.json(),
-          trRes.json(),
-          tkRes.json(),
+          cRes.json(), obRes.json(), trRes.json(), tkRes.json(),
         ]);
         if (dead) return;
 
         const tk = tkData && typeof tkData === 'object' ? tkData : null;
-        let r = 1;
-        if (tk && tk.price && Array.isArray(cData) && cData.length > 0) {
-          const lastClose = Number(cData[cData.length - 1].close);
-          if (lastClose > 0) r = Number(tk.price) / lastClose;
-        }
-        if (!Number.isFinite(r) || r <= 0) r = 1;
-        ratioRef.current = r;
-
-        setCandles(Array.isArray(cData) ? cData.map(c => scaleCandle(c, r)) : []);
-        setOrderbook(scaleOb(obData && typeof obData === 'object' ? { bids: obData.bids || [], asks: obData.asks || [] } : { bids: [], asks: [] }, r));
-        setTrades(Array.isArray(trData) ? scaleTradesArr(trData, r) : []);
+        // No ratio scaling: the backend guarantees last candle close == ticker
+        // price, so we use raw prices directly from the server.
+        setCandles(Array.isArray(cData) ? cData : []);
+        scheduleObUpdate(
+          obData && typeof obData === 'object'
+            ? { bids: obData.bids || [], asks: obData.asks || [] }
+            : { bids: [], asks: [] },
+        );
+        setTrades(Array.isArray(trData) ? trData : []);
         setTicker(tk);
         setLoading(false);
       } catch (err) {
-        if (!dead && err.name !== 'AbortError') {
-          setCandles([]);
-          setOrderbook({ bids: [], asks: [] });
-          setTrades([]);
-          setTicker(null);
-          setError(err.message || 'Failed to load market data');
-          setLoading(false);
-        }
+        if (dead || err.name === 'AbortError') return;
+        setError(err.message || 'Failed to load market data');
+        setLoading(false);
       }
     }
 
-    const connectWS = () => {
-      if (dead) return;
-      const url = exchangeWsPath(`/api/ws/bzx-market?symbol=${encodeURIComponent(sym)}&interval=${encodeURIComponent(iv)}`);
+    // ── WebSocket connection ──────────────────────────────────────────────
+    function connectWS() {
+      if (dead || noRetry) return;
+      const url = exchangeWsPath(
+        `/api/ws/bzx-market?symbol=${encodeURIComponent(sym)}&interval=${encodeURIComponent(iv)}`,
+      );
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
         retryRef.current = 0;
         setConnected(true);
+        setError(null);
       };
 
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
           if (!msg || typeof msg !== 'object') return;
-          if (msg.type === 'snapshot') {
-            const tk = msg.ticker || null;
-            let r = 1;
-            const msgCandles = Array.isArray(msg.candles) ? msg.candles : [];
-            if (tk && tk.price && msgCandles.length > 0) {
-               const lastClose = Number(msgCandles[msgCandles.length - 1].close);
-               if (lastClose > 0) r = Number(tk.price) / lastClose;
-            }
-            if (!Number.isFinite(r) || r <= 0) r = 1;
-            ratioRef.current = r;
 
-            setCandles(msgCandles.map(c => scaleCandle(c, r)));
-            setOrderbook(scaleOb(msg.orderbook && typeof msg.orderbook === 'object' ? { bids: msg.orderbook.bids || [], asks: msg.orderbook.asks || [] } : { bids: [], asks: [] }, r));
-            setTrades(Array.isArray(msg.trades) ? scaleTradesArr(msg.trades, r) : []);
-            setTicker(tk);
-            return;
-          }
-          if (msg.type === 'candle' && msg.candle) {
-            const scaled = scaleCandle(msg.candle, ratioRef.current);
-            setCandles((prev) => {
-              const next = [...prev];
-              const idx = next.findIndex((c) => Number(c.time) === Number(scaled.time));
-              if (idx >= 0) next[idx] = scaled;
-              else next.push(scaled);
-              return next.slice(-500);
-            });
-          } else if (msg.type === 'orderbook') {
-            setOrderbook(scaleOb({ bids: msg.bids || [], asks: msg.asks || [] }, ratioRef.current));
-          } else if (msg.type === 'trade') {
-            const scaledRow = scaleTradesArr([{
-              side: msg.side,
-              price: msg.price,
-              qty: msg.qty,
-              timestamp: msg.timestamp,
-            }], ratioRef.current)[0];
-            setTrades((prev) => [scaledRow, ...prev].slice(0, MAX_TRADES));
-          } else if (msg.type === 'ticker') {
-            setTicker(msg);
+          switch (msg.type) {
+            // ── Full snapshot (sent immediately after connect) ──────────
+            case 'snapshot': {
+              const tk = msg.ticker || null;
+              setCandles(Array.isArray(msg.candles) ? msg.candles : []);
+              scheduleObUpdate(
+                msg.orderbook && typeof msg.orderbook === 'object'
+                  ? { bids: msg.orderbook.bids || [], asks: msg.orderbook.asks || [] }
+                  : { bids: [], asks: [] },
+              );
+              setTrades(Array.isArray(msg.trades) ? msg.trades : []);
+              setTicker(tk);
+              setLoading(false);
+              break;
+            }
+
+            // ── Live candle update (sent every ~4 s) ────────────────────
+            case 'candle': {
+              if (!msg.candle) break;
+              const c = msg.candle;
+              setCandles((prev) => {
+                const next = [...prev];
+                const idx = next.findIndex((x) => Number(x.time) === Number(c.time));
+                if (idx >= 0) {
+                  next[idx] = c;
+                } else {
+                  next.push(c);
+                }
+                return next.length > MAX_CANDLES_KEPT ? next.slice(-MAX_CANDLES_KEPT) : next;
+              });
+              break;
+            }
+
+            // ── Ticker (every ~1 s) ─────────────────────────────────────
+            case 'ticker':
+              setTicker(msg);
+              break;
+
+            // ── Orderbook (every ~4 s) ──────────────────────────────────
+            case 'orderbook':
+              scheduleObUpdate({ bids: msg.bids || [], asks: msg.asks || [] });
+              break;
+
+            // ── Single trade (every ~1 s) ───────────────────────────────
+            case 'trade': {
+              const row = { side: msg.side, price: msg.price, qty: msg.qty, timestamp: msg.timestamp };
+              setTrades((prev) => [row, ...prev].slice(0, MAX_TRADES));
+              break;
+            }
+
+            // ── Heartbeat ───────────────────────────────────────────────
+            case 'ping':
+              // No-op: WS keepalive confirmed.  Reply pong not required
+              // because the server only checks send-side, not receive-side.
+              break;
+
+            default:
+              break;
           }
         } catch {
-          // Ignore malformed frame.
+          // Malformed frame — ignore silently.
         }
       };
 
@@ -186,37 +221,47 @@ export function useBZXMarket({ symbol = 'BZXUSDT', interval = '1m', enabled = tr
         setConnected(false);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (evt) => {
         setConnected(false);
         if (dead) return;
+
+        // 4403 = mock market disabled server-side, 4400 = unsupported symbol.
+        if (evt.code === 4403) {
+          noRetry = true;
+          setError('BZX mock market is disabled on the server (BZX_MOCK_MARKET=true needed).');
+          return;
+        }
+        if (evt.code === 4400) {
+          noRetry = true;
+          setError(`Unsupported BZX symbol: ${sym}`);
+          return;
+        }
+
+        // Exponential back-off: 1s → 2s → 4s → … → max 30s. No hard cap on
+        // retry count — the hook lives as long as the component is mounted.
         retryRef.current += 1;
-        if (retryRef.current > 8) return;
-        const delay = Math.min(15000, 1000 * 2 ** retryRef.current);
+        const delay = Math.min(30_000, 1_000 * 2 ** (retryRef.current - 1));
         reconnectRef.current = setTimeout(() => {
-          bootstrap().then(() => connectWS());
+          if (!dead) bootstrap().then(() => { if (!dead) connectWS(); });
         }, delay);
       };
-    };
+    }
 
-    // Initial flow: Bootstrap REST -> Connect WS
-    bootstrap().then(() => {
-      if (!dead) connectWS();
-    });
+    // Initial flow: bootstrap REST data → open WS.
+    bootstrap().then(() => { if (!dead) connectWS(); });
 
     return () => {
       dead = true;
-      abortController.abort();
+      ctrl.abort();
       setConnected(false);
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      if (obRafRef.current) { cancelAnimationFrame(obRafRef.current); obRafRef.current = null; }
       if (wsRef.current) {
-        try {
-          wsRef.current.close();
-        } catch {
-          // noop
-        }
+        try { wsRef.current.close(); } catch { /* noop */ }
+        wsRef.current = null;
       }
     };
-  }, [symbol, interval, enabled]);
+  }, [symbol, interval, enabled, scheduleObUpdate]);
 
   return useMemo(
     () => ({ candles, orderbook, trades, ticker, connected, loading, error }),

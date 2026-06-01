@@ -202,7 +202,7 @@ function useStickyLiveQuotes({ symbol, wsIndex, wsMark, seedMark, orderbook, rec
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function FuturesTradeForm({ symbol, limitPriceSeed = null }) {
-  const { user, kyc } = useAuth();
+  const { user, kyc, balance } = useAuth();
   const {
     wallet, settings, placeOrder, activeMark, symbols, orderbook, recentTrades,
     refreshAccount, upsertOpenOrder,

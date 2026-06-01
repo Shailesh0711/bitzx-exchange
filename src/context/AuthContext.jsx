@@ -450,22 +450,54 @@ export function AuthProvider({ children }) {
 
   /** Step 1: Submit name/email/password → backend sends OTP email.
    *  Returns { message, email_hint } on success. */
-  const registerRequest = useCallback(async (name, email, password) => {
+  const registerRequest = useCallback(async (name, email, password, mobile, countryCode) => {
+    const mob = String(mobile ?? '').replace(/\D/g, '');
+    const body = {
+      name: String(name ?? '').trim(),
+      email: String(email ?? '').trim(),
+      password: String(password ?? ''),
+      mobile: mob,
+    };
+    const cc = String(countryCode ?? '').replace(/\D/g, '');
+    if (cc) body.country_code = cc;
     const res = await authFetch(`${API}/api/auth/register/request`, {
       method: 'POST',
-      body: {
-        name: String(name ?? '').trim(),
-        email: String(email ?? '').trim(),
-        password: String(password ?? ''),
-      },
+      body,
     });
     const data = await readJsonSafe(res);
     if (!res.ok) throwAuthFailure(res, data, 'Registration failed');
-    return data; // { message, email_hint }
+    return data; // { message, email_hint, phone_hint, verify_channel }
   }, []);
 
-  /** Step 2: Submit OTP code → backend creates account and returns JWT tokens.
-   *  Calls applyTokenResponse to log the user in. */
+  /** Step 2a: Verify email OTP; backend sends SMS OTP after success. */
+  const registerVerifyEmail = useCallback(async (email, code) => {
+    const res = await authFetch(`${API}/api/auth/register/verify-email`, {
+      method: 'POST',
+      body: {
+        email: String(email ?? '').trim(),
+        code: String(code ?? '').trim(),
+      },
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Email verification failed');
+    return data;
+  }, []);
+
+  /** Step 2b: Verify mobile OTP → creates account and returns JWT. */
+  const registerVerifyMobile = useCallback(async (email, code) => {
+    const res = await authFetch(`${API}/api/auth/register/verify-mobile`, {
+      method: 'POST',
+      body: {
+        email: String(email ?? '').trim(),
+        code: String(code ?? '').trim(),
+      },
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Mobile verification failed');
+    return applyTokenResponse(data);
+  }, [applyTokenResponse]);
+
+  /** Legacy single-step verify. */
   const registerVerify = useCallback(async (email, code) => {
     const res = await authFetch(`${API}/api/auth/register/verify`, {
       method: 'POST',
@@ -479,11 +511,14 @@ export function AuthProvider({ children }) {
     return applyTokenResponse(data);
   }, [applyTokenResponse]);
 
-  /** Resend OTP to the same email (rate-limited server-side). */
-  const registerResend = useCallback(async (email) => {
+  /** Resend OTP for pending signup. channel: 'email' | 'sms' (dual-verify flow). */
+  const registerResend = useCallback(async (email, channel) => {
+    const body = { email: String(email ?? '').trim() };
+    const ch = String(channel ?? '').trim().toLowerCase();
+    if (ch === 'email' || ch === 'sms') body.channel = ch;
     const res = await authFetch(`${API}/api/auth/register/resend`, {
       method: 'POST',
-      body: { email: String(email ?? '').trim() },
+      body,
     });
     const data = await readJsonSafe(res);
     if (!res.ok) throwAuthFailure(res, data, 'Could not resend verification code');
@@ -561,7 +596,8 @@ export function AuthProvider({ children }) {
       // KYC
       kyc, fetchKyc,
       // Auth
-      login, register, registerRequest, registerVerify, registerResend, logout, revokeAllSessions,
+      login, register, registerRequest, registerVerifyEmail, registerVerifyMobile,
+      registerVerify, registerResend, logout, revokeAllSessions,
       impersonationActive, impersonatorAdminId, refreshSession,
       userFeaturesPaused, userTradingPaused, userWithdrawalsPaused, userPauseNote,
     }}>

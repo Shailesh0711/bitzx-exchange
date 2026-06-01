@@ -12,6 +12,7 @@ import MarketsPage   from '@/pages/MarketsPage';
 import TradePage     from '@/pages/TradePage';
 import LoginPage     from '@/pages/LoginPage';
 import RegisterPage  from '@/pages/RegisterPage';
+import MobileVerificationPage from '@/pages/MobileVerificationPage';
 import ForgotPasswordPage        from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage          from '@/pages/ResetPasswordPage';
 import EmailVerificationPage      from '@/pages/EmailVerificationPage';
@@ -191,6 +192,7 @@ export default function App() {
       <Route path="/login"         element={<LoginPage />} />
       <Route path="/register"      element={<RegisterPage />} />
       <Route path="/verify-email"  element={<EmailVerificationPage />} />
+      <Route path="/verify-mobile" element={<MobileVerificationPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password"  element={<ResetPasswordPage />} />
 

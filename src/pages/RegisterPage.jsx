@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 import { motion } from 'framer-motion';
 import {
-  Eye, EyeOff, Lock, Mail, User, ArrowRight, CheckCircle,
+  Eye, EyeOff, Lock, Mail, User, ArrowRight, CheckCircle, Phone,
   TrendingUp, Shield, Zap, BarChart2, Star,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -15,6 +16,7 @@ import {
 import {
   getPasswordStrengthMeta,
   validateAuthEmail,
+  validateSignupMobile,
   validateStrongPassword,
   authFormBannerMessage,
   isAuthRequestError,
@@ -31,7 +33,7 @@ const PERKS = [
 ];
 
 const emptyRegisterFieldErrors = () => ({
-  name: '', email: '', password: '', confirm: '', terms: '',
+  name: '', email: '', mobile: '', password: '', confirm: '', terms: '',
 });
 
 const TICKER = [
@@ -47,6 +49,25 @@ export default function RegisterPage() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [countryCode, setCountryCode] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const origin = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
+        const res = await fetch(`${origin}/api/public/site-config`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const signup = data?.signup || {};
+        if (cancelled) return;
+        if (signup.default_country_code) setCountryCode(String(signup.default_country_code));
+      } catch {
+        /* country code optional — backend defaults from AUTHKEY_SMS_COUNTRY_CODE */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -58,6 +79,7 @@ export default function RegisterPage() {
   const [touched, setTouched] = useState({
     name: false,
     email: false,
+    mobile: false,
     password: false,
     confirm: false,
     terms: false,
@@ -73,6 +95,19 @@ export default function RegisterPage() {
     setFieldErrors(emptyRegisterFieldErrors());
     const nm = name.trim();
     const em = email.trim();
+    const mob = mobile.trim();
+    if (!mob) {
+      const t = 'Mobile number is required.';
+      setFieldErrors({ ...emptyRegisterFieldErrors(), mobile: t });
+      setError(t);
+      return;
+    }
+    const mobErr = validateSignupMobile(mob);
+    if (mobErr) {
+      setFieldErrors({ ...emptyRegisterFieldErrors(), mobile: mobErr });
+      setError(mobErr);
+      return;
+    }
     const regErr = validateRegisterFields({ name: nm, email: em, password });
     if (Object.keys(regErr).length) {
       setFieldErrors({ ...emptyRegisterFieldErrors(), ...regErr });
@@ -93,14 +128,21 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await registerRequest(nm, em, password);
-      // Pass the real email via router state (not URL) to keep it private
-      navigate('/verify-email', { state: { email: em } });
+      const data = await registerRequest(nm, em, password, mob, countryCode);
+      navigate('/verify-email', {
+        state: {
+          email: em,
+          verifyChannel: data.verify_channel || 'both',
+          phoneHint: data.phone_hint || '',
+          emailHint: data.email_hint || '',
+        },
+      });
     } catch (err) {
       if (isAuthRequestError(err) && err.fieldErrors) {
         setFieldErrors({
           name: err.fieldErrors.name || '',
           email: err.fieldErrors.email || '',
+          mobile: err.fieldErrors.mobile || '',
           password: err.fieldErrors.password || '',
           confirm: '',
           terms: '',
@@ -298,6 +340,49 @@ export default function RegisterPage() {
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.email}</p>
                 )}
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-white mb-2">
+                Mobile <span className="text-white/45 font-normal">(required for SMS verification)</span>
+              </label>
+              <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                showFieldError('mobile') ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
+                {countryCode ? (
+                  <span className="text-sm font-bold text-gold-light mr-2 tabular-nums">+{countryCode}</span>
+                ) : null}
+                <Phone size={16} className="text-white mr-2 group-focus-within:text-gold transition-colors" />
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={mobile}
+                  onChange={e => {
+                    setMobile(e.target.value.replace(/[^\d\s+-]/g, ''));
+                    setFieldErrors(f => ({ ...f, mobile: '' }));
+                    setError('');
+                  }}
+                  onBlur={() => {
+                    setTouched(t => ({ ...t, mobile: true }));
+                    if (!mobile.trim()) {
+                      setFieldErrors(f => ({ ...f, mobile: 'Mobile number is required.' }));
+                      return;
+                    }
+                    const msg = validateSignupMobile(mobile);
+                    setFieldErrors(f => ({ ...f, mobile: msg || '' }));
+                  }}
+                  placeholder="10-digit mobile number"
+                  autoComplete="tel-national"
+                  aria-invalid={Boolean(fieldErrors.mobile)}
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                />
+              </div>
+              <p className="text-[11px] text-white/50 mt-1.5">
+                We email you a code first; after email verification we send a separate SMS code.
+              </p>
+              {showFieldError('mobile') && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.mobile}</p>
+              )}
             </div>
 
             {/* Password */}

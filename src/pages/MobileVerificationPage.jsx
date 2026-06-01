@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, ArrowLeft, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Phone, ArrowLeft, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 const OTP_LENGTH = 6;
-const RESEND_COOLDOWN_SEC = 60; // 1-minute UI cooldown between resend clicks
-
-// ── OTP input box (single digit) ─────────────────────────────────────────────
+const RESEND_COOLDOWN_SEC = 60;
 
 function OtpBox({ value, focused, inputRef, onChange, onKeyDown, onFocus, onPaste, index, hasError }) {
   return (
@@ -42,8 +40,6 @@ function OtpBox({ value, focused, inputRef, onChange, onKeyDown, onFocus, onPast
   );
 }
 
-// ── Countdown timer hook ──────────────────────────────────────────────────────
-
 function useCountdown(initialSeconds) {
   const [seconds, setSeconds] = useState(initialSeconds);
   const intervalRef = useRef(null);
@@ -62,49 +58,38 @@ function useCountdown(initialSeconds) {
     }, 1000);
   }, [initialSeconds]);
 
-  const reset = useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    setSeconds(initialSeconds);
-  }, [initialSeconds]);
-
   useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
 
   const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-  return { seconds, start, reset, formatted: fmt(seconds), expired: seconds === 0 };
+  return { seconds, start, formatted: fmt(seconds), expired: seconds === 0 };
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-
-export default function EmailVerificationPage() {
-  const { registerVerifyEmail, registerResend } = useAuth();
-  const navigate   = useNavigate();
-  const location   = useLocation();
+export default function MobileVerificationPage() {
+  const { registerVerifyMobile, registerResend } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const email = location.state?.email || '';
   const phoneHint = location.state?.phoneHint || '';
-  const emailHint = location.state?.emailHint || '';
 
-  const [digits,    setDigits]    = useState(Array(OTP_LENGTH).fill(''));
-  const [focusIdx,  setFocusIdx]  = useState(0);
-  const [loading,   setLoading]   = useState(false);
+  const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(''));
+  const [focusIdx, setFocusIdx] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [error,     setError]     = useState('');
-  const [success,   setSuccess]   = useState('');
-  const [verified,  setVerified]  = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [verified, setVerified] = useState(false);
 
   const inputRefs = useRef(Array.from({ length: OTP_LENGTH }, () => null));
-  const timer     = useCountdown(RESEND_COOLDOWN_SEC);
+  const timer = useCountdown(RESEND_COOLDOWN_SEC);
 
-  // Auto-start resend cooldown on mount
   useEffect(() => { timer.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Redirect to register if no email in state
   useEffect(() => {
     if (!email) navigate('/register', { replace: true });
   }, [email, navigate]);
 
-  // Auto-focus first box on mount
   useEffect(() => {
     setTimeout(() => inputRefs.current[0]?.focus(), 120);
   }, []);
@@ -155,8 +140,7 @@ export default function EmailVerificationPage() {
     for (let i = 0; i < pasted.length; i++) next[i] = pasted[i];
     setDigits(next);
     setError('');
-    const nextFocus = Math.min(pasted.length, OTP_LENGTH - 1);
-    focusBox(nextFocus);
+    focusBox(Math.min(pasted.length, OTP_LENGTH - 1));
   };
 
   const code = digits.join('');
@@ -167,16 +151,12 @@ export default function EmailVerificationPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await registerVerifyEmail(email, code);
+      await registerVerifyMobile(email, code);
       setVerified(true);
-      setSuccess(data?.message || 'Email verified! Check your phone for the SMS code.');
-      setTimeout(() => navigate('/verify-mobile', {
-        replace: true,
-        state: { email, phoneHint, emailHint },
-      }), 1200);
+      setSuccess('Mobile verified! Creating your account…');
+      setTimeout(() => navigate('/kyc', { replace: true }), 1500);
     } catch (err) {
       setError(err.message || 'Invalid code. Please try again.');
-      // Shake boxes on error — clear and refocus
       setDigits(Array(OTP_LENGTH).fill(''));
       setTimeout(() => focusBox(0), 80);
     } finally {
@@ -191,8 +171,8 @@ export default function EmailVerificationPage() {
     setSuccess('');
     setDigits(Array(OTP_LENGTH).fill(''));
     try {
-      await registerResend(email, 'email');
-      setSuccess('A new code has been sent to your email.');
+      await registerResend(email, 'sms');
+      setSuccess('A new code has been sent to your mobile number.');
       timer.start(RESEND_COOLDOWN_SEC);
       setTimeout(() => focusBox(0), 80);
     } catch (err) {
@@ -202,19 +182,11 @@ export default function EmailVerificationPage() {
     }
   };
 
-  const maskedEmail = emailHint || (email
-    ? (() => {
-        const [local, domain] = email.split('@');
-        if (!domain) return email;
-        const hint = local.length <= 2 ? `${local[0]}***` : `${local.slice(0, 2)}***`;
-        return `${hint}@${domain}`;
-      })()
-    : '');
+  const destinationLabel = phoneHint || 'your mobile number';
 
   return (
     <div className="min-h-screen bg-surface-dark flex flex-col lg:flex-row">
 
-      {/* ── LEFT brand panel (same style as RegisterPage) ── */}
       <div className="hidden lg:flex flex-col w-[420px] xl:w-[480px] flex-shrink-0
         relative overflow-hidden px-12 py-12
         bg-[#0a0b0f] border-r border-white/[.05]">
@@ -223,7 +195,6 @@ export default function EmailVerificationPage() {
         <div className="absolute inset-0 opacity-[.025]"
           style={{ backgroundImage: 'linear-gradient(#9C7941 1px,transparent 1px),linear-gradient(90deg,#9C7941 1px,transparent 1px)', backgroundSize: '44px 44px' }} />
 
-        {/* Logo */}
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
           className="flex items-center gap-3 mb-12 relative z-10">
@@ -237,32 +208,28 @@ export default function EmailVerificationPage() {
           </div>
         </motion.div>
 
-        {/* Central icon + copy */}
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.55, delay: 0.1 }}
           className="relative z-10 flex flex-col items-start flex-1">
 
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-8 flex-shrink-0"
             style={{ background: 'rgba(156,121,65,0.15)', border: '1px solid rgba(235,211,141,0.25)' }}>
-            <Mail size={28} className="text-gold-light" />
+            <Phone size={28} className="text-gold-light" />
           </div>
 
           <h2 className="text-4xl xl:text-5xl font-extrabold text-white leading-[1.1] mb-4">
             Check your<br />
-            <span className="text-gradient">inbox</span>
+            <span className="text-gradient">messages</span>
           </h2>
           <p className="text-white/60 text-base leading-relaxed mb-10">
-            Step 1 of 2: enter the code we sent to your email. After this step we send a separate
-            SMS code to{' '}
-            <span className="text-gold-light font-semibold">{phoneHint || 'your phone'}</span>.
-            Codes expire in&nbsp;<span className="text-gold-light font-semibold">15 minutes</span>.
+            Step 2 of 2: enter the SMS code we sent to your phone. This is not the same code as your email.
+            Expires in&nbsp;<span className="text-gold-light font-semibold">15 minutes</span>.
           </p>
 
-          {/* Info cards */}
           <div className="space-y-4 w-full">
             {[
-              { icon: ShieldCheck, title: 'Secure verification', desc: 'Your code is hashed — we never store it in plain text.' },
-              { icon: RefreshCw,   title: 'Resend if needed',    desc: 'Didn\'t receive it? Check spam or request a new code after 60 seconds.' },
+              { icon: ShieldCheck, title: 'Separate codes', desc: 'Email and SMS each have their own 6-digit code.' },
+              { icon: RefreshCw, title: 'Resend if needed', desc: 'Resend on this screen sends a new SMS code only.' },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="flex items-start gap-3 p-3.5 rounded-xl"
                 style={{ background: 'rgba(156,121,65,0.06)', border: '1px solid rgba(235,211,141,0.1)' }}>
@@ -277,15 +244,12 @@ export default function EmailVerificationPage() {
         </motion.div>
       </div>
 
-      {/* ── RIGHT — OTP form ── */}
       <div className="flex-1 flex flex-col justify-center
         px-6 sm:px-10 lg:px-14 xl:px-16 py-8 sm:py-10 relative">
 
-        {/* Glow */}
         <div className="absolute top-0 right-0 w-64 h-64
           bg-[radial-gradient(ellipse,rgba(156,121,65,0.07),transparent_70%)] pointer-events-none" />
 
-        {/* Mobile logo */}
         <div className="flex items-center gap-2 mb-8 lg:hidden">
           <img src={LOGO} alt="BITZX" className="h-9 w-9 object-contain" />
           <span className="font-extrabold text-xl">
@@ -298,26 +262,24 @@ export default function EmailVerificationPage() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="max-w-lg w-full mx-auto">
 
-          {/* Back */}
-          <Link to="/register"
+          <Link to="/verify-email"
+            state={{ email, phoneHint }}
             className="inline-flex items-center gap-2 text-sm text-white/50 hover:text-white
               transition-colors mb-6 group">
             <ArrowLeft size={15} className="group-hover:-translate-x-0.5 transition-transform" />
-            Back to registration
+            Back to email verification
           </Link>
 
-          {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl xl:text-4xl font-extrabold text-white mb-2">
-              Verify your email
+              Verify your mobile
             </h1>
             <p className="text-white/55 text-base">
               Enter the 6-digit code sent to{' '}
-              <span className="text-gold-light font-semibold">{maskedEmail}</span>
+              <span className="text-gold-light font-semibold">{destinationLabel}</span>
             </p>
           </div>
 
-          {/* Success state */}
           <AnimatePresence>
             {verified && (
               <motion.div
@@ -328,8 +290,8 @@ export default function EmailVerificationPage() {
                 <div className="w-16 h-16 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center">
                   <CheckCircle2 size={32} className="text-green-400" />
                 </div>
-                <p className="text-lg font-extrabold text-white">Email verified!</p>
-                <p className="text-sm text-white/50">Next: verify your mobile number…</p>
+                <p className="text-lg font-extrabold text-white">Account created!</p>
+                <p className="text-sm text-white/50">Taking you to KYC setup…</p>
                 <div className="w-5 h-5 border-2 border-gold border-t-transparent rounded-full animate-spin mt-2" />
               </motion.div>
             )}
@@ -337,7 +299,6 @@ export default function EmailVerificationPage() {
 
           {!verified && (
             <>
-              {/* Error banner */}
               <AnimatePresence>
                 {error && (
                   <motion.div
@@ -351,7 +312,6 @@ export default function EmailVerificationPage() {
                 )}
               </AnimatePresence>
 
-              {/* Success banner */}
               <AnimatePresence>
                 {success && !verified && (
                   <motion.div
@@ -365,7 +325,6 @@ export default function EmailVerificationPage() {
                 )}
               </AnimatePresence>
 
-              {/* OTP Boxes */}
               <motion.div
                 animate={error ? { x: [0, -8, 8, -6, 6, -3, 3, 0] } : {}}
                 transition={{ duration: 0.45 }}
@@ -388,12 +347,10 @@ export default function EmailVerificationPage() {
                 </div>
               </motion.div>
 
-              {/* Expiry hint */}
               <p className="text-center text-xs text-white/35 mb-7 mt-1">
                 Code valid for <span className="text-gold-light font-semibold">15 minutes</span>
               </p>
 
-              {/* Verify button */}
               <button
                 type="button"
                 onClick={handleVerify}
@@ -407,10 +364,9 @@ export default function EmailVerificationPage() {
               >
                 {loading
                   ? <div className="w-5 h-5 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" />
-                  : 'Verify email & continue'}
+                  : 'Confirm & create account'}
               </button>
 
-              {/* Resend section */}
               <div className="mt-6 text-center">
                 {!timer.expired ? (
                   <p className="text-sm text-white/40">
@@ -433,9 +389,8 @@ export default function EmailVerificationPage() {
                 )}
               </div>
 
-              {/* Footer hint */}
               <p className="text-center text-white/30 text-xs mt-5">
-                Check your spam folder if you don't see the email.
+                Didn&apos;t get the SMS? Wait a moment or resend a new code to your phone only.
               </p>
             </>
           )}

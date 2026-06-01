@@ -16,6 +16,7 @@ import { Loader2 } from 'lucide-react';
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
+<<<<<<< Updated upstream
 // Deduplicate by time and sort ascending — required by lightweight-charts.
 function prepareData(raw) {
   if (!raw?.length) return [];
@@ -46,6 +47,32 @@ export default function BZXChart({
   fill = false,
   loading = false,
 }) {
+=======
+/** Default bars in view on first load (recent history, zoomed to the right). */
+const VISIBLE_BARS_BY_INTERVAL = {
+  '1m': 90,
+  '5m': 72,
+  '15m': 64,
+  '1h': 48,
+  '4h': 42,
+  '1d': 36,
+};
+const DEFAULT_VISIBLE_BARS = 72;
+const RIGHT_OFFSET_BARS = 12;
+
+function visibleBarsForInterval(iv) {
+  return VISIBLE_BARS_BY_INTERVAL[iv] ?? DEFAULT_VISIBLE_BARS;
+}
+
+function focusRecentBars(chart, barCount, intervalKey) {
+  if (!chart || barCount <= 0) return;
+  const visible = Math.min(visibleBarsForInterval(intervalKey), barCount);
+  const from = Math.max(0, barCount - visible);
+  chart.timeScale().setVisibleLogicalRange({ from, to: barCount - 1 });
+}
+
+export default function BZXChart({ candles = [], interval = '1m', onIntervalChange, fill = false, loading = false }) {
+>>>>>>> Stashed changes
   const containerRef = useRef(null);
   const chartRef     = useRef(null);
   const candleRef    = useRef(null);  // candlestick series
@@ -76,7 +103,11 @@ export default function BZXChart({
       timeScale: {
         borderColor: 'rgba(255,255,255,0.08)',
         timeVisible: true,
+<<<<<<< Updated upstream
         secondsVisible: false,
+=======
+        rightOffset: RIGHT_OFFSET_BARS,
+>>>>>>> Stashed changes
       },
       crosshair: { mode: CrosshairMode.Normal },
     });
@@ -146,9 +177,17 @@ export default function BZXChart({
   const chartData = useMemo(() => prepareData(candles), [candles]);
 
   useEffect(() => {
+<<<<<<< Updated upstream
     const cSeries = candleRef.current;
     const vSeries = volRef.current;
     if (!cSeries || !vSeries) return;
+=======
+    isFittedRef.current = false;
+  }, [interval]);
+
+  useEffect(() => {
+    if (!seriesRef.current || !volRef.current) return;
+>>>>>>> Stashed changes
 
     if (chartData.length === 0) {
       // Dataset cleared (interval switch or symbol change) — reset refs.
@@ -157,6 +196,7 @@ export default function BZXChart({
       return;
     }
 
+<<<<<<< Updated upstream
     const last = chartData[chartData.length - 1];
     const first = chartData[0];
 
@@ -200,6 +240,22 @@ export default function BZXChart({
     }
     lastCandleTimeRef.current = last.time;
   }, [chartData, interval]);
+=======
+    seriesRef.current.setData(chartData);
+    volRef.current.setData(
+      chartData.map((c) => ({
+        time: c.time,
+        value: c.volume,
+        color: c.close >= c.open ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)',
+      })),
+    );
+
+    if (!isFittedRef.current) {
+      focusRecentBars(chartRef.current, chartData.length, active);
+      isFittedRef.current = true;
+    }
+  }, [chartData, active]);
+>>>>>>> Stashed changes
 
   return (
     <div className="w-full h-full bg-[#0d0f14] flex flex-col">

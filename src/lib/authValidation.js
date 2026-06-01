@@ -29,7 +29,7 @@ export function formatApiDetail(detail) {
 
 /** FastAPI / Pydantic 422 `loc` segments we map to form fields. */
 const FASTAPI_BODY_FIELD = new Set([
-  'email', 'password', 'name', 'code',
+  'email', 'password', 'name', 'code', 'mobile', 'country_code',
   'current_password', 'new_password', 'token',
 ]);
 
@@ -44,6 +44,11 @@ const FIELD_ALIAS_TO_FORM = {
   email_address: 'email',
   pass: 'password',
   pwd: 'password',
+  phone: 'mobile',
+  phone_number: 'mobile',
+  phoneNumber: 'mobile',
+  countryCode: 'country_code',
+  dial_code: 'country_code',
 };
 
 /**
@@ -157,6 +162,21 @@ export function validateAuthPasswordLogin(raw) {
  * @param {string} raw
  * @returns {string|null} first failing rule, or null if valid
  */
+/**
+ * Indian-style mobile: 10 digits after optional +91 / country prefix stripped server-side.
+ * @param {string} raw
+ * @returns {string|null}
+ */
+export function validateSignupMobile(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+  let nat = digits;
+  if (nat.length === 12 && nat.startsWith('91')) nat = nat.slice(2);
+  if (nat.length === 10 && /^[6-9]/.test(nat)) return null;
+  if (nat.length >= 7 && nat.length <= 15) return null;
+  return 'Enter a valid mobile number (10 digits for India).';
+}
+
 export function validateStrongPassword(raw) {
   const pw = raw ?? '';
   if (pw.length < STRONG_PASSWORD_MIN) {

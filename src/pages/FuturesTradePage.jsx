@@ -337,33 +337,27 @@ function FuturesTradePageInner() {
     [activeSymbol],
   );
 
-  // 1) Set activeSymbol immediately from URL — no waiting for the symbols catalog.
-  //    The page renders at once; catalog load only triggers a redirect if the
-  //    symbol turns out to be invalid (handled in effect 2 below).
+  // 1) Catalog ready, no route symbol → redirect to default.
   useEffect(() => {
-    const sym = routeSym ? routeSym.toUpperCase() : DEFAULT_SYMBOL;
-    if (sym !== activeSymbol) setActiveSymbol(sym);
-  }, [routeSym]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 2) After symbols catalog loads: validate symbol and fix URL if needed.
-  useEffect(() => {
-    if (!symbols.length) return;
-    if (!routeSym) {
-      // No symbol in URL → redirect to canonical default.
+    if (!routeSym && symbols.length) {
       const target = symbols.find((s) => s.symbol === DEFAULT_SYMBOL) || symbols[0];
       if (target) navigate(`/futures/${target.symbol}`, { replace: true });
-      return;
     }
+  }, [routeSym, symbols, navigate]);
+
+  // 2) Route symbol → context. URL is the source of truth.
+  useEffect(() => {
+    if (!routeSym || !symbols.length) return;
     const upper = routeSym.toUpperCase();
     const found = symbols.find((s) => s.symbol === upper);
-    if (!found) {
-      // Unknown symbol in URL → redirect to default.
+    if (found && found.symbol !== activeSymbol) {
+      setActiveSymbol(found.symbol);
+    } else if (!found) {
+      // Bad symbol in URL — redirect to default.
       const target = symbols.find((s) => s.symbol === DEFAULT_SYMBOL) || symbols[0];
       if (target) navigate(`/futures/${target.symbol}`, { replace: true });
-    } else if (found.symbol !== activeSymbol) {
-      setActiveSymbol(found.symbol);
     }
-  }, [routeSym, symbols, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [routeSym, symbols, activeSymbol, setActiveSymbol, navigate]);
 
   // 3) Funding — fetch latest each time symbol changes.
   useEffect(() => {
@@ -468,12 +462,8 @@ function FuturesTradePageInner() {
 }
 
 export default function FuturesTradePage() {
-  // Pass the URL symbol as the initial active symbol so the page renders
-  // immediately on first paint — no loading flash even before effects run.
-  const { symbol: urlSym } = useParams();
-  const initialSymbol = urlSym ? urlSym.toUpperCase() : DEFAULT_SYMBOL;
   return (
-    <FuturesProvider initialSymbol={initialSymbol}>
+    <FuturesProvider>
       <FuturesTradePageInner />
     </FuturesProvider>
   );

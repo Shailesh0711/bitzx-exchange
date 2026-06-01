@@ -37,13 +37,12 @@ function mergeMarketTick(prev = {}, incoming = {}) {
   return out;
 }
 
-export function FuturesProvider({ children, initialSymbol = null }) {
+export function FuturesProvider({ children }) {
   const { user } = useAuth();
 
   const [symbols, setSymbols] = useState([]);
   const [leverageOptions, setLeverageOptions] = useState([1, 5, 10, 20, 50, 100]);
-  // Seed from URL so the page renders on the very first paint without a flash.
-  const [activeSymbol, setActiveSymbol] = useState(initialSymbol);
+  const [activeSymbol, setActiveSymbol] = useState(null);
 
   const [markets, setMarkets] = useState({});
   const [orderbook, setOrderbook] = useState({ bids: [], asks: [] });
@@ -56,34 +55,17 @@ export function FuturesProvider({ children, initialSymbol = null }) {
   const [userTrades, setUserTrades] = useState([]);
   const [settings, setSettings] = useState({});
 
-  // ── Catalog (load once; retry on failure) ────────────────────────────
+  // ── Catalog (load once) ───────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    let retryTimer = null;
-
-    const load = () => {
-      futuresApi.listSymbols()
-        .then((data) => {
-          if (cancelled) return;
-          const syms = data?.symbols || [];
-          if (syms.length) {
-            setSymbols(syms);
-            setLeverageOptions(data?.leverage_options || [1, 5, 10, 20, 50, 100]);
-          } else if (!cancelled) {
-            // Empty response — retry after 4 s
-            retryTimer = setTimeout(load, 4000);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) retryTimer = setTimeout(load, 5000);
-        });
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
-    };
+    futuresApi.listSymbols()
+      .then((data) => {
+        if (cancelled) return;
+        setSymbols(data?.symbols || []);
+        setLeverageOptions(data?.leverage_options || [1, 5, 10, 20, 50, 100]);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   // ── Markets WS (public, fan-out for every supported symbol) ───────────

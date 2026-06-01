@@ -448,16 +448,11 @@ export function AuthProvider({ children }) {
 
   // ── Two-step registration (request → verify) ────────────────────────────
 
-  /** Step 1: Submit name/email/password → backend sends OTP email.
-   *  Returns { message, email_hint } on success. */
-  const registerRequest = useCallback(async (name, email, password, mobile, countryCode) => {
+  /** Send email OTP (email only). Optionally pass mobile/country to link the same signup session. */
+  const registerRequest = useCallback(async (email, mobile, countryCode) => {
+    const body = { email: String(email ?? '').trim() };
     const mob = String(mobile ?? '').replace(/\D/g, '');
-    const body = {
-      name: String(name ?? '').trim(),
-      email: String(email ?? '').trim(),
-      password: String(password ?? ''),
-      mobile: mob,
-    };
+    if (mob) body.mobile = mob;
     const cc = String(countryCode ?? '').replace(/\D/g, '');
     if (cc) body.country_code = cc;
     const res = await authFetch(`${API}/api/auth/register/request`, {
@@ -466,10 +461,26 @@ export function AuthProvider({ children }) {
     });
     const data = await readJsonSafe(res);
     if (!res.ok) throwAuthFailure(res, data, 'Registration failed');
-    return data; // { message, email_hint, phone_hint, verify_channel }
+    return data;
   }, []);
 
-  /** Step 2a: Verify email OTP; backend sends SMS OTP after success. */
+  /** Send SMS OTP (mobile only). Optionally pass email to link the same signup session. */
+  const registerMobileSendOtp = useCallback(async (mobile, email, countryCode) => {
+    const body = { mobile: String(mobile ?? '').replace(/\D/g, '') };
+    const em = String(email ?? '').trim();
+    if (em) body.email = em;
+    const cc = String(countryCode ?? '').replace(/\D/g, '');
+    if (cc) body.country_code = cc;
+    const res = await authFetch(`${API}/api/auth/register/mobile/send-otp`, {
+      method: 'POST',
+      body,
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Could not send SMS code');
+    return data;
+  }, []);
+
+  /** Verify email OTP (does not send SMS automatically). */
   const registerVerifyEmail = useCallback(async (email, code) => {
     const res = await authFetch(`${API}/api/auth/register/verify-email`, {
       method: 'POST',
@@ -483,17 +494,42 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
-  /** Step 2b: Verify mobile OTP → creates account and returns JWT. */
-  const registerVerifyMobile = useCallback(async (email, code) => {
+  /** Verify mobile OTP only (marks phone verified; account created on /register/complete). */
+  const registerVerifyMobile = useCallback(async (email, mobile, countryCode, code) => {
+    const body = {
+      mobile: String(mobile ?? '').replace(/\D/g, ''),
+      code: String(code ?? '').trim(),
+    };
+    const em = String(email ?? '').trim();
+    if (em) body.email = em;
+    const cc = String(countryCode ?? '').replace(/\D/g, '');
+    if (cc) body.country_code = cc;
     const res = await authFetch(`${API}/api/auth/register/verify-mobile`, {
       method: 'POST',
-      body: {
-        email: String(email ?? '').trim(),
-        code: String(code ?? '').trim(),
-      },
+      body,
     });
     const data = await readJsonSafe(res);
     if (!res.ok) throwAuthFailure(res, data, 'Mobile verification failed');
+    return data;
+  }, []);
+
+  /** Create account after email + mobile OTP verified. */
+  const registerComplete = useCallback(async (name, email, password, mobile, countryCode) => {
+    const body = {
+      name: String(name ?? '').trim(),
+      email: String(email ?? '').trim(),
+      password: String(password ?? ''),
+    };
+    const mob = String(mobile ?? '').replace(/\D/g, '');
+    if (mob) body.mobile = mob;
+    const cc = String(countryCode ?? '').replace(/\D/g, '');
+    if (cc) body.country_code = cc;
+    const res = await authFetch(`${API}/api/auth/register/complete`, {
+      method: 'POST',
+      body,
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok) throwAuthFailure(res, data, 'Could not create account');
     return applyTokenResponse(data);
   }, [applyTokenResponse]);
 
@@ -596,8 +632,9 @@ export function AuthProvider({ children }) {
       // KYC
       kyc, fetchKyc,
       // Auth
-      login, register, registerRequest, registerVerifyEmail, registerVerifyMobile,
-      registerVerify, registerResend, logout, revokeAllSessions,
+      login, register, registerRequest, registerMobileSendOtp, registerVerifyEmail,
+      registerVerifyMobile, registerComplete, registerVerify, registerResend, logout,
+      revokeAllSessions,
       impersonationActive, impersonatorAdminId, refreshSession,
       userFeaturesPaused, userTradingPaused, userWithdrawalsPaused, userPauseNote,
     }}>

@@ -12,7 +12,9 @@ import {
   firstProfileError,
   validatePasswordChangeFields,
   firstPasswordChangeFieldError,
+  nationalFromStoredPhone,
 } from '@/lib/profileValidation';
+import { validateSignupMobile } from '@/lib/authValidation';
 import {
   formatApiDetail,
   parseFastApi422FieldErrors,
@@ -51,6 +53,25 @@ function Toast({ msg, ok }) {
   );
 }
 
+function OtpSendButton({ label, loading, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || loading}
+      className="flex-shrink-0 px-3 sm:px-4 py-3.5 rounded-xl text-xs sm:text-sm font-bold
+        border border-gold/40 text-gold-light bg-gold/5
+        hover:bg-gold/15 active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none"
+    >
+      {loading ? (
+        <span className="inline-block w-4 h-4 border-2 border-gold-light border-t-transparent rounded-full animate-spin" />
+      ) : (
+        label
+      )}
+    </button>
+  );
+}
+
 function FieldGroup({ label, children, hint, required, error }) {
   const err = error?.trim();
   return (
@@ -68,12 +89,17 @@ function FieldGroup({ label, children, hint, required, error }) {
 
 function ProfileTab({ user, updateUser }) {
   const fileRef = useRef(null);
+  const [countryCode, setCountryCode] = useState('91');
   const [form, setForm] = useState({
     name: '',
-    phone: '',
+    mobile: '',
     country: '',
     bio: '',
   });
+  const [baselineMobile, setBaselineMobile] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneSendLoading, setPhoneSendLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [toast, setToast] = useState(null);
@@ -83,30 +109,60 @@ function ProfileTab({ user, updateUser }) {
   const [touched, setTouched] = useState({
     name: false,
     phone: false,
+    phoneOtp: false,
     country: false,
     bio: false,
   });
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/api/public/site-config`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const cc = data?.signup?.default_country_code;
+        if (!cancelled && cc) setCountryCode(String(cc));
+      } catch { /* optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
+    const nat = nationalFromStoredPhone(user.phone, countryCode);
+    setBaselineMobile(nat);
     setForm({
       name: user.name || '',
-      phone: user.phone || '',
+      mobile: nat,
       country: user.country || '',
       bio: user.bio || '',
     });
-  }, [user]);
+    setPhoneOtp('');
+    setPhoneOtpSent(false);
+  }, [user, countryCode]);
+
+  const mobileDigits = form.mobile.replace(/\D/g, '');
+  const phoneChanged = mobileDigits !== baselineMobile.replace(/\D/g, '');
+  const mobileValid = !validateSignupMobile(mobileDigits);
 
   useEffect(() => {
     setFieldErrors({});
-  }, [form.name, form.phone, form.country, form.bio]);
+  }, [form.name, form.mobile, form.country, form.bio, phoneOtp]);
+
+  useEffect(() => {
+    if (!phoneChanged) {
+      setPhoneOtp('');
+      setPhoneOtpSent(false);
+    }
+  }, [phoneChanged]);
 
   useEffect(() => () => {
     if (preview) URL.revokeObjectURL(preview);
   }, [preview]);
 
   const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 4500); };
-  const showFieldError = field => Boolean(fieldErrors[field]) && (submitAttempted || touched[field]);
+  const showFieldError = field => Boolean(fieldErrors[field]) && (submitAttempted || touched[field] || (field === 'phoneOtp' && phoneChanged));
   const markTouched = field => setTouched(prev => ({ ...prev, [field]: true }));
   const validateSingleField = (field, nextForm = form) => {
     const errs = validateProfileForm(nextForm);
@@ -116,37 +172,78 @@ function ProfileTab({ user, updateUser }) {
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || '??';
   const avatarSrc = preview || resolveAvatarUrl(user);
 
+  const handleSendPhoneOtp = async () => {
+    if (!phoneChanged) {
+      showToast('Enter a new mobile number to verify.', false);
+      return;
+    }
+    if (!mobileValid) {
+      setFieldErrors(prev => ({ ...prev, phone: validateSignupMobile(mobileDigits) }));
+      showToast(validateSignupMobile(mobileDigits) || 'Enter a valid mobile number.', false);
+      return;
+    }
+    setPhoneSendLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/auth/profile/phone/send-otp`, {
+        method: 'POST',
+        body: JSON.stringify({ mobile: mobileDigits, country_code: countryCode || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(formatApiDetail(data.detail) || 'Could not send SMS code');
+      setPhoneOtpSent(true);
+      setPhoneOtp('');
+      showToast(data.message || 'Verification code sent.', true);
+    } catch (e) {
+      showToast(e.message || 'Could not send SMS code', false);
+    } finally {
+      setPhoneSendLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     setSubmitAttempted(true);
     const name = form.name.trim();
-    const phone = form.phone.trim();
     const country = form.country.trim();
     const errs = validateProfileForm({
       name: form.name,
-      phone: form.phone,
+      mobile: mobileDigits,
       country: form.country,
       bio: form.bio,
     });
+    if (phoneChanged) {
+      if (!phoneOtpSent) {
+        errs.phoneOtp = 'Send a verification code to your new number first.';
+      } else if (!phoneOtp.trim() || phoneOtp.trim().length < 6) {
+        errs.phoneOtp = 'Enter the 6-digit SMS code.';
+      }
+    }
     if (Object.keys(errs).length) {
       setFieldErrors(errs);
-      showToast(firstProfileError(errs) || 'Please fix the highlighted fields.', false);
+      showToast(firstProfileError(errs) || errs.phoneOtp || 'Please fix the highlighted fields.', false);
       return;
     }
     setFieldErrors({});
     setSaving(true);
     try {
+      const payload = {
+        name,
+        country,
+        bio: form.bio.trim(),
+      };
+      if (phoneChanged) {
+        payload.mobile = mobileDigits;
+        if (countryCode) payload.country_code = countryCode;
+        payload.phone_otp = phoneOtp.trim();
+      }
       const res = await authFetch(`${API}/api/auth/profile`, {
         method: 'PUT',
-        body: JSON.stringify({
-          name,
-          phone,
-          country,
-          bio: form.bio.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Update failed');
+      if (!res.ok) throw new Error(formatApiDetail(data.detail) || 'Update failed');
       updateUser(data);
+      setPhoneOtp('');
+      setPhoneOtpSent(false);
       showToast('Profile updated successfully!', true);
     } catch (e) {
       showToast(e.message, false);
@@ -155,7 +252,7 @@ function ProfileTab({ user, updateUser }) {
 
   const dirty =
     form.name.trim() !== (user?.name || '') ||
-    form.phone.trim() !== (user?.phone || '') ||
+    phoneChanged ||
     form.country.trim() !== (user?.country || '') ||
     form.bio.trim() !== (user?.bio || '');
 
@@ -303,27 +400,75 @@ function ProfileTab({ user, updateUser }) {
           </div>
         </FieldGroup>
 
-        <FieldGroup label="Phone" required error={showFieldError('phone') ? fieldErrors.phone : ''} hint="Include country code (e.g. +1 …)">
-          <div className={`flex items-center bg-surface-card border
-            rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-              showFieldError('phone') ? 'border-red-500/50' : 'border-surface-border'
-            }`}>
-            <Phone size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
-            <input
-              value={form.phone}
-              onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-              onBlur={() => {
-                markTouched('phone');
-                setFieldErrors(prev => ({ ...prev, phone: validateSingleField('phone') }));
-              }}
-              placeholder="+1 555 000 0000"
-              required
-              inputMode="tel"
-              autoComplete="tel"
-              className="flex-1 min-w-0 bg-transparent text-base text-white outline-none placeholder:text-white/45"
-            />
+        <FieldGroup
+          label="Mobile number"
+          required
+          error={showFieldError('phone') ? fieldErrors.phone : ''}
+          hint={
+            user?.phone && !phoneChanged
+              ? `Current: ${user.phone}`
+              : phoneChanged
+                ? 'Verify your new number with SMS before saving.'
+                : '10-digit mobile (India: starts with 6–9)'
+          }
+        >
+          <div className="flex gap-2">
+            <div className={`flex flex-1 min-w-0 items-center bg-surface-card border
+              rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                showFieldError('phone') ? 'border-red-500/50' : 'border-surface-border'
+              }`}>
+              <Phone size={17} className="text-white mr-3 group-focus-within:text-gold transition-colors flex-shrink-0" />
+              <input
+                value={form.mobile}
+                onChange={e => {
+                  const v = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setForm(f => ({ ...f, mobile: v }));
+                }}
+                onBlur={() => {
+                  markTouched('phone');
+                  setFieldErrors(prev => ({ ...prev, phone: validateSingleField('phone') }));
+                }}
+                placeholder="9876543210"
+                required
+                inputMode="numeric"
+                autoComplete="tel-national"
+                className="flex-1 min-w-0 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+              />
+            </div>
+            {phoneChanged && (
+              <OtpSendButton
+                label={phoneOtpSent ? 'Resend' : 'Send OTP'}
+                loading={phoneSendLoading}
+                disabled={!mobileValid}
+                onClick={handleSendPhoneOtp}
+              />
+            )}
           </div>
         </FieldGroup>
+
+        {phoneChanged && (
+          <FieldGroup
+            label="SMS verification code"
+            required
+            error={showFieldError('phoneOtp') ? fieldErrors.phoneOtp : ''}
+            hint="Enter the 6-digit code sent to your new number"
+          >
+            <input
+              value={phoneOtp}
+              onChange={e => {
+                setPhoneOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                setFieldErrors(prev => ({ ...prev, phoneOtp: '' }));
+              }}
+              onBlur={() => markTouched('phoneOtp')}
+              placeholder="123456"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              className={`w-full bg-surface-card border rounded-xl px-4 py-3.5 text-base text-white font-mono tracking-widest outline-none focus:border-gold/50 ${
+                showFieldError('phoneOtp') ? 'border-red-500/50' : 'border-surface-border'
+              }`}
+            />
+          </FieldGroup>
+        )}
 
         <FieldGroup label="Country / Region" required error={showFieldError('country') ? fieldErrors.country : ''}>
           <div className={`flex items-center bg-surface-card border

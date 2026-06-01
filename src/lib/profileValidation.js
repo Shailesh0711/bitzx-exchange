@@ -3,6 +3,7 @@
 import {
   validateStrongPassword,
   validateAuthEmail,
+  validateSignupMobile,
   AUTH_PASSWORD_MAX,
   STRONG_PASSWORD_MIN,
 } from './authValidation';
@@ -21,23 +22,28 @@ export const PASSWORD_CHANGE_MAX = AUTH_PASSWORD_MAX;
 /**
  * @returns {Record<string, string>}
  */
-export function validateProfileForm({ name, phone, country, bio }) {
+/** National digits from stored E.164 (defaults to India +91). */
+export function nationalFromStoredPhone(phone, countryCode = '91') {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  const cc = String(countryCode ?? '91').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith(cc) && digits.length > cc.length) return digits.slice(cc.length);
+  if (digits.length === 10) return digits;
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+export function validateProfileForm({ name, mobile, country, bio }) {
   const e = {};
   const n = (name || '').trim();
   if (n.length < PROFILE_NAME_MIN) e.name = `Display name must be at least ${PROFILE_NAME_MIN} characters.`;
   else if (n.length > PROFILE_NAME_MAX) e.name = `Display name must be ${PROFILE_NAME_MAX} characters or less.`;
 
-  const ph = (phone || '').trim();
-  if (!ph || ph.length < 8) {
-    e.phone = 'Enter a phone number (at least 8 characters, include country code).';
-  } else if (ph.length > PROFILE_PHONE_MAX) {
-    e.phone = `Phone must be ${PROFILE_PHONE_MAX} characters or less.`;
-  } else if (!/^[\d\s+().-]+$/.test(ph)) {
-    e.phone = 'Use only digits, spaces, +, (, ), and -.';
+  const mob = String(mobile ?? '').replace(/\D/g, '');
+  if (!mob) {
+    e.phone = 'Enter your 10-digit mobile number.';
   } else {
-    const digits = ph.replace(/\D/g, '');
-    if (digits.length < 7) e.phone = 'Phone number needs at least 7 digits.';
-    else if (digits.length > 15) e.phone = 'Phone number has too many digits (max 15).';
+    const mobErr = validateSignupMobile(mob);
+    if (mobErr) e.phone = mobErr;
   }
 
   const c = (country || '').trim();
@@ -51,7 +57,7 @@ export function validateProfileForm({ name, phone, country, bio }) {
 }
 
 export function firstProfileError(errors) {
-  for (const k of ['name', 'phone', 'country', 'bio']) {
+  for (const k of ['name', 'phone', 'phoneOtp', 'country', 'bio']) {
     if (errors[k]) return errors[k];
   }
   return null;

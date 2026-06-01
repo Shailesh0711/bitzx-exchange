@@ -33,7 +33,7 @@ const PERKS = [
 ];
 
 const emptyRegisterFieldErrors = () => ({
-  name: '', email: '', mobile: '', password: '', confirm: '', terms: '',
+  name: '', email: '', mobile: '', password: '', confirm: '', terms: '', emailOtp: '', smsOtp: '',
 });
 
 const TICKER = [
@@ -43,8 +43,34 @@ const TICKER = [
   { pair: 'SOL/USDT', price: '$186',    change: '-0.71%', up: false },
 ];
 
+function OtpSendButton({ label, loading, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || loading}
+      className="flex-shrink-0 px-3 sm:px-4 py-3.5 rounded-xl text-xs sm:text-sm font-bold
+        border border-gold/40 text-gold-light bg-gold/5
+        hover:bg-gold/15 active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none"
+    >
+      {loading ? (
+        <span className="inline-block w-4 h-4 border-2 border-gold-light border-t-transparent rounded-full animate-spin" />
+      ) : (
+        label
+      )}
+    </button>
+  );
+}
+
 export default function RegisterPage() {
-  const { registerRequest } = useAuth();
+  const {
+    registerRequest,
+    registerMobileSendOtp,
+    registerVerifyEmail,
+    registerVerifyMobile,
+    registerComplete,
+    registerResend,
+  } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
@@ -73,6 +99,18 @@ export default function RegisterPage() {
   const [showPw, setShowPw] = useState(false);
   const [agree, setAgree] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [emailOtp, setEmailOtp] = useState('');
+  const [smsOtp, setSmsOtp] = useState('');
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [smsOtpSent, setSmsOtpSent] = useState(false);
+  const [smsVerified, setSmsVerified] = useState(false);
+  const [phoneHint, setPhoneHint] = useState('');
+  const [success, setSuccess] = useState('');
+  const [emailSendLoading, setEmailSendLoading] = useState(false);
+  const [emailVerifyLoading, setEmailVerifyLoading] = useState(false);
+  const [smsSendLoading, setSmsSendLoading] = useState(false);
+  const [smsVerifyLoading, setSmsVerifyLoading] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState(emptyRegisterFieldErrors);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -88,70 +126,209 @@ export default function RegisterPage() {
 
   const strengthMeta = getPasswordStrengthMeta(password);
 
-  const handleSubmit = async e => {
-    e.preventDefault();
-    setSubmitAttempted(true);
-    setError('');
-    setFieldErrors(emptyRegisterFieldErrors());
+  const emailTrimmed = email.trim();
+  const emailValidForOtp = !validateAuthEmail(emailTrimmed);
+  const mobileDigits = mobile.replace(/\D/g, '');
+  let mobileNat = mobileDigits;
+  if (mobileNat.length === 12 && mobileNat.startsWith('91')) mobileNat = mobileNat.slice(2);
+  const mobileValidForOtp = mobileNat.length === 10 && !validateSignupMobile(mobile);
+
+  const validateSignupForm = () => {
     const nm = name.trim();
-    const em = email.trim();
+    const em = emailTrimmed;
     const mob = mobile.trim();
-    if (!mob) {
-      const t = 'Mobile number is required.';
-      setFieldErrors({ ...emptyRegisterFieldErrors(), mobile: t });
-      setError(t);
-      return;
-    }
-    const mobErr = validateSignupMobile(mob);
-    if (mobErr) {
-      setFieldErrors({ ...emptyRegisterFieldErrors(), mobile: mobErr });
-      setError(mobErr);
-      return;
+    const errs = emptyRegisterFieldErrors();
+    if (!mob) errs.mobile = 'Mobile number is required.';
+    else {
+      const mobErr = validateSignupMobile(mob);
+      if (mobErr) errs.mobile = mobErr;
     }
     const regErr = validateRegisterFields({ name: nm, email: em, password });
-    if (Object.keys(regErr).length) {
-      setFieldErrors({ ...emptyRegisterFieldErrors(), ...regErr });
-      setError(authFormBannerMessage(regErr, firstRegisterError(regErr)));
-      return;
-    }
+    Object.assign(errs, regErr);
     const cErr = validateRegisterConfirm(password, confirm);
-    if (cErr) {
-      setFieldErrors({ ...emptyRegisterFieldErrors(), confirm: cErr });
-      setError(cErr);
+    if (cErr) errs.confirm = cErr;
+    if (!agree) errs.terms = 'Please accept the Terms of Service.';
+    const filtered = Object.fromEntries(Object.entries(errs).filter(([, v]) => v));
+    return { nm, em, mob, errs: filtered };
+  };
+
+  const resetEmailVerification = () => {
+    setEmailOtpSent(false);
+    setEmailVerified(false);
+    setEmailOtp('');
+  };
+
+  const resetSmsVerification = () => {
+    setSmsOtpSent(false);
+    setSmsVerified(false);
+    setSmsOtp('');
+    setPhoneHint('');
+  };
+
+  const linkContact = () => ({
+    mobile: mobileDigits || undefined,
+    email: emailTrimmed || undefined,
+    countryCode: countryCode || undefined,
+  });
+
+  const handleSendEmailOtp = async () => {
+    setError('');
+    setSuccess('');
+    const em = emailTrimmed;
+    const emailErr = validateAuthEmail(em);
+    if (emailErr) {
+      setFieldErrors(f => ({ ...emptyRegisterFieldErrors(), email: emailErr }));
+      setTouched(t => ({ ...t, email: true }));
       return;
     }
-    if (!agree) {
-      const t = 'Please accept the Terms of Service.';
-      setFieldErrors({ ...emptyRegisterFieldErrors(), terms: t });
-      setError(t);
-      return;
-    }
-    setLoading(true);
+
+    setEmailSendLoading(true);
     try {
-      const data = await registerRequest(nm, em, password, mob, countryCode);
-      navigate('/verify-email', {
-        state: {
-          email: em,
-          verifyChannel: data.verify_channel || 'both',
-          phoneHint: data.phone_hint || '',
-          emailHint: data.email_hint || '',
-        },
-      });
+      if (emailOtpSent && !emailVerified) {
+        await registerResend(em, 'email');
+        setEmailOtp('');
+        setSuccess('A new code has been sent to your email.');
+      } else {
+        const { mobile: mob, countryCode: cc } = linkContact();
+        const data = await registerRequest(em, mob, cc);
+        setEmailOtpSent(true);
+        if (data.phone_hint) setPhoneHint(data.phone_hint);
+        setEmailOtp('');
+        setSuccess(data.message || 'Verification code sent to your email.');
+      }
     } catch (err) {
       if (isAuthRequestError(err) && err.fieldErrors) {
         setFieldErrors({
+          ...emptyRegisterFieldErrors(),
           name: err.fieldErrors.name || '',
           email: err.fieldErrors.email || '',
-          mobile: err.fieldErrors.mobile || '',
+          mobile: err.fieldErrors.mobile || err.fieldErrors.phone || '',
           password: err.fieldErrors.password || '',
-          confirm: '',
-          terms: '',
         });
         setError(err.message);
       } else {
-        setFieldErrors(emptyRegisterFieldErrors());
-        setError(err.message || 'Registration failed. Please try again.');
+        setError(err.message || 'Could not send email code.');
       }
+    } finally {
+      setEmailSendLoading(false);
+    }
+  };
+
+  const handleVerifyEmailOtp = async () => {
+    setError('');
+    setSuccess('');
+    const em = email.trim();
+    if (!emailOtp || emailOtp.trim().length < 6) {
+      setFieldErrors(f => ({ ...f, emailOtp: 'Enter the 6-digit email code' }));
+      return;
+    }
+    setFieldErrors(f => ({ ...f, emailOtp: '' }));
+    setEmailVerifyLoading(true);
+    try {
+      const data = await registerVerifyEmail(em, emailOtp.trim());
+      setEmailVerified(true);
+      setSuccess(data?.message || 'Email verified.');
+    } catch (err) {
+      setError(err.message || 'Invalid email code.');
+    } finally {
+      setEmailVerifyLoading(false);
+    }
+  };
+
+  const handleSendSmsOtp = async () => {
+    setError('');
+    setSuccess('');
+    const mobErr = validateSignupMobile(mobile);
+    if (mobErr || !mobileValidForOtp) {
+      setFieldErrors(f => ({
+        ...emptyRegisterFieldErrors(),
+        mobile: mobErr || 'Enter a valid 10-digit mobile number.',
+      }));
+      setTouched(t => ({ ...t, mobile: true }));
+      return;
+    }
+    setSmsSendLoading(true);
+    try {
+      const em = emailTrimmed;
+      let data;
+      if (smsOtpSent && !smsVerified && em) {
+        data = await registerResend(em, 'sms');
+      } else {
+        data = await registerMobileSendOtp(mobileDigits, em || undefined, countryCode);
+      }
+      if (data.phone_hint) setPhoneHint(data.phone_hint);
+      setSmsOtpSent(true);
+      setSmsOtp('');
+      setSuccess(data.message || 'SMS code sent.');
+    } catch (err) {
+      setError(err.message || 'Could not send SMS code.');
+    } finally {
+      setSmsSendLoading(false);
+    }
+  };
+
+  const handleVerifySmsOtp = async () => {
+    setError('');
+    setSuccess('');
+    if (!smsOtp || smsOtp.trim().length < 6) {
+      setFieldErrors(f => ({ ...f, smsOtp: 'Enter the 6-digit SMS code' }));
+      return;
+    }
+    setFieldErrors(f => ({ ...f, smsOtp: '' }));
+    setSmsVerifyLoading(true);
+    try {
+      const data = await registerVerifyMobile(
+        emailTrimmed,
+        mobileDigits,
+        countryCode,
+        smsOtp.trim(),
+      );
+      setSmsVerified(true);
+      setSuccess(data?.message || 'Mobile verified.');
+    } catch (err) {
+      setError(err.message || 'Invalid SMS code.');
+    } finally {
+      setSmsVerifyLoading(false);
+    }
+  };
+
+  const handleCreateAccount = async e => {
+    e.preventDefault();
+    setSubmitAttempted(true);
+    setError('');
+    setSuccess('');
+
+    if (!emailVerified) {
+      setError('Verify your email with the code we sent.');
+      return;
+    }
+    if (!smsVerified) {
+      setError('Verify your mobile with the SMS code we sent.');
+      return;
+    }
+
+    const { nm, em, mob, errs } = validateSignupForm();
+    if (Object.keys(errs).length) {
+      setFieldErrors({ ...emptyRegisterFieldErrors(), ...errs });
+      setError(firstRegisterError(errs) || authFormBannerMessage(errs, 'Please fix the highlighted fields.'));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await registerComplete(nm, em, password, mob, countryCode);
+      navigate('/kyc', { replace: true, state: { justRegistered: true } });
+    } catch (err) {
+      if (isAuthRequestError(err) && err.fieldErrors) {
+        setFieldErrors({
+          ...emptyRegisterFieldErrors(),
+          name: err.fieldErrors.name || '',
+          email: err.fieldErrors.email || '',
+          mobile: err.fieldErrors.mobile || err.fieldErrors.phone || '',
+          password: err.fieldErrors.password || '',
+        });
+      }
+      setError(err.message || 'Could not create account.');
     } finally {
       setLoading(false);
     }
@@ -274,8 +451,15 @@ export default function RegisterPage() {
               <span className="flex-shrink-0 mt-0.5">⚠</span> {error}
             </motion.div>
           )}
+          {success && (
+            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+              className="flex items-start gap-3 bg-green-500/10 border border-green-500/25
+                rounded-xl px-4 py-3 mb-6 text-sm text-green-400">
+              <CheckCircle size={16} className="flex-shrink-0 mt-0.5" /> {success}
+            </motion.div>
+          )}
 
-          <form noValidate onSubmit={handleSubmit} className="space-y-4">
+          <form noValidate onSubmit={handleCreateAccount} className="space-y-4">
             {/* Name + Email row */}
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
@@ -311,77 +495,189 @@ export default function RegisterPage() {
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.name}</p>
                 )}
               </div>
-              <div>
+              <div className="sm:col-span-2">
                 <label className="block text-sm font-semibold text-white mb-2">Email</label>
-                <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                  showFieldError('email') ? 'border-red-500/50' : 'border-surface-border'
-                }`}>
-                  <Mail size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => {
-                      setEmail(e.target.value);
-                      setFieldErrors(f => ({ ...f, email: '' }));
-                      setError('');
-                    }}
-                    onBlur={() => {
-                      setTouched(t => ({ ...t, email: true }));
-                      const msg = validateAuthEmail(email);
-                      setFieldErrors(f => ({ ...f, email: msg || '' }));
-                    }}
-                    placeholder="you@email.com"
-                    autoComplete="email"
-                    aria-invalid={Boolean(fieldErrors.email)}
-                    className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+                <div className="flex gap-2">
+                  <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                    showFieldError('email') ? 'border-red-500/50' : 'border-surface-border'
+                  }`}>
+                    <Mail size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
+                    <input
+                      type="email"
+                      value={email}
+                      disabled={emailVerified}
+                      onChange={e => {
+                        setEmail(e.target.value);
+                        setFieldErrors(f => ({ ...f, email: '' }));
+                        setError('');
+                        setSuccess('');
+                        if (emailOtpSent) resetEmailVerification();
+                      }}
+                      onBlur={() => {
+                        setTouched(t => ({ ...t, email: true }));
+                        const msg = validateAuthEmail(email);
+                        setFieldErrors(f => ({ ...f, email: msg || '' }));
+                      }}
+                      placeholder="you@email.com"
+                      autoComplete="email"
+                      aria-invalid={Boolean(fieldErrors.email)}
+                      className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45 disabled:opacity-60"
+                    />
+                  </div>
+                  <OtpSendButton
+                    label={emailOtpSent && !emailVerified ? 'Resend' : 'Send OTP'}
+                    loading={emailSendLoading}
+                    disabled={emailVerified || !emailValidForOtp}
+                    onClick={handleSendEmailOtp}
                   />
                 </div>
                 {showFieldError('email') && (
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.email}</p>
+                )}
+                {emailVerified && (
+                  <p className="text-xs text-green-400 mt-1.5 font-medium flex items-center gap-1">
+                    <CheckCircle size={12} /> Email verified
+                  </p>
+                )}
+                {emailOtpSent && !emailVerified && (
+                  <div className="flex gap-2 mt-2">
+                    <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 ${
+                      fieldErrors.emailOtp ? 'border-red-500/50' : 'border-surface-border'
+                    }`}>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={emailOtp}
+                        onChange={e => {
+                          setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                          setFieldErrors(f => ({ ...f, emailOtp: '' }));
+                        }}
+                        placeholder="Email OTP (6 digits)"
+                        autoComplete="one-time-code"
+                        className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45 tracking-widest"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyEmailOtp}
+                      disabled={emailVerifyLoading || emailOtp.length < 6}
+                      className="flex-shrink-0 px-4 py-3 rounded-xl text-sm font-bold
+                        bg-gradient-to-r from-gold to-gold-light text-surface-dark
+                        disabled:opacity-40"
+                    >
+                      {emailVerifyLoading ? (
+                        <span className="inline-block w-4 h-4 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        'Verify'
+                      )}
+                    </button>
+                  </div>
+                )}
+                {fieldErrors.emailOtp && (
+                  <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.emailOtp}</p>
                 )}
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-semibold text-white mb-2">
-                Mobile <span className="text-white/45 font-normal">(required for SMS verification)</span>
+                Mobile <span className="text-white/45 font-normal">(SMS verification)</span>
               </label>
-              <div className={`flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
-                showFieldError('mobile') ? 'border-red-500/50' : 'border-surface-border'
-              }`}>
-                {countryCode ? (
-                  <span className="text-sm font-bold text-gold-light mr-2 tabular-nums">+{countryCode}</span>
-                ) : null}
-                <Phone size={16} className="text-white mr-2 group-focus-within:text-gold transition-colors" />
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  value={mobile}
-                  onChange={e => {
-                    setMobile(e.target.value.replace(/[^\d\s+-]/g, ''));
-                    setFieldErrors(f => ({ ...f, mobile: '' }));
-                    setError('');
-                  }}
-                  onBlur={() => {
-                    setTouched(t => ({ ...t, mobile: true }));
-                    if (!mobile.trim()) {
-                      setFieldErrors(f => ({ ...f, mobile: 'Mobile number is required.' }));
-                      return;
-                    }
-                    const msg = validateSignupMobile(mobile);
-                    setFieldErrors(f => ({ ...f, mobile: msg || '' }));
-                  }}
-                  placeholder="10-digit mobile number"
-                  autoComplete="tel-national"
-                  aria-invalid={Boolean(fieldErrors.mobile)}
-                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45"
+              <div className="flex gap-2">
+                <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
+                  showFieldError('mobile') ? 'border-red-500/50' : 'border-surface-border'
+                }`}>
+                  {countryCode ? (
+                    <span className="text-sm font-bold text-gold-light mr-2 tabular-nums">+{countryCode}</span>
+                  ) : null}
+                  <Phone size={16} className="text-white mr-2 group-focus-within:text-gold transition-colors" />
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={mobile}
+                    disabled={smsVerified}
+                    onChange={e => {
+                      setMobile(e.target.value.replace(/\D/g, '').slice(0, 10));
+                      setFieldErrors(f => ({ ...f, mobile: '' }));
+                      setError('');
+                      setSuccess('');
+                      if (smsOtpSent) resetSmsVerification();
+                    }}
+                    onBlur={() => {
+                      setTouched(t => ({ ...t, mobile: true }));
+                      if (!mobile.trim()) {
+                        setFieldErrors(f => ({ ...f, mobile: 'Mobile number is required.' }));
+                        return;
+                      }
+                      const msg = validateSignupMobile(mobile);
+                      setFieldErrors(f => ({ ...f, mobile: msg || '' }));
+                    }}
+                    placeholder="10-digit mobile number"
+                    autoComplete="tel-national"
+                    aria-invalid={Boolean(fieldErrors.mobile)}
+                    className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45 disabled:opacity-60"
+                  />
+                </div>
+                <OtpSendButton
+                  label={smsOtpSent && !smsVerified ? 'Resend' : 'Send OTP'}
+                  loading={smsSendLoading}
+                  disabled={smsVerified || !mobileValidForOtp}
+                  onClick={handleSendSmsOtp}
                 />
               </div>
               <p className="text-[11px] text-white/50 mt-1.5">
-                We email you a code first; after email verification we send a separate SMS code.
+                {smsVerified
+                  ? 'Mobile verified.'
+                  : smsOtpSent
+                    ? `SMS code${phoneHint ? ` sent to ${phoneHint}` : ''}. Use Resend if you did not receive it.`
+                    : 'Enter a valid 10-digit number and tap Send OTP — no need to verify email first.'}
               </p>
               {showFieldError('mobile') && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.mobile}</p>
+              )}
+              {smsVerified && (
+                <p className="text-xs text-green-400 mt-1.5 font-medium flex items-center gap-1">
+                  <CheckCircle size={12} /> Mobile verified
+                </p>
+              )}
+              {smsOtpSent && !smsVerified && (
+                <div className="flex gap-2 mt-2">
+                  <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 ${
+                    fieldErrors.smsOtp ? 'border-red-500/50' : 'border-surface-border'
+                  }`}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={smsOtp}
+                      onChange={e => {
+                        setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                        setFieldErrors(f => ({ ...f, smsOtp: '' }));
+                      }}
+                      placeholder="SMS OTP (6 digits)"
+                      autoComplete="one-time-code"
+                      className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45 tracking-widest"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleVerifySmsOtp}
+                    disabled={smsVerifyLoading || smsOtp.length < 6}
+                    className="flex-shrink-0 px-4 py-3 rounded-xl text-sm font-bold
+                      bg-gradient-to-r from-gold to-gold-light text-surface-dark
+                      disabled:opacity-40"
+                  >
+                    {smsVerifyLoading ? (
+                      <span className="inline-block w-4 h-4 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      'Verify'
+                    )}
+                  </button>
+                </div>
+              )}
+              {fieldErrors.smsOtp && (
+                <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.smsOtp}</p>
               )}
             </div>
 
@@ -505,12 +801,15 @@ export default function RegisterPage() {
             )}
 
             {/* Submit */}
-            <button type="submit" disabled={loading}
+            <button
+              type="submit"
+              disabled={loading || !emailVerified || !smsVerified}
               className="w-full flex items-center justify-center gap-2.5
                 bg-gradient-to-r from-gold to-gold-light text-surface-dark
                 font-bold text-base py-4 rounded-xl mt-2
                 hover:shadow-lg hover:shadow-gold/20 hover:scale-[1.01]
-                active:scale-[0.99] transition-all disabled:opacity-50">
+                active:scale-[0.99] transition-all disabled:opacity-50"
+            >
               {loading
                 ? <div className="w-5 h-5 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" />
                 : <><span>Create Free Account</span> <ArrowRight size={18} /></>}

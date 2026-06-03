@@ -1,7 +1,7 @@
 /**
  * BZX ↔ USDT instant swap + recent swap history (wallet tab).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowDownUp, ArrowRight, ChevronDown, ChevronUp,
@@ -10,12 +10,15 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { COIN_ICONS } from '@/services/marketApi';
 import {
+  fetchSwapConfig,
   fetchSwapQuote,
   executeSwap,
   fetchSwapOrderHistory,
 } from '@/services/walletSwapApi';
+import { buildLocalSwapQuote } from '@/lib/swapEstimate';
 
 const PCT = [0.25, 0.5, 0.75, 1];
+const QUOTE_DEBOUNCE_MS = 160;
 
 function num(v) {
   const n = typeof v === 'string' ? parseFloat(v) : Number(v);
@@ -85,12 +88,15 @@ export default function BzxSwapPanel() {
   const [direction, setDirection] = useState('bzx_to_usdt');
   const [amount, setAmount] = useState('');
   const [quote, setQuote] = useState(null);
-  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteSyncing, setQuoteSyncing] = useState(false);
+  const quoteAbortRef = useRef(null);
+  const quoteSeqRef = useRef(0);
   const [swapping, setSwapping] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [swapConfig, setSwapConfig] = useState(null);
 
   const fromAsset = direction === 'bzx_to_usdt' ? 'BZX' : 'USDT';
   const toAsset = direction === 'bzx_to_usdt' ? 'USDT' : 'BZX';
@@ -112,10 +118,16 @@ export default function BzxSwapPanel() {
     return payBalance;
   }, [payBalance, quote]);
 
+  const feeTotal = useMemo(() => {
+    if (!quote) return 0;
+    if (quote.fee_bzx_total != null) return num(quote.fee_bzx_total);
+    return num(quote.fee_bzx_estimated) + num(quote.trading_fee_bzx_estimated);
+  }, [quote]);
+
   const feeOk = useMemo(() => {
-    if (!quote?.fee_bzx_estimated) return true;
-    return bzxBal + 1e-9 >= num(quote.fee_bzx_estimated);
-  }, [quote, bzxBal]);
+    if (feeTotal <= 0) return true;
+    return bzxBal + 1e-9 >= feeTotal;
+  }, [feeTotal, bzxBal]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -132,6 +144,12 @@ export default function BzxSwapPanel() {
     void loadHistory();
   }, [loadHistory]);
 
+  useEffect(() => {
+    fetchSwapConfig()
+      .then(setSwapConfig)
+      .catch(() => setSwapConfig(null));
+  }, []);
+
   const flip = () => {
     setDirection((d) => (d === 'bzx_to_usdt' ? 'usdt_to_bzx' : 'bzx_to_usdt'));
     setQuote(null);
@@ -139,28 +157,48 @@ export default function BzxSwapPanel() {
     setSuccess('');
   };
 
-  const loadQuote = useCallback(async () => {
-    const n = parseFloat(amount);
-    if (!Number.isFinite(n) || n <= 0) {
+  const applyLocalQuote = useCallback((n, dir) => {
+    if (!swapConfig || !Number.isFinite(n) || n <= 0) {
       setQuote(null);
       return;
     }
-    setQuoteLoading(true);
-    setError('');
-    try {
-      setQuote(await fetchSwapQuote(direction, n));
-    } catch (e) {
-      setQuote(null);
-      setError(e.message || 'Could not load quote');
-    } finally {
-      setQuoteLoading(false);
-    }
-  }, [amount, direction]);
+    const px = num(swapConfig.bzx_price_usdt) || 0;
+    if (px <= 0) return;
+    const avail = dir === 'bzx_to_usdt' ? bzxBal : usdtBal;
+    setQuote(buildLocalSwapQuote(dir, n, px, swapConfig, avail));
+  }, [swapConfig, bzxBal, usdtBal]);
 
   useEffect(() => {
-    const t = setTimeout(() => { void loadQuote(); }, 400);
-    return () => clearTimeout(t);
-  }, [loadQuote]);
+    const n = parseFloat(amount);
+    if (!Number.isFinite(n) || n <= 0) {
+      setQuote(null);
+      setQuoteSyncing(false);
+      return;
+    }
+    applyLocalQuote(n, direction);
+    const seq = ++quoteSeqRef.current;
+    const t = setTimeout(async () => {
+      quoteAbortRef.current?.abort?.();
+      const ac = new AbortController();
+      quoteAbortRef.current = ac;
+      setQuoteSyncing(true);
+      try {
+        const q = await fetchSwapQuote(direction, n);
+        if (seq !== quoteSeqRef.current) return;
+        setQuote(q);
+        setError('');
+      } catch (e) {
+        if (ac.signal.aborted || seq !== quoteSeqRef.current) return;
+        setError(e.message || 'Could not load quote');
+      } finally {
+        if (seq === quoteSeqRef.current) setQuoteSyncing(false);
+      }
+    }, QUOTE_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(t);
+      quoteAbortRef.current?.abort?.();
+    };
+  }, [amount, direction, applyLocalQuote, swapConfig]);
 
   const setPct = (p) => {
     if (available <= 0) return;
@@ -179,7 +217,7 @@ export default function BzxSwapPanel() {
       return;
     }
     if (!feeOk) {
-      setError(`Need ~${fmt(quote?.fee_bzx_estimated, 4)} BZX for fees.`);
+      setError(`Need ~${fmt(feeTotal || quote?.fee_bzx_total, 4)} BZX for fees.`);
       return;
     }
     setSwapping(true);
@@ -301,7 +339,7 @@ export default function BzxSwapPanel() {
               <div className="rounded-xl border border-gold/20 bg-gold/[0.04] p-4 sm:p-5">
                 <div className="flex justify-between text-[10px] uppercase tracking-wider text-white/50 mb-3">
                   <span>You receive</span>
-                  {quoteLoading ? (
+                  {quoteSyncing ? (
                     <span className="text-gold-light animate-pulse font-semibold">Updating…</span>
                   ) : null}
                 </div>
@@ -323,7 +361,7 @@ export default function BzxSwapPanel() {
             <div className="px-5 sm:px-6 pb-5 sm:pb-6">
               <button
                 type="button"
-                disabled={swapping || quoteLoading || !amount || !feeOk}
+                disabled={swapping || !amount || !quote || !feeOk}
                 onClick={onSwap}
                 className="w-full rounded-xl bg-gradient-to-r from-gold to-gold-light py-4 text-base font-bold text-surface-dark disabled:opacity-50 hover:opacity-95 transition-opacity shadow-lg shadow-gold/20"
               >
@@ -365,9 +403,22 @@ export default function BzxSwapPanel() {
               value={quote ? `${receiveVal} ${toAsset}` : '—'}
             />
             <DetailRow
-              label="Trading fee"
-              value={quote ? `≈ ${fmt(quote.fee_bzx_estimated, 4)} BZX` : 'Charged in BZX'}
+              label="Swap platform fee"
+              value={quote ? `≈ ${fmt(quote.fee_bzx_estimated, 4)} BZX` : (
+                swapConfig
+                  ? `${(num(swapConfig.swap_fee_rate) * 100).toFixed(2)}% + ${fmt(swapConfig.swap_fee_bzx_fixed, 4)} BZX`
+                  : 'Set in admin'
+              )}
             />
+            {quote?.trading_fee_bzx_estimated > 0 ? (
+              <DetailRow
+                label="Market order fee"
+                value={`≈ ${fmt(quote.trading_fee_bzx_estimated, 4)} BZX`}
+              />
+            ) : null}
+            {quote && feeTotal > 0 ? (
+              <DetailRow label="Total BZX required" value={`≈ ${fmt(feeTotal, 4)} BZX`} accent="text-gold-light" />
+            ) : null}
             {quote?.min_from_amount != null ? (
               <DetailRow
                 label="Minimum pay"
@@ -376,7 +427,7 @@ export default function BzxSwapPanel() {
             ) : null}
             {!feeOk && quote ? (
               <p className="text-xs text-amber-400/90 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
-                Add BZX for fees — need ~{fmt(quote.fee_bzx_estimated, 4)}, have {fmt(bzxBal, 4)}.
+                Add BZX for fees — need ~{fmt(feeTotal, 4)}, have {fmt(bzxBal, 4)}.
               </p>
             ) : null}
           </div>

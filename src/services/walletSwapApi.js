@@ -4,9 +4,24 @@ import { formatApiDetail } from '@/lib/authValidation';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
+let swapConfigCache = null;
+let swapConfigInflight = null;
+
 async function parseErr(res) {
   const data = await res.json().catch(() => ({}));
   throw new Error(formatApiDetail(data?.detail) || data?.message || 'Request failed');
+}
+
+export async function fetchSwapConfig(force = false) {
+  if (!force && swapConfigCache) return swapConfigCache;
+  if (!force && swapConfigInflight) return swapConfigInflight;
+  swapConfigInflight = (async () => {
+    const res = await authFetch(`${API}/api/wallet/swap/config`);
+    if (!res.ok) await parseErr(res);
+    swapConfigCache = await res.json();
+    return swapConfigCache;
+  })().finally(() => { swapConfigInflight = null; });
+  return swapConfigInflight;
 }
 
 export async function fetchSwapQuote(direction, amount) {

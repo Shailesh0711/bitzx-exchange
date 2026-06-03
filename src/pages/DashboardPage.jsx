@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { COIN_ICONS, exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
+import HomeBannerCarousel from '@/components/dashboard/HomeBannerCarousel';
 
 const PIE_COLORS = ['#9C7941', '#3b82f6', '#a855f7', '#10b981', '#f59e0b', '#ef4444', '#6366f1', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -311,6 +312,8 @@ export default function DashboardPage() {
             </div>
           </div>
         </motion.div>
+
+        <HomeBannerCarousel className="mb-8" height="300px" />
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[

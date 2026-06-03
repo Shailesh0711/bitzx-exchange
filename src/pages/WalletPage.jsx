@@ -4,7 +4,7 @@ import QrImagePreview from '@/components/ui/QrImagePreview';
 import {
   Wallet,   ArrowDownCircle, ArrowUpCircle, RefreshCw, Clock, BarChart2,
   CheckCircle, XCircle, AlertCircle, ChevronDown, Copy, Check,
-  ExternalLink, Info, Shield, ScrollText, TrendingUp, IndianRupee,
+  ExternalLink, Info, Shield, ScrollText, TrendingUp, IndianRupee, ArrowLeftRight,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -28,6 +28,7 @@ import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
+import BzxSwapPanel from '@/components/wallet/BzxSwapPanel';
 import { cancelInrWithdrawal, fetchInrDeposits, fetchInrWithdrawals } from '@/services/inrApi';
 import {
   formatInrAmount,
@@ -148,7 +149,7 @@ function AssetSelect({ value, onChange, label, assets }) {
 
 // ── Balances Tab ─────────────────────────────────────────────────────────────
 
-function BalancesTab({ walletAssets, walletLoading, fetchWallet, priceByAsset }) {
+function BalancesTab({ walletAssets, walletLoading, fetchWallet, priceByAsset, onOpenSwap }) {
   const px = a => (a === 'USDT' ? 1 : (priceByAsset[a] ?? 0));
   const totalUSD = walletAssets.reduce((s, w) => s + (w.available + w.locked) * px(w.asset), 0);
   const availUSD = walletAssets.reduce((s, w) => s + w.available * px(w.asset), 0);
@@ -215,6 +216,15 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet, priceByAsset })
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex flex-wrap justify-end gap-2">
+                        {w.asset === 'BZX' && onOpenSwap ? (
+                          <button
+                            type="button"
+                            onClick={onOpenSwap}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-gold/15 text-gold-light border border-gold/30 hover:bg-gold/25 transition-colors"
+                          >
+                            Swap
+                          </button>
+                        ) : null}
                         <Link
                           to={`/trade/${w.asset}USDT?side=buy`}
                           className="text-xs font-bold px-3 py-1.5 rounded-lg bg-green-500/15 text-green-400 border border-green-500/25 hover:bg-green-500/25 transition-colors"
@@ -2115,6 +2125,7 @@ function LedgerTab() {
 
 const TABS = [
   { id: 'balances',    label: 'Spot balances', icon: Wallet },
+  { id: 'swap',        label: 'Swap',          icon: ArrowLeftRight },
   { id: 'futures',     label: 'Futures',     icon: TrendingUp },
   { id: 'deposit',     label: 'Deposit',     icon: ArrowDownCircle },
   { id: 'withdraw',    label: 'Withdraw',    icon: ArrowUpCircle },
@@ -2252,7 +2263,16 @@ export default function WalletPage() {
         {/* Tab content */}
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-            {tab === 'balances'  && <BalancesTab walletAssets={walletAssets} walletLoading={walletLoading} fetchWallet={fetchWallet} priceByAsset={priceByAsset} />}
+            {tab === 'balances'  && (
+              <BalancesTab
+                walletAssets={walletAssets}
+                walletLoading={walletLoading}
+                fetchWallet={fetchWallet}
+                priceByAsset={priceByAsset}
+                onOpenSwap={() => selectTab('swap')}
+              />
+            )}
+            {tab === 'swap'      && <BzxSwapPanel />}
             {tab === 'futures'   && <FuturesWalletTab />}
             {tab === 'deposit'   && <DepositTab kycBlocked={kycBlocked} kyc={kyc} />}
             {tab === 'withdraw'  && (

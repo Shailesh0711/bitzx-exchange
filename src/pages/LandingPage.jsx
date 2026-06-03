@@ -20,6 +20,7 @@ import LandingPromoModal from '@/components/ui/LandingPromoModal';
 import MobileAppStickyBar from '@/components/ui/MobileAppStickyBar';
 import LandingPlatformFlow from '@/components/landing/LandingPlatformFlow';
 import LandingInrFiat from '@/components/landing/LandingInrFiat';
+import { LandingHomeBanners } from '@/components/dashboard/HomeBannerCarousel';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -424,6 +425,8 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
+      <LandingHomeBanners />
+
       {/* ══════════════════════════════════════════════════════════════════
           PRODUCT STRIP — CoinSwitch-style quick access (Spot · Markets · Portfolio)
           ══════════════════════════════════════════════════════════════════ */}
@@ -438,6 +441,7 @@ export default function LandingPage() {
           <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
             {[
               { to: '/wallet', label: 'Deposit', sub: 'USDT · BEP-20 search', icon: Wallet },
+              { to: '/wallet?tab=swap', label: 'Swap', sub: 'BZX ↔ USDT instant', icon: RefreshCw },
               { to: '/trade/BZXUSDT', label: 'Spot trade', sub: 'Limit · Market · Charts', icon: BarChart2 },
               { to: '/bzx-markets', label: 'BZX Markets', sub: 'Web3 · BZX quote', icon: Coins },
               { to: '/markets', label: 'USDT Markets', sub: 'Majors · 24h data', icon: Globe },

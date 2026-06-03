@@ -62,11 +62,14 @@ export const COIN_ICONS = {
   XRP:  'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
   DOGE: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
   ADA:  'https://assets.coingecko.com/coins/images/975/small/cardano.png',
-  POL: 'https://assets.coingecko.com/coins/images/32440/small/polygon.png',
+  POL:  'https://assets.coingecko.com/coins/images/32440/small/polygon.png',
   AVAX: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
   DOT:  'https://assets.coingecko.com/coins/images/12171/small/polkadot.png',
   LINK: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
   LTC:  'https://assets.coingecko.com/coins/images/2/small/litecoin.png',
+  USDT: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
+  USDC: 'https://assets.coingecko.com/coins/images/6319/small/usdc.png',
+  BUSD: 'https://assets.coingecko.com/coins/images/9576/small/BUSD.png',
 };
 
 /** Backend wire symbol for the internal BZX pair. */

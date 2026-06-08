@@ -77,13 +77,12 @@ function useCountdown(initialSeconds) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function EmailVerificationPage() {
-  const { registerVerifyEmail, registerResend } = useAuth();
+  const { registerVerify, registerResend } = useAuth();
   const navigate   = useNavigate();
   const location   = useLocation();
 
+  // Email passed from RegisterPage via router state
   const email = location.state?.email || '';
-  const phoneHint = location.state?.phoneHint || '';
-  const emailHint = location.state?.emailHint || '';
 
   const [digits,    setDigits]    = useState(Array(OTP_LENGTH).fill(''));
   const [focusIdx,  setFocusIdx]  = useState(0);
@@ -167,13 +166,10 @@ export default function EmailVerificationPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await registerVerifyEmail(email, code);
+      await registerVerify(email, code);
       setVerified(true);
-      setSuccess(data?.message || 'Email verified! Check your phone for the SMS code.');
-      setTimeout(() => navigate('/verify-mobile', {
-        replace: true,
-        state: { email, phoneHint, emailHint },
-      }), 1200);
+      setSuccess('Email verified! Redirecting…');
+      setTimeout(() => navigate('/kyc', { replace: true }), 1500);
     } catch (err) {
       setError(err.message || 'Invalid code. Please try again.');
       // Shake boxes on error — clear and refocus
@@ -191,7 +187,7 @@ export default function EmailVerificationPage() {
     setSuccess('');
     setDigits(Array(OTP_LENGTH).fill(''));
     try {
-      await registerResend(email, 'email');
+      await registerResend(email);
       setSuccess('A new code has been sent to your email.');
       timer.start(RESEND_COOLDOWN_SEC);
       setTimeout(() => focusBox(0), 80);
@@ -202,14 +198,14 @@ export default function EmailVerificationPage() {
     }
   };
 
-  const maskedEmail = emailHint || (email
+  const maskedEmail = email
     ? (() => {
         const [local, domain] = email.split('@');
         if (!domain) return email;
         const hint = local.length <= 2 ? `${local[0]}***` : `${local.slice(0, 2)}***`;
         return `${hint}@${domain}`;
       })()
-    : '');
+    : '';
 
   return (
     <div className="min-h-screen bg-surface-dark flex flex-col lg:flex-row">
@@ -252,10 +248,8 @@ export default function EmailVerificationPage() {
             <span className="text-gradient">inbox</span>
           </h2>
           <p className="text-white/60 text-base leading-relaxed mb-10">
-            Step 1 of 2: enter the code we sent to your email. After this step we send a separate
-            SMS code to{' '}
-            <span className="text-gold-light font-semibold">{phoneHint || 'your phone'}</span>.
-            Codes expire in&nbsp;<span className="text-gold-light font-semibold">15 minutes</span>.
+            We sent a 6-digit code to your email to confirm it's really you.
+            The code expires in&nbsp;<span className="text-gold-light font-semibold">15 minutes</span>.
           </p>
 
           {/* Info cards */}
@@ -329,7 +323,7 @@ export default function EmailVerificationPage() {
                   <CheckCircle2 size={32} className="text-green-400" />
                 </div>
                 <p className="text-lg font-extrabold text-white">Email verified!</p>
-                <p className="text-sm text-white/50">Next: verify your mobile number…</p>
+                <p className="text-sm text-white/50">Taking you to KYC setup…</p>
                 <div className="w-5 h-5 border-2 border-gold border-t-transparent rounded-full animate-spin mt-2" />
               </motion.div>
             )}
@@ -407,7 +401,7 @@ export default function EmailVerificationPage() {
               >
                 {loading
                   ? <div className="w-5 h-5 border-2 border-surface-dark border-t-transparent rounded-full animate-spin" />
-                  : 'Verify email & continue'}
+                  : 'Confirm & Create Account'}
               </button>
 
               {/* Resend section */}

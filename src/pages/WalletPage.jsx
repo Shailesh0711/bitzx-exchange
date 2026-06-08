@@ -26,6 +26,8 @@ import WalletChainsBanner from '@/components/wallet/WalletChainsBanner';
 import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
 import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
+import DepositMonitorBanner from '@/components/wallet/DepositMonitorBanner';
+import { useDepositMonitor } from '@/hooks/useDepositMonitor';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
 import BzxSwapPanel from '@/components/wallet/BzxSwapPanel';
@@ -1261,6 +1263,7 @@ function HistoryTab() {
   const [error, setError] = useState(null);
   const [cancellingId, setCancellingId] = useState('');
   const [confirmInrCancelRow, setConfirmInrCancelRow] = useState(null);
+  const [monitorNewCount, setMonitorNewCount] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1321,6 +1324,16 @@ function HistoryTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // autoStart=true: the hook starts a session the moment the component mounts
+  // (i.e. the user opens Wallet → History). No button press required.
+  const monitor = useDepositMonitor({
+    autoStart: true,
+    onDeposit: (count) => {
+      setMonitorNewCount(prev => prev + count);
+      load();
+    },
+  });
 
   const onCancelInrWithdrawal = useCallback(async (row) => {
     const id = String(row?.id || '');
@@ -1443,6 +1456,17 @@ function HistoryTab() {
             {onchainTabBtn('deposits', 'Deposits')}
             {onchainTabBtn('withdrawals', 'Withdrawals')}
           </div>
+        </div>
+      )}
+
+      {mainTab === 'onchain' && onchainTab === 'deposits' && (
+        <DepositMonitorBanner monitor={monitor} className="mb-2" />
+      )}
+
+      {mainTab === 'onchain' && onchainTab === 'deposits' && monitorNewCount > 0 && (
+        <div className="rounded-xl bg-green-500/10 border border-green-500/20 px-4 py-2.5 text-xs text-green-300 flex items-center gap-2">
+          <span className="font-semibold">{monitorNewCount} new deposit{monitorNewCount !== 1 ? 's' : ''} detected</span>
+          <span className="text-green-300/60">— list refreshed automatically.</span>
         </div>
       )}
 

@@ -319,12 +319,12 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
           {icon ? (
             <img src={icon} alt={displayBase} className="w-5 h-5 sm:w-6 sm:h-6 rounded-full shrink-0" />
           ) : null}
-          <span className="text-sm sm:text-[15px] font-bold text-white truncate">{displayBase}</span>
-          <span
-            className="text-xs sm:text-[13px] shrink-0"
-            style={{ color: apiQuote === 'BZX' ? '#EBD38D' : '#ffffff' }}
-          >
-            /{apiQuote}
+          <span className="text-sm sm:text-[15px] font-bold text-white truncate shrink-0">
+            {displayBase}
+            <span
+              className="text-xs sm:text-[13px]"
+              style={{ color: apiQuote === 'BZX' ? '#EBD38D' : 'rgba(255,255,255,0.7)' }}
+            >/{apiQuote}</span>
           </span>
           <ChevronDown
             size={13}

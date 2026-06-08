@@ -189,8 +189,8 @@ export default function App() {
     <Routes>
       <Route path="/login"         element={<LoginPage />} />
       <Route path="/register"      element={<RegisterPage />} />
-      <Route path="/verify-email"  element={<Navigate to="/register" replace />} />
       <Route path="/verify-mobile" element={<Navigate to="/register" replace />} />
+      <Route path="/verify-email"  element={<EmailVerificationPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password"  element={<ResetPasswordPage />} />
 
@@ -201,8 +201,7 @@ export default function App() {
         <Route path="/quick-trade"   element={<QuickTradePage />} />
         <Route path="/trade"         element={<TradePage />} />
         <Route path="/trade/:symbol" element={<TradePage />} />
-        <Route path="/futures"           element={<FuturesTradePage />} />
-        <Route path="/futures/:symbol"   element={<FuturesTradePage />} />
+        <Route path="/futures/:symbol?" element={<FuturesTradePage />} />
         <Route path="/options"           element={<Navigate to="/options/BTCUSDT" replace />} />
         <Route
           path="/options/:underlying"

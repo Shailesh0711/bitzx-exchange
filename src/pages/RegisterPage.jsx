@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { exchangeApiOrigin } from '@/lib/apiBase';
 import { motion } from 'framer-motion';
 import {
-  Eye, EyeOff, Lock, Mail, User, ArrowRight, CheckCircle, Phone,
+  Eye, EyeOff, Lock, Mail, User, ArrowRight, CheckCircle,
   TrendingUp, Shield, Zap, BarChart2, Star,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -16,7 +15,6 @@ import {
 import {
   getPasswordStrengthMeta,
   validateAuthEmail,
-  validateSignupMobile,
   validateStrongPassword,
   authFormBannerMessage,
   isAuthRequestError,
@@ -75,25 +73,6 @@ export default function RegisterPage() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [mobile, setMobile] = useState('');
-  const [countryCode, setCountryCode] = useState('');
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const origin = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
-        const res = await fetch(`${origin}/api/public/site-config`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const signup = data?.signup || {};
-        if (cancelled) return;
-        if (signup.default_country_code) setCountryCode(String(signup.default_country_code));
-      } catch {
-        /* country code optional — backend defaults from AUTHKEY_SMS_COUNTRY_CODE */
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -117,7 +96,6 @@ export default function RegisterPage() {
   const [touched, setTouched] = useState({
     name: false,
     email: false,
-    mobile: false,
     password: false,
     confirm: false,
     terms: false,

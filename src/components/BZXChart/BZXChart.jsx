@@ -1,202 +1,244 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * BZXChart — lightweight-charts candlestick + volume with optimised incremental updates.
+ *
+ * Update strategy
+ * ───────────────
+ * • First load or interval switch  → series.setData()  (full replace, sorted + deduped)
+ * • Same last-candle time          → series.update()   (OHLCV patch on live candle)
+ * • New candle appended            → series.update()   (append; library handles scroll)
+ *
+ * This avoids rebuilding the full O(n) dataset on every WS tick (every 1s for
+ * ticker, every 4s for candle) and keeps CPU usage negligible.
+ */
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createChart, CrosshairMode } from 'lightweight-charts';
 import { Loader2 } from 'lucide-react';
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
-/** Default bars in view on first load (recent history, zoomed to the right). */
-const VISIBLE_BARS_BY_INTERVAL = {
-  '1m': 90,
-  '5m': 72,
-  '15m': 64,
-  '1h': 48,
-  '4h': 42,
-  '1d': 36,
-};
-const DEFAULT_VISIBLE_BARS = 72;
-const RIGHT_OFFSET_BARS = 12;
-
-function visibleBarsForInterval(iv) {
-  return VISIBLE_BARS_BY_INTERVAL[iv] ?? DEFAULT_VISIBLE_BARS;
+// Deduplicate by time and sort ascending — required by lightweight-charts.
+function prepareData(raw) {
+  if (!raw?.length) return [];
+  const map = new Map();
+  for (const c of raw) {
+    const t = Number(c.time);
+    if (!Number.isFinite(t) || t <= 0) continue;
+    map.set(t, {
+      time:   t,
+      open:   Number(c.open)   || 0,
+      high:   Number(c.high)   || 0,
+      low:    Number(c.low)    || 0,
+      close:  Number(c.close)  || 0,
+      volume: Number(c.volume) || 0,
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => a.time - b.time);
 }
 
-function focusRecentBars(chart, barCount, intervalKey) {
-  if (!chart || barCount <= 0) return;
-  const visible = Math.min(visibleBarsForInterval(intervalKey), barCount);
-  const from = Math.max(0, barCount - visible);
-  chart.timeScale().setVisibleLogicalRange({ from, to: barCount - 1 });
+function volColor(c) {
+  return c.close >= c.open ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)';
 }
 
-export default function BZXChart({ candles = [], interval = '1m', onIntervalChange, fill = false, loading = false }) {
+export default function BZXChart({
+  candles = [],
+  interval = '1m',
+  onIntervalChange,
+  fill = false,
+  loading = false,
+}) {
   const containerRef = useRef(null);
-  const chartRef = useRef(null);
-  const seriesRef = useRef(null);
-  const volRef = useRef(null);
-  const tooltipRef = useRef(null);
+  const chartRef     = useRef(null);
+  const candleRef    = useRef(null);  // candlestick series
+  const volRef       = useRef(null);  // volume series
+  const tooltipRef   = useRef(null);
   const [active, setActive] = useState(interval);
 
-  const chartData = useMemo(
-    () => (candles || []).map((c) => ({ time: Number(c.time), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close), volume: Number(c.volume || 0) })),
-    [candles],
-  );
+  // Track last data state to choose update vs full setData.
+  const lastLoadKeyRef    = useRef('');   // "<interval>-<firstTime>" — resets on dataset change
+  const lastCandleTimeRef = useRef(null); // time of the last candle we fed to the chart
 
-  useEffect(() => {
-    setActive(interval);
-  }, [interval]);
+  // Keep interval in sync with parent.
+  useEffect(() => { setActive(interval); }, [interval]);
 
-  useEffect(() => {
+  // ── Chart mount / teardown ────────────────────────────────────────────────
+  useLayoutEffect(() => {
     if (!containerRef.current) return undefined;
-    const initialH = fill
-      ? Math.max(200, containerRef.current.clientHeight)
-      : 430;
+    const h = fill ? Math.max(200, containerRef.current.clientHeight) : 430;
     const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height: initialH,
+      width:  containerRef.current.clientWidth,
+      height: h,
       layout: { background: { color: 'transparent' }, textColor: '#c7c9d1' },
-      grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
+      grid: {
+        vertLines: { color: 'rgba(255,255,255,0.03)' },
+        horzLines: { color: 'rgba(255,255,255,0.03)' },
+      },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
       timeScale: {
         borderColor: 'rgba(255,255,255,0.08)',
         timeVisible: true,
-        rightOffset: RIGHT_OFFSET_BARS,
+        secondsVisible: false,
       },
       crosshair: { mode: CrosshairMode.Normal },
     });
     chartRef.current = chart;
 
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444',
+    const cSeries = chart.addCandlestickSeries({
+      upColor: '#22c55e', downColor: '#ef4444',
+      wickUpColor: '#22c55e', wickDownColor: '#ef4444',
       borderVisible: false,
     });
-    const volSeries = chart.addHistogramSeries({
+    const vSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
       priceScaleId: '',
       color: 'rgba(91,184,255,0.4)',
     });
-    volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-    seriesRef.current = candleSeries;
-    volRef.current = volSeries;
+    vSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    candleRef.current = cSeries;
+    volRef.current    = vSeries;
 
+    // Tooltip overlay.
     const tip = document.createElement('div');
-    tip.style.position = 'absolute';
-    tip.style.display = 'none';
-    tip.style.pointerEvents = 'none';
-    tip.style.padding = '8px 10px';
-    tip.style.background = 'rgba(8,10,14,0.92)';
-    tip.style.border = '1px solid rgba(255,255,255,0.15)';
-    tip.style.borderRadius = '8px';
-    tip.style.fontSize = '12px';
-    tip.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, monospace';
-    tip.style.color = '#fff';
-    tip.style.zIndex = '100';
+    Object.assign(tip.style, {
+      position: 'absolute', display: 'none', pointerEvents: 'none',
+      padding: '8px 10px', background: 'rgba(8,10,14,0.92)',
+      border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px',
+      fontSize: '12px', fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace',
+      color: '#fff', zIndex: '100',
+    });
     tooltipRef.current = tip;
     containerRef.current.appendChild(tip);
 
     chart.subscribeCrosshairMove((param) => {
-      if (!param?.point || !param?.time) {
-        tip.style.display = 'none';
-        return;
-      }
-      const c = param.seriesData.get(candleSeries);
-      const v = param.seriesData.get(volSeries);
-      if (!c) {
-        tip.style.display = 'none';
-        return;
-      }
+      if (!param?.point || !param?.time) { tip.style.display = 'none'; return; }
+      const c = param.seriesData.get(cSeries);
+      const v = param.seriesData.get(vSeries);
+      if (!c) { tip.style.display = 'none'; return; }
       tip.style.display = 'block';
-      tip.style.left = `${Math.min(containerRef.current.clientWidth - 170, Math.max(8, param.point.x + 14))}px`;
-      tip.style.top = `${Math.max(8, param.point.y - 14)}px`;
-      tip.innerHTML = `O ${Number(c.open).toFixed(6)}<br/>H ${Number(c.high).toFixed(6)}<br/>L ${Number(c.low).toFixed(6)}<br/>C ${Number(c.close).toFixed(6)}<br/>V ${Number(v?.value || 0).toFixed(2)}`;
+      const w = containerRef.current?.clientWidth ?? 600;
+      tip.style.left = `${Math.min(w - 170, Math.max(8, param.point.x + 14))}px`;
+      tip.style.top  = `${Math.max(8, param.point.y - 14)}px`;
+      const dp = (n) => Number(n) >= 1 ? Number(n).toFixed(4) : Number(n).toFixed(8);
+      tip.innerHTML =
+        `O ${dp(c.open)}<br/>H ${dp(c.high)}<br/>L ${dp(c.low)}<br/>C ${dp(c.close)}<br/>V ${Number(v?.value || 0).toFixed(2)}`;
     });
 
+    // Resize observer.
     const ro = new ResizeObserver(() => {
-      if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth;
-      const h = fill
-        ? Math.max(200, containerRef.current.clientHeight)
-        : 430;
-      chart.applyOptions({ width: w, height: h });
+      if (!containerRef.current || !chartRef.current) return;
+      chartRef.current.applyOptions({
+        width:  containerRef.current.clientWidth,
+        height: fill ? Math.max(200, containerRef.current.clientHeight) : 430,
+      });
     });
     ro.observe(containerRef.current);
 
     return () => {
       ro.disconnect();
-      if (tooltipRef.current && tooltipRef.current.parentNode) {
-        tooltipRef.current.parentNode.removeChild(tooltipRef.current);
-      }
+      if (tooltipRef.current?.parentNode) tooltipRef.current.parentNode.removeChild(tooltipRef.current);
       chart.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-      volRef.current = null;
+      chartRef.current = candleRef.current = volRef.current = null;
+      lastLoadKeyRef.current = '';
+      lastCandleTimeRef.current = null;
     };
   }, [fill]);
 
-  const isFittedRef = useRef(false);
+  // ── Data updates ─────────────────────────────────────────────────────────
+  const chartData = useMemo(() => prepareData(candles), [candles]);
 
   useEffect(() => {
-    isFittedRef.current = false;
-  }, [interval]);
-
-  useEffect(() => {
-    if (!seriesRef.current || !volRef.current) return;
+    const cSeries = candleRef.current;
+    const vSeries = volRef.current;
+    if (!cSeries || !vSeries) return;
 
     if (chartData.length === 0) {
-      isFittedRef.current = false;
+      // Dataset cleared (interval switch or symbol change) — reset refs.
+      lastLoadKeyRef.current    = '';
+      lastCandleTimeRef.current = null;
       return;
     }
 
-    seriesRef.current.setData(chartData);
-    volRef.current.setData(
-      chartData.map((c) => ({
-        time: c.time,
-        value: c.volume,
-        color: c.close >= c.open ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)',
-      })),
-    );
+    const last = chartData[chartData.length - 1];
+    const first = chartData[0];
 
-    if (!isFittedRef.current) {
-      focusRecentBars(chartRef.current, chartData.length, active);
-      isFittedRef.current = true;
+    // Build a load key from interval + first candle time to detect full reloads.
+    const loadKey = `${interval}-${first.time}`;
+
+    const isFullReload = loadKey !== lastLoadKeyRef.current;
+    const prevLastTime = lastCandleTimeRef.current;
+
+    if (isFullReload) {
+      // Full dataset — setData + fit content.
+      try {
+        cSeries.setData(chartData);
+        vSeries.setData(chartData.map((c) => ({ time: c.time, value: c.volume, color: volColor(c) })));
+        chartRef.current?.timeScale().fitContent();
+      } catch {
+        // Malformed data edge case — nothing to do.
+      }
+      lastLoadKeyRef.current    = loadKey;
+      lastCandleTimeRef.current = last.time;
+      return;
     }
-  }, [chartData, active]);
+
+    // Incremental update — only push the last candle.
+    try {
+      cSeries.update(last);
+      vSeries.update({ time: last.time, value: last.volume, color: volColor(last) });
+      // If a new candle was appended (time advanced), scroll timeline to keep it visible.
+      if (prevLastTime !== null && last.time !== prevLastTime) {
+        chartRef.current?.timeScale().scrollToRealTime?.();
+      }
+    } catch {
+      // Fallback: full setData (e.g. library threw on out-of-order time).
+      try {
+        cSeries.setData(chartData);
+        vSeries.setData(chartData.map((c) => ({ time: c.time, value: c.volume, color: volColor(c) })));
+      } catch {
+        // ignore
+      }
+      lastLoadKeyRef.current = loadKey;
+    }
+    lastCandleTimeRef.current = last.time;
+  }, [chartData, interval]);
 
   return (
     <div className="w-full h-full bg-[#0d0f14] flex flex-col">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 shrink-0">
+      {/* Interval selector */}
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/10 shrink-0 flex-wrap">
         {INTERVALS.map((iv) => (
           <button
             key={iv}
             type="button"
-            onClick={() => {
-              setActive(iv);
-              onIntervalChange?.(iv);
-            }}
+            onClick={() => { setActive(iv); onIntervalChange?.(iv); }}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-              active === iv ? 'text-gold-light border-gold/50 bg-gold/10' : 'text-white/70 border-white/10 hover:text-white'
+              active === iv
+                ? 'text-gold-light border-gold/50 bg-gold/10'
+                : 'text-white/70 border-white/10 hover:text-white hover:border-white/30'
             }`}
           >
             {iv}
           </button>
         ))}
       </div>
+
+      {/* Chart area */}
       <div className="relative flex-1 min-h-0">
-        {loading && chartData.length === 0 ? (
+        {loading && chartData.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-[#0d0f14]/80">
-            <Loader2 className="w-8 h-8 text-gold animate-spin mb-4" />
-            <span className="text-white/50 text-sm font-semibold tracking-wider uppercase">Loading chart...</span>
+            <Loader2 className="w-8 h-8 text-gold animate-spin mb-3" />
+            <span className="text-white/50 text-sm font-semibold tracking-wider uppercase">
+              Loading chart…
+            </span>
           </div>
-        ) : chartData.length === 0 ? (
+        )}
+        {!loading && chartData.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-[#0d0f14]/80">
-            <span className="text-white/50 text-sm font-semibold tracking-wider uppercase">No price data</span>
+            <span className="text-white/40 text-sm font-semibold tracking-wider uppercase">
+              No price data
+            </span>
           </div>
-        ) : null}
-        <div
-          ref={containerRef}
-          className="w-full h-full"
-        />
+        )}
+        <div ref={containerRef} className="w-full h-full" />
       </div>
     </div>
   );

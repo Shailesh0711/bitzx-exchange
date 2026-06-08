@@ -455,9 +455,16 @@ export function AuthProvider({ children }) {
     if (mob) body.mobile = mob;
     const cc = String(countryCode ?? '').replace(/\D/g, '');
     if (cc) body.country_code = cc;
+  /** Step 1: Submit name/email/password → backend sends OTP email.
+   *  Returns { message, email_hint } on success. */
+  const registerRequest = useCallback(async (name, email, password) => {
     const res = await authFetch(`${API}/api/auth/register/request`, {
       method: 'POST',
-      body,
+      body: {
+        name: String(name ?? '').trim(),
+        email: String(email ?? '').trim(),
+        password: String(password ?? ''),
+      },
     });
     const data = await readJsonSafe(res);
     if (!res.ok) throwAuthFailure(res, data, 'Registration failed');
@@ -534,6 +541,11 @@ export function AuthProvider({ children }) {
   }, [applyTokenResponse]);
 
   /** Legacy single-step verify. */
+    return data; // { message, email_hint }
+  }, []);
+
+  /** Step 2: Submit OTP code → backend creates account and returns JWT tokens.
+   *  Calls applyTokenResponse to log the user in. */
   const registerVerify = useCallback(async (email, code) => {
     const res = await authFetch(`${API}/api/auth/register/verify`, {
       method: 'POST',
@@ -547,14 +559,11 @@ export function AuthProvider({ children }) {
     return applyTokenResponse(data);
   }, [applyTokenResponse]);
 
-  /** Resend OTP for pending signup. channel: 'email' | 'sms' (dual-verify flow). */
-  const registerResend = useCallback(async (email, channel) => {
-    const body = { email: String(email ?? '').trim() };
-    const ch = String(channel ?? '').trim().toLowerCase();
-    if (ch === 'email' || ch === 'sms') body.channel = ch;
+  /** Resend OTP to the same email (rate-limited server-side). */
+  const registerResend = useCallback(async (email) => {
     const res = await authFetch(`${API}/api/auth/register/resend`, {
       method: 'POST',
-      body,
+      body: { email: String(email ?? '').trim() },
     });
     const data = await readJsonSafe(res);
     if (!res.ok) throwAuthFailure(res, data, 'Could not resend verification code');

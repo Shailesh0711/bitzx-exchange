@@ -37,12 +37,13 @@ function mergeMarketTick(prev = {}, incoming = {}) {
   return out;
 }
 
-export function FuturesProvider({ children }) {
+export function FuturesProvider({ children, initialSymbol = null }) {
   const { user } = useAuth();
 
   const [symbols, setSymbols] = useState([]);
   const [leverageOptions, setLeverageOptions] = useState([1, 5, 10, 20, 50, 100]);
-  const [activeSymbol, setActiveSymbol] = useState(null);
+  // Seed from URL so the page renders on the very first paint without a flash.
+  const [activeSymbol, setActiveSymbol] = useState(initialSymbol);
 
   const [markets, setMarkets] = useState({});
   const [orderbook, setOrderbook] = useState({ bids: [], asks: [] });
@@ -55,17 +56,34 @@ export function FuturesProvider({ children }) {
   const [userTrades, setUserTrades] = useState([]);
   const [settings, setSettings] = useState({});
 
-  // ── Catalog (load once) ───────────────────────────────────────────────
+  // ── Catalog (load once; retry on failure) ────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    futuresApi.listSymbols()
-      .then((data) => {
-        if (cancelled) return;
-        setSymbols(data?.symbols || []);
-        setLeverageOptions(data?.leverage_options || [1, 5, 10, 20, 50, 100]);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    let retryTimer = null;
+
+    const load = () => {
+      futuresApi.listSymbols()
+        .then((data) => {
+          if (cancelled) return;
+          const syms = data?.symbols || [];
+          if (syms.length) {
+            setSymbols(syms);
+            setLeverageOptions(data?.leverage_options || [1, 5, 10, 20, 50, 100]);
+          } else if (!cancelled) {
+            // Empty response — retry after 4 s
+            retryTimer = setTimeout(load, 4000);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) retryTimer = setTimeout(load, 5000);
+        });
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, []);
 
   // ── Markets WS (public, fan-out for every supported symbol) ───────────

@@ -161,103 +161,8 @@ export function useDepositMonitor({ autoStart = false, onDeposit, onExpire } = {
     }, delay);
   }, [clearTimers, handleExpiry, onDeposit]);
 
-  // ── Start (user-triggered restart after expiry / stop) ────────────────────
-
-  const start = useCallback(async () => {
-    if (status === MONITOR_STATUS.STARTING || status === MONITOR_STATUS.ACTIVE) return;
-    if (cooldownSec > 0) return;
-    await _startInternal();
-  }, [status, cooldownSec, _startInternal]);
-
-  // ── Stop ───────────────────────────────────────────────────────────────────
-
-  const stop = useCallback(async () => {
-    clearTimers();
-    setStatus(MONITOR_STATUS.STOPPED);
-    setSecondsLeft(0);
-
-    const sid = session?.id;
-    if (!sid) return;
-    try {
-      await authFetch(`${API}/api/wallet/deposit-monitor/stop`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sid }),
-      });
-    } catch {
-      // Best-effort; local state is already updated.
-    }
-    setSession(null);
-  }, [session, clearTimers]);
-
-  // ── Restore on mount — or auto-start if no prior session ──────────────────
-  //
-  // On every page open we check the server for an existing session:
-  //   • Active   → resume it (countdown + scans pick up where they left off).
-  //   • Expired  → show expired banner + start cooldown countdown.
-  //   • None     → start a brand-new session immediately (this is the normal
-  //                path: user opens Wallet → History → monitoring begins).
-
-  const restoreOrStart = useCallback(async () => {
-    try {
-      const res = await authFetch(`${API}/api/wallet/deposit-monitor/status`);
-      if (!res.ok) {
-        // Status endpoint failed — still try to start a fresh session.
-        if (autoStart) await _startInternal();
-        return;
-      }
-      const data = await res.json().catch(() => ({}));
-      const sess = data?.session;
-      const cfg  = data?.config;
-
-      if (cfg) setConfig(cfg);
-
-      if (sess?.status === 'active') {
-        // Existing active session — resume without creating a new one.
-        setSession(sess);
-        setStatus(MONITOR_STATUS.ACTIVE);
-        startCountdown(sess.expires_at);
-        scheduleScan(sess, cfg, true);
-        return;
-      }
-
-      if (sess?.status === 'expired' || sess?.status === 'stopped') {
-        setSession(sess);
-        setStatus(MONITOR_STATUS.EXPIRED);
-        const cooldown = cfg?.cooldown_sec ?? 60;
-        if (cooldown > 0) {
-          const endedAt = sess.ended_at ? new Date(sess.ended_at) : new Date();
-          const elapsed = (Date.now() - endedAt.getTime()) / 1000;
-          const remaining = Math.max(0, cooldown - elapsed);
-          if (remaining > 0) {
-            setCooldownSec(Math.ceil(remaining));
-            cooldownTimerRef.current = setInterval(() => {
-              setCooldownSec(prev => {
-                if (prev <= 1) {
-                  clearInterval(cooldownTimerRef.current);
-                  cooldownTimerRef.current = null;
-                  return 0;
-                }
-                return prev - 1;
-              });
-            }, 1000);
-            return; // don't auto-start during cooldown
-          }
-        }
-        // Cooldown has passed — auto-start a new session.
-        if (autoStart) await _startInternal();
-        return;
-      }
-
-      // No prior session — start immediately.
-      if (autoStart) await _startInternal();
-    } catch {
-      // Silent — restore failure should not block the page.
-    }
-  }, [autoStart, startCountdown, scheduleScan]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Internal start that skips the duplicate-session guard (already checked above).
-  const _startInternal = useCallback(async () => {
+  // Internal start — must be declared before `start` / `restoreOrStart` reference it.
+  const startSession = useCallback(async () => {
     setStatus(MONITOR_STATUS.STARTING);
     setError(null);
     clearTimers();
@@ -305,6 +210,101 @@ export function useDepositMonitor({ autoStart = false, onDeposit, onExpire } = {
       setStatus(MONITOR_STATUS.IDLE);
     }
   }, [clearTimers, startCountdown, scheduleScan]);
+
+  // ── Start (user-triggered restart after expiry / stop) ────────────────────
+
+  const start = useCallback(async () => {
+    if (status === MONITOR_STATUS.STARTING || status === MONITOR_STATUS.ACTIVE) return;
+    if (cooldownSec > 0) return;
+    await startSession();
+  }, [status, cooldownSec, startSession]);
+
+  // ── Stop ───────────────────────────────────────────────────────────────────
+
+  const stop = useCallback(async () => {
+    clearTimers();
+    setStatus(MONITOR_STATUS.STOPPED);
+    setSecondsLeft(0);
+
+    const sid = session?.id;
+    if (!sid) return;
+    try {
+      await authFetch(`${API}/api/wallet/deposit-monitor/stop`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sid }),
+      });
+    } catch {
+      // Best-effort; local state is already updated.
+    }
+    setSession(null);
+  }, [session, clearTimers]);
+
+  // ── Restore on mount — or auto-start if no prior session ──────────────────
+  //
+  // On every page open we check the server for an existing session:
+  //   • Active   → resume it (countdown + scans pick up where they left off).
+  //   • Expired  → show expired banner + start cooldown countdown.
+  //   • None     → start a brand-new session immediately (this is the normal
+  //                path: user opens Wallet → History → monitoring begins).
+
+  const restoreOrStart = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API}/api/wallet/deposit-monitor/status`);
+      if (!res.ok) {
+        // Status endpoint failed — still try to start a fresh session.
+        if (autoStart) await startSession();
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      const sess = data?.session;
+      const cfg  = data?.config;
+
+      if (cfg) setConfig(cfg);
+
+      if (sess?.status === 'active') {
+        // Existing active session — resume without creating a new one.
+        setSession(sess);
+        setStatus(MONITOR_STATUS.ACTIVE);
+        startCountdown(sess.expires_at);
+        scheduleScan(sess, cfg, true);
+        return;
+      }
+
+      if (sess?.status === 'expired' || sess?.status === 'stopped') {
+        setSession(sess);
+        setStatus(MONITOR_STATUS.EXPIRED);
+        const cooldown = cfg?.cooldown_sec ?? 60;
+        if (cooldown > 0) {
+          const endedAt = sess.ended_at ? new Date(sess.ended_at) : new Date();
+          const elapsed = (Date.now() - endedAt.getTime()) / 1000;
+          const remaining = Math.max(0, cooldown - elapsed);
+          if (remaining > 0) {
+            setCooldownSec(Math.ceil(remaining));
+            cooldownTimerRef.current = setInterval(() => {
+              setCooldownSec(prev => {
+                if (prev <= 1) {
+                  clearInterval(cooldownTimerRef.current);
+                  cooldownTimerRef.current = null;
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+            return; // don't auto-start during cooldown
+          }
+        }
+        // Cooldown has passed — auto-start a new session.
+        if (autoStart) await startSession();
+        return;
+      }
+
+      // No prior session — start immediately.
+      if (autoStart) await startSession();
+    } catch {
+      // Silent — restore failure should not block the page.
+    }
+  }, [autoStart, startCountdown, scheduleScan, startSession]);
 
   useEffect(() => {
     restoreOrStart();

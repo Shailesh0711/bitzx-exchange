@@ -12,6 +12,7 @@ import MarketsPage   from '@/pages/MarketsPage';
 import TradePage     from '@/pages/TradePage';
 import LoginPage     from '@/pages/LoginPage';
 import RegisterPage  from '@/pages/RegisterPage';
+import EmailVerificationPage from '@/pages/EmailVerificationPage';
 import ForgotPasswordPage        from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage          from '@/pages/ResetPasswordPage';
 import DashboardPage from '@/pages/DashboardPage';

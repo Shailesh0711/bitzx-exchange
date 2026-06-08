@@ -5,6 +5,10 @@
 export const AUTH_EMAIL_MAX = 254;
 export const AUTH_PASSWORD_MAX = 128;
 export const STRONG_PASSWORD_MIN = 8;
+export const SIGNUP_MOBILE_NATIONAL_LEN = 10;
+
+/** India national mobile: 10 digits starting with 6–9. */
+const INDIAN_MOBILE_RE = /^[6-9]\d{9}$/;
 
 /** RFC 5322–style practical check (same pattern as prior login/register pages). */
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -135,6 +139,37 @@ export function validateAuthEmail(raw) {
   if (!em) return 'Email is required.';
   if (em.length > AUTH_EMAIL_MAX) return 'Email is too long.';
   if (!EMAIL_RE.test(em)) return 'Enter a valid email address.';
+  return null;
+}
+
+/**
+ * Strip formatting and optional +91 country prefix to national digits.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function normalizeSignupMobileDigits(raw) {
+  let digits = String(raw ?? '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  else if (digits.length > SIGNUP_MOBILE_NATIONAL_LEN && digits.startsWith('91')) {
+    digits = digits.slice(2);
+  }
+  return digits;
+}
+
+/**
+ * Signup / profile mobile — 10-digit India national number (6–9 prefix).
+ * @param {string} raw
+ * @returns {string|null} error message or null if valid
+ */
+export function validateSignupMobile(raw) {
+  const nat = normalizeSignupMobileDigits(raw);
+  if (!nat) return 'Mobile number is required.';
+  if (nat.length !== SIGNUP_MOBILE_NATIONAL_LEN) {
+    return 'Enter a valid 10-digit mobile number.';
+  }
+  if (!INDIAN_MOBILE_RE.test(nat)) {
+    return 'Mobile number must start with 6, 7, 8, or 9.';
+  }
   return null;
 }
 

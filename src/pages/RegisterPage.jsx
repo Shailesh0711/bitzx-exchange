@@ -16,6 +16,7 @@ import {
   getPasswordStrengthMeta,
   validateAuthEmail,
   validateStrongPassword,
+  validateSignupMobile,
   authFormBannerMessage,
   isAuthRequestError,
 } from '@/lib/authValidation';

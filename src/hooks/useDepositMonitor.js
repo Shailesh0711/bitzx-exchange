@@ -80,25 +80,11 @@ export function useDepositMonitor({ autoStart = false, onDeposit, onExpire } = {
     countdownTimerRef.current = setInterval(tick, COUNTDOWN_TICK_MS);
   }, []);
 
-  const handleExpiry = useCallback((cooldown = 0) => {
+  const handleExpiry = useCallback(() => {
     clearTimers();
     setStatus(MONITOR_STATUS.EXPIRED);
     setSecondsLeft(0);
     onExpire?.();
-
-    if (cooldown > 0) {
-      setCooldownSec(cooldown);
-      cooldownTimerRef.current = setInterval(() => {
-        setCooldownSec(prev => {
-          if (prev <= 1) {
-            clearInterval(cooldownTimerRef.current);
-            cooldownTimerRef.current = null;
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
   }, [clearTimers, onExpire]);
 
   // ── Scan logic ────────────────────────────────────────────────────────────
@@ -127,7 +113,7 @@ export function useDepositMonitor({ autoStart = false, onDeposit, onExpire } = {
         // Session expired or stopped server-side.
         if (data.status === 'expired' || data.status === 'stopped' || !data.ok) {
           if (data.status === 'expired' || data.status === 'not_found') {
-            handleExpiry(cfgObj?.cooldown_sec ?? 60);
+            handleExpiry();
           } else {
             setStatus(MONITOR_STATUS.STOPPED);
             clearTimers();
@@ -313,6 +299,13 @@ export function useDepositMonitor({ autoStart = false, onDeposit, onExpire } = {
       if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Client-side countdown expiry → hide banner and run parent redirect.
+  useEffect(() => {
+    if (status === MONITOR_STATUS.ACTIVE && secondsLeft <= 0) {
+      handleExpiry();
+    }
+  }, [status, secondsLeft, handleExpiry]);
 
   return {
     /** One of the MONITOR_STATUS values. */

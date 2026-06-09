@@ -1250,7 +1250,7 @@ function inrHistoryFromSearchParams(params) {
 }
 
 function HistoryTab() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const inrHistoryInit = inrHistoryFromSearchParams(searchParams);
   const [mainTab, setMainTab] = useState(inrHistoryInit.mainTab);
   const [onchainTab, setOnchainTab] = useState('deposits');
@@ -1263,8 +1263,6 @@ function HistoryTab() {
   const [error, setError] = useState(null);
   const [cancellingId, setCancellingId] = useState('');
   const [confirmInrCancelRow, setConfirmInrCancelRow] = useState(null);
-  const [monitorNewCount, setMonitorNewCount] = useState(0);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -1329,9 +1327,10 @@ function HistoryTab() {
   // (i.e. the user opens Wallet → History). No button press required.
   const monitor = useDepositMonitor({
     autoStart: true,
-    onDeposit: (count) => {
-      setMonitorNewCount(prev => prev + count);
-      load();
+    onDeposit: () => load(),
+    onExpire: () => {
+      // Session ended — return user to Spot balances (default wallet tab).
+      setSearchParams({}, { replace: true });
     },
   });
 
@@ -1461,13 +1460,6 @@ function HistoryTab() {
 
       {mainTab === 'onchain' && onchainTab === 'deposits' && (
         <DepositMonitorBanner monitor={monitor} className="mb-2" />
-      )}
-
-      {mainTab === 'onchain' && onchainTab === 'deposits' && monitorNewCount > 0 && (
-        <div className="rounded-xl bg-green-500/10 border border-green-500/20 px-4 py-2.5 text-xs text-green-300 flex items-center gap-2">
-          <span className="font-semibold">{monitorNewCount} new deposit{monitorNewCount !== 1 ? 's' : ''} detected</span>
-          <span className="text-green-300/60">— list refreshed automatically.</span>
-        </div>
       )}
 
       {mainTab === 'onchain' && onchainTab === 'deposits' && (

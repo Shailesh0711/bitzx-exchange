@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   Shield, CheckCircle, Clock, AlertCircle,
   ChevronRight, ChevronLeft, FileText, User,
-  Globe, CreditCard, Upload, ImageIcon,
+  Globe, CreditCard, Upload, ImageIcon, ExternalLink, Loader2,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
@@ -387,11 +387,113 @@ function Step3({ personal, document: doc, docFrontUrl, docBackUrl }) {
   );
 }
 
+// ─── DigiLocker panel (auto KYC mode) ────────────────────────────────────────
+function DigiLockerPanel({ kyc, onRefresh }) {
+  const [busy,        setBusy]        = useState(false);
+  const [error,       setError]       = useState('');
+  const [digiUrl,     setDigiUrl]     = useState('');
+  const isPending = kyc?.status === 'digilocker_pending';
+  const isFailed  = kyc?.status === 'digilocker_failed';
+
+  const initDigiLocker = async () => {
+    setBusy(true); setError('');
+    try {
+      const res  = await authFetch(`${API}/api/kyc/digilocker/init`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not start DigiLocker');
+      setDigiUrl(data.url);
+      window.open(data.url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl p-6 space-y-4"
+        style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)' }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)' }}>
+            <Shield size={20} className="text-green-400" />
+          </div>
+          <div>
+            <p className="text-base font-bold text-white">Verify with DigiLocker</p>
+            <p className="text-xs text-white/50 mt-0.5">Instant Aadhaar-based identity verification</p>
+          </div>
+        </div>
+        <p className="text-sm text-white/65 leading-relaxed">
+          Click the button below to open DigiLocker. Log in with your Aadhaar-linked account
+          and grant consent. Your KYC will be <span className="text-green-400 font-semibold">approved instantly</span> — no document upload required.
+        </p>
+        {error && (
+          <div className="rounded-xl px-4 py-2.5 text-sm text-red-300"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            {error}
+          </div>
+        )}
+        {isPending && !digiUrl && (
+          <div className="rounded-xl px-4 py-2.5 text-sm text-amber-300"
+            style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
+            DigiLocker authorization is in progress. Complete it in the tab that opened, then refresh this page.
+          </div>
+        )}
+        {isFailed && (
+          <div className="rounded-xl px-4 py-2.5 text-sm text-red-300"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            Previous DigiLocker attempt failed. Please try again.
+          </div>
+        )}
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={initDigiLocker}
+            disabled={busy}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-[#05070d] disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg,#22c55e,#16a34a)' }}
+          >
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <ExternalLink size={15} />}
+            {busy ? 'Opening DigiLocker…' : isPending ? 'Re-open DigiLocker' : 'Open DigiLocker'}
+          </button>
+          {(isPending || isFailed) && (
+            <button
+              onClick={onRefresh}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white/70 hover:text-white transition-colors"
+              style={{ border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)' }}
+            >
+              Check status
+            </button>
+          )}
+        </div>
+        {digiUrl && (
+          <p className="text-xs text-white/40">
+            If the tab did not open automatically,{' '}
+            <a href={digiUrl} target="_blank" rel="noopener noreferrer" className="text-green-400 underline">
+              click here
+            </a>.
+          </p>
+        )}
+      </div>
+      <div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <p className="text-xs font-bold text-white/50 uppercase tracking-wider mb-2">How it works</p>
+        <ol className="space-y-1.5 text-sm text-white/60 list-decimal list-inside">
+          <li>Click "Open DigiLocker" — a new tab opens with the DigiLocker sign-in.</li>
+          <li>Log in or sign up with your Aadhaar-linked mobile number.</li>
+          <li>Grant consent to share your Aadhaar details with BITZX.</li>
+          <li>Return to this page — your KYC will be approved automatically.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function KYCPage() {
   const { user } = useAuth();
   const [kyc,        setKyc]        = useState(null);
   const [loading,    setLoading]    = useState(true);
+  const [kycMode,    setKycMode]    = useState('manual');   // "manual" | "auto" | "disabled"
   const [step,       setStep]       = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitted,  setSubmitted]  = useState(false);
@@ -418,8 +520,8 @@ export default function KYCPage() {
   /** When API returns a stricter postal max (e.g. 10), remember it for live validation without another failed submit. */
   const [postalMaxLearned, setPostalMaxLearned] = useState(null);
 
-  useEffect(() => {
-    authFetch(`${API}/api/kyc/status`)
+  const loadKycStatus = useCallback(() => {
+    return authFetch(`${API}/api/kyc/status`)
       .then(r => r.json())
       .then((data) => {
         setKyc(data);
@@ -432,9 +534,15 @@ export default function KYCPage() {
         if (data.document_front_url) setDocFrontUrl(data.document_front_url);
         if (data.document_back_url) setDocBackUrl(data.document_back_url);
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    Promise.all([
+      loadKycStatus(),
+      authFetch(`${API}/api/kyc/mode`).then(r => r.json()).then(d => setKycMode(d.kyc_mode || 'manual')).catch(() => {}),
+    ]).finally(() => setLoading(false));
+  }, [loadKycStatus]);
 
   const updatePersonal = (k, v) => {
     setServerPersonalErrors({});
@@ -650,7 +758,12 @@ export default function KYCPage() {
     } finally { setSubmitting(false); }
   };
 
-  const showForm = !submitted && (kyc?.status === 'rejected' || !kyc || kyc.status === 'unverified');
+  const isApproved  = kyc?.status === 'approved';
+  const isPending   = ['pending', 'digilocker_pending'].includes(kyc?.status);
+  const needsForm   = !submitted && (kyc?.status === 'rejected' || kyc?.status === 'digilocker_failed' || !kyc || kyc.status === 'unverified');
+  const showForm    = needsForm && kycMode === 'manual';
+  const showDigiLocker = needsForm && kycMode === 'auto';
+  const showDisabled   = kycMode === 'disabled' && !isApproved && !isPending;
 
   if (loading) {
     return (
@@ -772,7 +885,35 @@ export default function KYCPage() {
             </motion.div>
           )}
 
-          {/* KYC Form */}
+          {/* DigiLocker auto-KYC panel */}
+          {showDigiLocker && !submitted && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl p-8"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <DigiLockerPanel kyc={kyc} onRefresh={() => {
+                setLoading(true);
+                loadKycStatus().finally(() => setLoading(false));
+              }} />
+            </motion.div>
+          )}
+
+          {/* Disabled mode */}
+          {showDisabled && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl p-10 text-center space-y-4"
+              style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"
+                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                <AlertCircle size={28} className="text-red-400" />
+              </div>
+              <p className="text-lg font-bold text-white">KYC Verification Temporarily Unavailable</p>
+              <p className="text-white/60 text-sm max-w-sm mx-auto">
+                Identity verification has been paused by the platform. Please check back later or contact support.
+              </p>
+            </motion.div>
+          )}
+
+          {/* KYC Form (manual mode) */}
           {showForm && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
               className="rounded-2xl p-8"
@@ -860,7 +1001,7 @@ export default function KYCPage() {
           )}
 
           {/* Pending — no form */}
-          {!submitted && kyc?.status === 'pending' && (
+          {!submitted && isPending && !showDigiLocker && (
             <div className="rounded-2xl p-8 text-center space-y-4"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle,
-  Smartphone, CreditCard, Building2, CheckCircle2,
+  Smartphone, CreditCard, Building2, CheckCircle2, ShieldCheck, ShieldAlert,
 } from 'lucide-react';
 import { p2pApi } from '@/services/p2pApi';
 import P2PModal from './P2PModal';
@@ -220,11 +220,32 @@ export default function P2PPaymentMethodsPage() {
                     {m.account_number && <InfoRow label="Account"     value={`****${m.account_number.slice(-4)}`} mono />}
                     {m.ifsc           && <InfoRow label="IFSC"        value={m.ifsc} mono />}
                     {m.bank_name      && <InfoRow label="Bank"        value={m.bank_name} />}
-                    {m.holder_name    && <InfoRow label="Name"        value={m.holder_name} />}
+                    {m.verified_account_name && (
+                      <InfoRow label="Verified Name" value={m.verified_account_name} />
+                    )}
+                    {!m.verified_account_name && m.holder_name && (
+                      <InfoRow label="Name" value={m.holder_name} />
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-[10px] text-green-400 font-semibold">
-                    <CheckCircle2 size={11} />Active
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 text-[10px] text-green-400 font-semibold">
+                      <CheckCircle2 size={11} />Active
+                    </div>
+                    {['BANK', 'IMPS'].includes(m.type) && (
+                      m.verified
+                        ? (
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full"
+                            style={{ background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.25)' }}>
+                            <ShieldCheck size={10} />Bank Verified
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-amber-400 px-2 py-0.5 rounded-full"
+                            style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                            <ShieldAlert size={10} />Unverified
+                          </div>
+                        )
+                    )}
                   </div>
                 </div>
               );
@@ -273,6 +294,14 @@ export default function P2PPaymentMethodsPage() {
               </div>
             ))}
 
+            {['BANK', 'IMPS'].includes(pmType) && !editing && (
+              <div className="flex items-start gap-2.5 rounded-xl p-3 text-xs text-emerald-300/80"
+                style={{ background: 'rgba(52,211,153,0.07)', border: '1px solid rgba(52,211,153,0.18)' }}>
+                <ShieldCheck size={13} className="shrink-0 mt-0.5 text-emerald-400" />
+                Your account number and IFSC will be verified with your bank before saving.
+              </div>
+            )}
+
             {formErrors._global && (
               <div className="flex items-start gap-2.5 rounded-xl p-3.5 text-red-400 text-sm"
                 style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -290,7 +319,9 @@ export default function P2PPaymentMethodsPage() {
               className="bitzx-hover-scale inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-[#05070d] disabled:opacity-40"
               style={{ background: 'linear-gradient(135deg,#9C7941,#EBD38D)' }}>
               {b('save') && <Loader2 size={13} className="animate-spin" />}
-              {editing ? 'Save Changes' : 'Add Method'}
+              {b('save') && ['BANK', 'IMPS'].includes(pmType)
+                ? 'Verifying Account…'
+                : editing ? 'Save Changes' : 'Add Method'}
             </button>
           </P2PModal.Footer>
         </P2PModal>

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Eye, EyeOff, Lock, Mail, User, ArrowRight, CheckCircle,
+  Eye, EyeOff, Lock, Mail, User, Phone, ArrowRight, CheckCircle,
   TrendingUp, Shield, Zap, BarChart2, Star,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -74,6 +74,8 @@ export default function RegisterPage() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [countryCode, setCountryCode] = useState('91');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -97,6 +99,7 @@ export default function RegisterPage() {
   const [touched, setTouched] = useState({
     name: false,
     email: false,
+    mobile: false,
     password: false,
     confirm: false,
     terms: false,

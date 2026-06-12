@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, IndianRupee, Building2, Smartphone, AlertCircle, Pencil } from 'lucide-react';
+import { ArrowLeft, IndianRupee, Building2, Smartphone, AlertCircle, Pencil, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 import {
   fetchInrWithdrawalEligibility,
@@ -422,6 +422,25 @@ export default function InrWithdrawPage() {
                     <p className="text-sm text-white font-medium">
                       {payoutType === 'bank' ? bankSummary(profile.bank) : upiSummary(profile.upi)}
                     </p>
+                    {payoutType === 'bank' && (
+                      profile.bank?.bank_verified
+                        ? (
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                            <ShieldCheck size={13} />
+                            Bank account verified
+                            {profile.bank?.verified_account_name && (
+                              <span className="text-white/50 font-normal ml-1">
+                                · {profile.bank.verified_account_name}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+                            <ShieldAlert size={13} />
+                            Bank not yet verified
+                          </div>
+                        )
+                    )}
                     <button
                       type="button"
                       onClick={() => setEditingPayout(true)}
@@ -437,14 +456,21 @@ export default function InrWithdrawPage() {
                         ? 'Update your saved payout details below.'
                         : 'Add your payout details once — we will use them for every INR withdrawal.'}
                     </p>
+                    {payoutType === 'bank' && (
+                      <div className="flex items-start gap-2 rounded-xl px-3.5 py-2.5 text-xs text-emerald-300/80"
+                        style={{ background: 'rgba(52,211,153,0.07)', border: '1px solid rgba(52,211,153,0.18)' }}>
+                        <ShieldCheck size={13} className="shrink-0 mt-0.5 text-emerald-400" />
+                        Your account number and IFSC will be verified with your bank before saving.
+                      </div>
+                    )}
                     {renderPayoutForm()}
                     <button
                       type="button"
                       disabled={submitting}
                       onClick={onSavePayoutOnly}
-                      className="w-full py-3 rounded-xl font-bold text-sm border border-surface-border text-white/90 hover:border-gold/40 disabled:opacity-50"
+                      className="w-full py-3 rounded-xl font-bold text-sm border border-surface-border text-white/90 hover:border-gold/40 disabled:opacity-50 inline-flex items-center justify-center gap-2"
                     >
-                      Save payout details
+                      {submitting && payoutType === 'bank' ? 'Verifying account…' : 'Save payout details'}
                     </button>
                     {hasSavedForType && (
                       <button
@@ -503,7 +529,9 @@ export default function InrWithdrawPage() {
                 )}
 
                 <button type="submit" disabled={submitting} className={INR_BTN_PRIMARY}>
-                  {submitting ? 'Submitting…' : 'Request INR payout'}
+                  {submitting && payoutType === 'bank' && (editingPayout || !hasSavedForType)
+                    ? 'Verifying & submitting…'
+                    : submitting ? 'Submitting…' : 'Request INR payout'}
                 </button>
               </form>
             </div>

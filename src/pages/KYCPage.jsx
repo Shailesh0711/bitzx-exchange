@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Shield, CheckCircle, Clock, AlertCircle,
   ChevronRight, ChevronLeft, FileText, User,
-  Globe, CreditCard, Upload, ImageIcon, ExternalLink, Loader2,
+  Globe, CreditCard, Upload, ImageIcon, ExternalLink, Loader2, Camera,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
@@ -45,6 +46,22 @@ function StatusBanner({ kyc }) {
     rejected: { icon: AlertCircle, color: '#ef4444', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.25)',
                 title: 'KYC Application Rejected',
                 msg: kyc.rejection_reason || 'Your documents were rejected. Please resubmit with valid, clear documents.' },
+    digilocker_failed: { icon: AlertCircle, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.25)',
+                title: 'DigiLocker verification failed',
+                msg: kyc.digilocker_failure_reason === 'aadhaar_photo_unavailable'
+                  ? 'We could not retrieve your Aadhaar photo. Please try DigiLocker again or contact support.'
+                  : kyc.digilocker_failure_reason === 'face_match_not_configured'
+                  ? 'Face verification is not configured on this platform. Please contact support.'
+                  : 'DigiLocker did not complete. You can try again below.' },
+    digilocker_pending: { icon: Clock, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.25)',
+                title: 'DigiLocker in progress',
+                msg: 'Finish authorization in the DigiLocker tab. This page updates when step 1 is complete.' },
+    awaiting_selfie: { icon: Camera, color: '#60a5fa', bg: 'rgba(96,165,250,0.08)', border: 'rgba(96,165,250,0.25)',
+                title: 'Step 2 — Selfie verification',
+                msg: 'Upload a clear selfie and run face match to finish verification.' },
+    face_match_failed: { icon: Camera, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.25)',
+                title: 'Selfie did not match',
+                msg: 'Upload a well-lit selfie facing the camera, then run face match again.' },
   };
 
   const { icon: Icon, color, bg, border, title, msg } = config[kyc.status] || config.pending;
@@ -81,6 +98,38 @@ const STEPS = [
   { label: 'Document Details',  icon: FileText },
   { label: 'Review & Submit',   icon: CheckCircle },
 ];
+
+const AUTO_STEPS = [
+  { label: 'DigiLocker', icon: Shield },
+  { label: 'Selfie', icon: Camera },
+];
+
+function AutoStepIndicator({ current }) {
+  return (
+    <div className="flex items-center mb-8 overflow-x-auto scrollbar-hide">
+      {AUTO_STEPS.map(({ label, icon: Icon }, i) => (
+        <div key={label} className="flex items-center flex-1 last:flex-none min-w-[80px]">
+          <div className="flex flex-col items-center">
+            <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold transition-all ${
+              i < current ? 'bg-green-500 text-white' : i === current ? 'text-surface-dark' : 'text-white'
+            }`}
+              style={i === current ? { background: 'linear-gradient(135deg, #9C7941, #EBD38D)' } : {}}>
+              {i < current ? <CheckCircle size={16} /> : <Icon size={16} />}
+            </div>
+            <span className={`mt-1.5 text-[10px] sm:text-xs font-bold text-center ${
+              i === current ? 'text-gold-light' : i < current ? 'text-green-400' : 'text-white'}`}>
+              {label}
+            </span>
+          </div>
+          {i < AUTO_STEPS.length - 1 && (
+            <div className="flex-1 h-0.5 mx-2 sm:mx-4 mb-5 rounded-full transition-all"
+              style={{ background: i < current ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.07)' }} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function StepIndicator({ current }) {
   return (
@@ -387,9 +436,237 @@ function Step3({ personal, document: doc, docFrontUrl, docBackUrl }) {
   );
 }
 
-// ─── DigiLocker panel (auto KYC mode) ────────────────────────────────────────
-function DigiLockerPanel({ kyc, onRefresh }) {
+function parseApiError(data) {
+  const d = data?.detail;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) return d.map((x) => x.msg || JSON.stringify(x)).join('; ');
+  return d || 'Request failed';
+}
+
+// ─── Step 2: Live camera selfie + Signzy face match ─────────────────────────
+function SelfieVerificationPanel({ kyc, onRefresh, onApproved }) {
+  const videoRef    = useRef(null);
+  const canvasRef   = useRef(null);
+  const streamRef   = useRef(null);
+
+  // camera states: 'requesting' | 'live' | 'denied' | 'captured'
+  const [camState,  setCamState]  = useState('requesting');
+  const [captured,  setCaptured]  = useState(null);   // blob URL
+  const [capturedBlob, setCapturedBlob] = useState(null);
+  const [busy,      setBusy]      = useState(false);
+  const [error,     setError]     = useState('');
+
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    setCamState('requesting');
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCamState('live');
+    } catch (err) {
+      const denied = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
+      setCamState('denied');
+      setError(denied
+        ? 'Camera access was denied. Please allow camera access in your browser settings and try again.'
+        : `Could not open camera: ${err.message}`);
+    }
+  }, []);
+
+  // Start camera on mount; stop on unmount
+  useEffect(() => {
+    startCamera();
+    return () => stopStream();
+  }, [startCamera, stopStream]);
+
+  const takePhoto = useCallback(() => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      stopStream();
+      const url = URL.createObjectURL(blob);
+      setCaptured(url);
+      setCapturedBlob(blob);
+      setCamState('captured');
+    }, 'image/jpeg', 0.92);
+  }, [stopStream]);
+
+  const retake = useCallback(() => {
+    if (captured) { URL.revokeObjectURL(captured); setCaptured(null); }
+    setCapturedBlob(null);
+    setCamState('requesting');
+    startCamera();
+  }, [captured, startCamera]);
+
+  const uploadAndVerify = async () => {
+    if (!capturedBlob) return;
+    setBusy(true);
+    setError('');
+    try {
+      // 1. Upload selfie
+      const fd = new FormData();
+      fd.append('document_selfie', capturedBlob, 'selfie.jpg');
+      const upRes = await authFetch(`${API}/api/kyc/upload`, { method: 'POST', body: fd });
+      const upData = await upRes.json();
+      if (!upRes.ok) throw new Error(parseApiError(upData));
+
+      // 2. Immediately run face match
+      const fmRes  = await authFetch(`${API}/api/kyc/face-match`, { method: 'POST' });
+      const fmData = await fmRes.json();
+      if (!fmRes.ok) throw new Error(parseApiError(fmData));
+
+      await onRefresh();
+      if (fmData.verified || fmData.kyc_status === 'approved') {
+        onApproved?.();
+      } else {
+        setError(fmData.message || 'Face match failed — retake with better lighting and no glasses.');
+        retake();
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fm = kyc?.face_match;
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl p-6 space-y-4"
+        style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)' }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.25)' }}>
+            <Camera size={20} className="text-blue-400" />
+          </div>
+          <div>
+            <p className="text-base font-bold text-white">Selfie verification</p>
+            <p className="text-xs text-white/50 mt-0.5">Live camera — we compare your face to your Aadhaar photo</p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-xl px-4 py-2.5 text-sm text-red-300"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            {error}
+          </div>
+        )}
+
+        {/* Permission denied state */}
+        {camState === 'denied' && (
+          <div className="flex flex-col items-center gap-4 py-6">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}>
+              <Camera size={26} className="text-red-400" />
+            </div>
+            <p className="text-sm text-white/60 text-center max-w-xs">
+              Camera access is required for live selfie verification.<br />
+              Allow camera access in your browser and click <strong className="text-white">Try again</strong>.
+            </p>
+            <button type="button" onClick={startCamera}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white"
+              style={{ border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)' }}>
+              <Camera size={15} /> Try again
+            </button>
+          </div>
+        )}
+
+        {/* Live camera view */}
+        {(camState === 'live' || camState === 'requesting') && (
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative rounded-xl overflow-hidden bg-black/40 border border-white/10 w-full max-w-sm aspect-[4/3]">
+              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+              {camState === 'requesting' && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Loader2 size={32} className="animate-spin text-white/40" />
+                </div>
+              )}
+              {/* Face guide oval */}
+              {camState === 'live' && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-36 h-44 rounded-full border-2 border-blue-400/60"
+                    style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)' }} />
+                </div>
+              )}
+            </div>
+            {camState === 'live' && (
+              <button type="button" onClick={takePhoto}
+                className="inline-flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-bold text-[#05070d]"
+                style={{ background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }}>
+                <Camera size={16} /> Take selfie
+              </button>
+            )}
+            <p className="text-xs text-white/40 text-center">
+              Centre your face in the oval, then tap <strong className="text-white/60">Take selfie</strong>.
+            </p>
+          </div>
+        )}
+
+        {/* Captured preview */}
+        {camState === 'captured' && captured && (
+          <div className="flex flex-col items-center gap-4">
+            <img src={captured} alt="Selfie preview"
+              className="rounded-xl max-h-56 object-cover border border-white/10 w-full max-w-sm" />
+            <div className="flex flex-wrap gap-3 justify-center">
+              <button type="button" onClick={retake} disabled={busy}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white/70 hover:text-white disabled:opacity-50"
+                style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)' }}>
+                Retake
+              </button>
+              <button type="button" onClick={uploadAndVerify} disabled={busy}
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold text-[#05070d] disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }}>
+                {busy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
+                {busy ? 'Verifying…' : 'Submit & verify'}
+              </button>
+            </div>
+            <p className="text-xs text-white/40 text-center">Happy with the photo? Hit <strong className="text-white/60">Submit & verify</strong>.</p>
+          </div>
+        )}
+
+        <canvas ref={canvasRef} className="hidden" />
+
+        {fm && (
+          <p className={`text-sm font-semibold ${fm.verified ? 'text-green-400' : 'text-red-400'}`}>
+            {fm.verified ? 'Face match passed' : 'Face match failed'}
+            {fm.match_percentage ? ` — ${fm.match_percentage}` : ''}
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <p className="text-xs font-bold text-white/50 uppercase tracking-wider mb-2">Tips</p>
+        <ul className="space-y-1.5 text-sm text-white/60 list-disc list-inside">
+          <li>Use good lighting and face the camera directly.</li>
+          <li>Remove hats, masks, and sunglasses.</li>
+          <li>Keep your face centred in the oval guide.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ─── DigiLocker panel (auto KYC mode — step 1) ───────────────────────────────
+function DigiLockerPanel({ kyc, onCheckStatus, faceMatchRequired, syncError, onClearSyncError }) {
   const [busy,        setBusy]        = useState(false);
+  const [checking,    setChecking]    = useState(false);
   const [error,       setError]       = useState('');
   const [digiUrl,     setDigiUrl]     = useState('');
   const isPending = kyc?.status === 'digilocker_pending';
@@ -397,6 +674,7 @@ function DigiLockerPanel({ kyc, onRefresh }) {
 
   const initDigiLocker = async () => {
     setBusy(true); setError('');
+    onClearSyncError?.();
     try {
       const res  = await authFetch(`${API}/api/kyc/digilocker/init`, { method: 'POST' });
       const data = await res.json();
@@ -407,6 +685,16 @@ function DigiLockerPanel({ kyc, onRefresh }) {
       setError(e.message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const checkStatus = async () => {
+    if (!onCheckStatus) return;
+    setChecking(true);
+    try {
+      await onCheckStatus();
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -426,7 +714,10 @@ function DigiLockerPanel({ kyc, onRefresh }) {
         </div>
         <p className="text-sm text-white/65 leading-relaxed">
           Click the button below to open DigiLocker. Log in with your Aadhaar-linked account
-          and grant consent. Your KYC will be <span className="text-green-400 font-semibold">approved instantly</span> — no document upload required.
+          and grant consent.
+          {faceMatchRequired
+            ? ' After DigiLocker, you will complete selfie verification on step 2.'
+            : <> Your KYC will be <span className="text-green-400 font-semibold">approved instantly</span> — no document upload required.</>}
         </p>
         {error && (
           <div className="rounded-xl px-4 py-2.5 text-sm text-red-300"
@@ -434,10 +725,16 @@ function DigiLockerPanel({ kyc, onRefresh }) {
             {error}
           </div>
         )}
-        {isPending && !digiUrl && (
+        {syncError && !error && (
+          <div className="rounded-xl px-4 py-2.5 text-sm text-red-300"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            {syncError}
+          </div>
+        )}
+        {isPending && !digiUrl && !syncError && (
           <div className="rounded-xl px-4 py-2.5 text-sm text-amber-300"
             style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
-            DigiLocker authorization is in progress. Complete it in the tab that opened, then refresh this page.
+            Finish DigiLocker in the other tab, then return here and click <strong className="text-white">Check status</strong>.
           </div>
         )}
         {isFailed && (
@@ -458,10 +755,13 @@ function DigiLockerPanel({ kyc, onRefresh }) {
           </button>
           {(isPending || isFailed) && (
             <button
-              onClick={onRefresh}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white/70 hover:text-white transition-colors"
+              type="button"
+              onClick={checkStatus}
+              disabled={busy || checking}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-white/70 hover:text-white transition-colors disabled:opacity-50"
               style={{ border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)' }}
             >
+              {checking ? <Loader2 size={15} className="animate-spin" /> : null}
               Check status
             </button>
           )}
@@ -481,7 +781,7 @@ function DigiLockerPanel({ kyc, onRefresh }) {
           <li>Click "Open DigiLocker" — a new tab opens with the DigiLocker sign-in.</li>
           <li>Log in or sign up with your Aadhaar-linked mobile number.</li>
           <li>Grant consent to share your Aadhaar details with BITZX.</li>
-          <li>Return to this page — your KYC will be approved automatically.</li>
+          <li>Return to this page{faceMatchRequired ? ' to continue with selfie verification.' : ' — your KYC will be approved automatically.'}</li>
         </ol>
       </div>
     </div>
@@ -490,10 +790,14 @@ function DigiLockerPanel({ kyc, onRefresh }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function KYCPage() {
-  const { user } = useAuth();
+  const { user, updateUser, fetchKyc: syncAuthKyc } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const digiReturnHandled = useRef(false);
   const [kyc,        setKyc]        = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [kycMode,    setKycMode]    = useState('manual');   // "manual" | "auto" | "disabled"
+  const [faceMatchRequired, setFaceMatchRequired] = useState(false);
+  const [digiSyncError, setDigiSyncError] = useState('');
   const [step,       setStep]       = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitted,  setSubmitted]  = useState(false);
@@ -537,12 +841,74 @@ export default function KYCPage() {
       .catch(() => {});
   }, []);
 
+  const refreshKyc = useCallback(async () => {
+    await loadKycStatus();
+    await syncAuthKyc();
+  }, [loadKycStatus, syncAuthKyc]);
+
   useEffect(() => {
     Promise.all([
       loadKycStatus(),
-      authFetch(`${API}/api/kyc/mode`).then(r => r.json()).then(d => setKycMode(d.kyc_mode || 'manual')).catch(() => {}),
+      authFetch(`${API}/api/kyc/mode`)
+        .then((r) => r.json())
+        .then((d) => {
+          setKycMode(d.kyc_mode || 'manual');
+          setFaceMatchRequired(!!d.face_match_required);
+        })
+        .catch(() => {}),
     ]).finally(() => setLoading(false));
   }, [loadKycStatus]);
+
+  const completeDigiLocker = useCallback(async (requestId) => {
+    const res = await authFetch(`${API}/api/kyc/digilocker/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestId ? { request_id: requestId } : {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    const detail = typeof data.detail === 'string' ? data.detail : data.message;
+    if (!res.ok) {
+      if (res.status === 503 || (detail && /credit/i.test(detail))) {
+        setDigiSyncError(detail || 'Signzy API credits are exhausted. Contact Signzy support.');
+      }
+      throw new Error(detail || 'Could not sync DigiLocker status');
+    }
+    setDigiSyncError('');
+    return data;
+  }, []);
+
+  const handleDigiCheckStatus = useCallback(async () => {
+    try {
+      await completeDigiLocker();
+      await refreshKyc();
+    } catch {
+      await loadKycStatus();
+    }
+  }, [completeDigiLocker, refreshKyc, loadKycStatus]);
+
+  // After Signzy redirects the browser to successRedirectUrl (?requestId=&status=success)
+  useEffect(() => {
+    const requestId = searchParams.get('requestId');
+    const status = searchParams.get('status');
+    if (!requestId && !status) return;
+    if (digiReturnHandled.current) return;
+    digiReturnHandled.current = true;
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('requestId');
+    next.delete('status');
+    next.delete('scope');
+    setSearchParams(next, { replace: true });
+
+    (async () => {
+      try {
+        await completeDigiLocker(requestId || undefined);
+        await refreshKyc();
+      } catch {
+        await loadKycStatus();
+      }
+    })();
+  }, [searchParams, setSearchParams, refreshKyc, loadKycStatus, completeDigiLocker]);
 
   const updatePersonal = (k, v) => {
     setServerPersonalErrors({});
@@ -759,11 +1125,18 @@ export default function KYCPage() {
   };
 
   const isApproved  = kyc?.status === 'approved';
-  const isPending   = ['pending', 'digilocker_pending'].includes(kyc?.status);
-  const needsForm   = !submitted && (kyc?.status === 'rejected' || kyc?.status === 'digilocker_failed' || !kyc || kyc.status === 'unverified');
+  const isPending   = kyc?.status === 'pending';
+  const needsForm   = !submitted && (kyc?.status === 'rejected' || kyc?.status === 'digilocker_failed' || kyc?.status === 'face_match_failed' || !kyc || kyc.status === 'unverified');
   const showForm    = needsForm && kycMode === 'manual';
-  const showDigiLocker = needsForm && kycMode === 'auto';
+  const showAutoKyc = kycMode === 'auto' && !submitted && !isApproved && !isPending;
+  const autoStep = ['awaiting_selfie', 'face_match_failed'].includes(kyc?.status) ? 1 : 0;
+  const showDigiLockerStep = showAutoKyc && autoStep === 0;
+  const showSelfieStep = showAutoKyc && faceMatchRequired && autoStep === 1;
   const showDisabled   = kycMode === 'disabled' && !isApproved && !isPending;
+
+  const handleKycApproved = useCallback(() => {
+    updateUser({ kyc_status: 'approved' });
+  }, [updateUser]);
 
   if (loading) {
     return (
@@ -831,16 +1204,16 @@ export default function KYCPage() {
           className="relative z-10 mt-8 rounded-2xl p-5 space-y-2"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
           <p className="text-xs font-bold text-white uppercase tracking-wider mb-3">Verification Process</p>
-          {STEPS.map(({ label, icon: Icon }, i) => (
+          {(kycMode === 'auto' ? AUTO_STEPS : STEPS).map(({ label, icon: Icon }, i) => (
             <div key={label} className="flex items-center gap-3">
               <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
-                i < step ? 'bg-green-500 text-white' : i === step ? 'text-surface-dark' : 'text-white'}`}
-                style={i === step ? { background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }
-                  : i < step ? {} : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                {i < step ? '✓' : i + 1}
+                i < (kycMode === 'auto' ? autoStep : step) ? 'bg-green-500 text-white' : i === (kycMode === 'auto' ? autoStep : step) ? 'text-surface-dark' : 'text-white'}`}
+                style={i === (kycMode === 'auto' ? autoStep : step) ? { background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }
+                  : i < (kycMode === 'auto' ? autoStep : step) ? {} : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                {i < (kycMode === 'auto' ? autoStep : step) ? '✓' : i + 1}
               </div>
               <span className={`text-sm font-semibold ${
-                i === step ? 'text-gold-light' : i < step ? 'text-green-400' : 'text-white'}`}>
+                i === (kycMode === 'auto' ? autoStep : step) ? 'text-gold-light' : i < (kycMode === 'auto' ? autoStep : step) ? 'text-green-400' : 'text-white'}`}>
                 {label}
               </span>
             </div>
@@ -885,15 +1258,33 @@ export default function KYCPage() {
             </motion.div>
           )}
 
-          {/* DigiLocker auto-KYC panel */}
-          {showDigiLocker && !submitted && (
+          {/* Auto KYC — step 1: DigiLocker */}
+          {showDigiLockerStep && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
               className="rounded-2xl p-8"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <DigiLockerPanel kyc={kyc} onRefresh={() => {
-                setLoading(true);
-                loadKycStatus().finally(() => setLoading(false));
-              }} />
+              {faceMatchRequired && <AutoStepIndicator current={autoStep} />}
+              <DigiLockerPanel
+                kyc={kyc}
+                faceMatchRequired={faceMatchRequired}
+                syncError={digiSyncError}
+                onClearSyncError={() => setDigiSyncError('')}
+                onCheckStatus={handleDigiCheckStatus}
+              />
+            </motion.div>
+          )}
+
+          {/* Auto KYC — step 2: Selfie + face match */}
+          {showSelfieStep && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl p-8"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <AutoStepIndicator current={autoStep} />
+              <SelfieVerificationPanel
+                kyc={kyc}
+                onRefresh={refreshKyc}
+                onApproved={handleKycApproved}
+              />
             </motion.div>
           )}
 
@@ -1001,7 +1392,7 @@ export default function KYCPage() {
           )}
 
           {/* Pending — no form */}
-          {!submitted && isPending && !showDigiLocker && (
+          {!submitted && isPending && !showDigiLockerStep && !showSelfieStep && (
             <div className="rounded-2xl p-8 text-center space-y-4"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"

@@ -48,7 +48,12 @@ export const PAIRS = [
 /** Resolve coin logo: API/catalog URL first, then static majors map. */
 export function coinIconUrl(base, logoUrl) {
   const url = logoUrl != null ? String(logoUrl).trim() : '';
-  if (url) return url;
+  if (url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('//')) return `https:${url}`;
+    const rel = url.startsWith('/') ? url : `/${url}`;
+    return `${BACKEND}${rel}`;
+  }
   const b = String(base || '').toUpperCase();
   return COIN_ICONS[b] || null;
 }

@@ -7,6 +7,21 @@ import { PAIRS, coinIconUrl, marketApi, parsePairFromApiSymbol } from '@/service
 const USDT_PAIRS = PAIRS.filter((p) => p.quote === 'USDT');
 const STATIC_BZX_PAIRS = PAIRS.filter((p) => p.quote === 'BZX');
 
+function normalizeListedUsdtPair(m) {
+  if (!m?.symbol) return null;
+  const sym = String(m.symbol).toUpperCase();
+  const base = (m.base || sym.replace(/USDT$/, '')).toUpperCase();
+  return {
+    symbol: sym,
+    base,
+    quote: 'USDT',
+    logo_url: m.logo_url,
+    token_name: m.token_name,
+    project_name: m.project_name,
+    source: 'listed',
+  };
+}
+
 function normalizeBzxMarket(m) {
   if (!m?.symbol) return null;
   const sym = String(m.symbol).toUpperCase();
@@ -84,6 +99,7 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
   const [query, setQuery] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [allBzx, setAllBzx] = useState([]);
+  const [listedUsdt, setListedUsdt] = useState([]);
   const [bzxLoading, setBzxLoading] = useState(false);
 
   const btnRef = useRef(null);
@@ -96,6 +112,20 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
     const t = window.setTimeout(() => setDebouncedQ(query.trim()), 280);
     return () => window.clearTimeout(t);
   }, [query]);
+
+  const loadListedUsdt = useCallback(() => {
+    marketApi
+      .getMarkets()
+      .then((markets) => {
+        const staticSyms = new Set(USDT_PAIRS.map((p) => p.symbol));
+        const extra = (markets || [])
+          .filter((m) => m?.symbol?.endsWith('USDT') && (m.is_listed || m.source === 'listed'))
+          .map(normalizeListedUsdtPair)
+          .filter((p) => p && !staticSyms.has(p.symbol));
+        setListedUsdt(extra);
+      })
+      .catch(() => setListedUsdt([]));
+  }, []);
 
   const loadAllBzx = useCallback(() => {
     setBzxLoading(true);
@@ -118,9 +148,14 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
 
   useEffect(() => {
     if (!open) return;
+    loadListedUsdt();
     loadAllBzx();
     window.setTimeout(() => searchRef.current?.focus(), 80);
-  }, [open, loadAllBzx]);
+  }, [open, loadAllBzx, loadListedUsdt]);
+
+  useEffect(() => {
+    loadListedUsdt();
+  }, [loadListedUsdt]);
 
   const openPicker = () => {
     if (!open && btnRef.current) {
@@ -157,7 +192,22 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
     close();
   };
 
-  const usdtFiltered = useMemo(() => filterPairs(USDT_PAIRS, debouncedQ), [debouncedQ]);
+  const usdtPairs = useMemo(() => {
+    const seen = new Set(USDT_PAIRS.map((p) => p.symbol));
+    const merged = [...USDT_PAIRS];
+    for (const p of listedUsdt) {
+      if (p?.symbol && !seen.has(p.symbol)) {
+        seen.add(p.symbol);
+        merged.push(p);
+      }
+    }
+    if (activeQuote === 'USDT' && activeSym && !seen.has(activeSym)) {
+      merged.unshift({ symbol: activeSym, base: activeBase, quote: 'USDT' });
+    }
+    return merged;
+  }, [listedUsdt, activeSym, activeBase, activeQuote]);
+
+  const usdtFiltered = useMemo(() => filterPairs(usdtPairs, debouncedQ), [usdtPairs, debouncedQ]);
 
   const bzxList = useMemo(() => {
     const seen = new Set(STATIC_BZX_PAIRS.map((p) => p.symbol));

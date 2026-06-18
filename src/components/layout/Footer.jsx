@@ -3,6 +3,8 @@ import { Send, Mail, Shield, Zap, ExternalLink } from 'lucide-react';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
+const SUPPORT_EMAIL = 'support@bitzx.io';
+
 const LINKS = {
   Exchange: [
     { label: 'Markets',        to: '/markets' },
@@ -15,17 +17,37 @@ const LINKS = {
     { label: 'About',          href: 'https://bitzx.io/about' },
   ],
   Support: [
+    { label: SUPPORT_EMAIL,    href: `mailto:${SUPPORT_EMAIL}`, isMailto: true },
     { label: 'Help Center',    href: '#' },
     { label: 'API Docs',       href: '#' },
     { label: 'Status',         href: '#' },
   ],
 };
 
+function FacebookIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+    </svg>
+  );
+}
+
+function InstagramIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 const SOCIAL = [
-  { icon: ExternalLink, href: '#', label: 'Twitter'  },
-  { icon: Send,         href: '#', label: 'Telegram' },
-  { icon: ExternalLink, href: '#', label: 'GitHub'   },
-  { icon: Mail,         href: '#', label: 'Email'    },
+  { icon: ExternalLink, href: 'https://x.com/bitzxofficial', label: 'Twitter' },
+  { icon: Send,         href: 'https://t.me/bitzxofficial', label: 'Telegram' },
+  { icon: FacebookIcon, href: 'https://www.facebook.com/profile.php?id=61590368919405', label: 'Facebook' },
+  { icon: InstagramIcon, href: 'https://www.instagram.com/thebitzx/', label: 'Instagram' },
+  { icon: Mail,         href: `mailto:${SUPPORT_EMAIL}`, label: 'Email', isMailto: true },
 ];
 
 export default function Footer() {
@@ -54,8 +76,13 @@ export default function Footer() {
             </div>
             <div className="flex items-center gap-3">
               {SOCIAL.map(s => (
-                <a key={s.label} href={s.href} aria-label={s.label}
-                  className="bitzx-social-btn p-2 rounded-lg bg-surface-card border border-surface-border text-white hover:text-gold-light hover:border-gold/30">
+                <a
+                  key={s.label}
+                  href={s.href}
+                  aria-label={s.label}
+                  {...(s.isMailto ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                  className="bitzx-social-btn p-2 rounded-lg bg-surface-card border border-surface-border text-white hover:text-gold-light hover:border-gold/30"
+                >
                   <s.icon size={15} />
                 </a>
               ))}
@@ -74,8 +101,11 @@ export default function Footer() {
                         {item.label}
                       </Link>
                     ) : (
-                      <a href={item.href} target="_blank" rel="noopener noreferrer"
-                        className="bitzx-footer-link text-white/90 text-base">
+                      <a
+                        href={item.href}
+                        {...(item.isMailto ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                        className="bitzx-footer-link text-white/90 text-base"
+                      >
                         {item.label}
                       </a>
                     )}
@@ -88,7 +118,13 @@ export default function Footer() {
 
         <div className="border-t border-surface-border mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-white text-sm">© 2026 BITZX Exchange. All rights reserved.</p>
-          <div className="flex items-center gap-5 text-white text-sm">
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-5 gap-y-2 text-white text-sm">
+            <a
+              href={`mailto:${SUPPORT_EMAIL}`}
+              className="text-white/90 hover:text-gold-light transition-colors"
+            >
+              {SUPPORT_EMAIL}
+            </a>
             <span className="flex items-center gap-1"><Shield size={11} /> Secured</span>
             <span className="flex items-center gap-1"><Zap size={11} /> Fast Execution</span>
             <span>Trading involves risk. Demo platform only.</span>

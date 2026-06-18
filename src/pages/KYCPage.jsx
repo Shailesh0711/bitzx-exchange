@@ -56,8 +56,14 @@ function StatusBanner({ kyc }) {
     digilocker_pending: { icon: Clock, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.25)',
                 title: 'DigiLocker in progress',
                 msg: 'Finish authorization in the DigiLocker tab. This page updates when step 1 is complete.' },
+    awaiting_pan: { icon: CreditCard, color: '#a78bfa', bg: 'rgba(167,139,250,0.08)', border: 'rgba(167,139,250,0.25)',
+                title: 'Step 2 — PAN verification',
+                msg: 'PAN was not linked in DigiLocker. Enter your PAN — we verify it against your Aadhaar name and date of birth.' },
+    pan_verify_failed: { icon: CreditCard, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.25)',
+                title: 'PAN verification failed',
+                msg: kyc.pan_verify?.message || 'Check your PAN number and try again. It must match the name and DOB on your Aadhaar.' },
     awaiting_selfie: { icon: Camera, color: '#60a5fa', bg: 'rgba(96,165,250,0.08)', border: 'rgba(96,165,250,0.25)',
-                title: 'Step 2 — Selfie verification',
+                title: 'Selfie verification',
                 msg: 'Upload a clear selfie and run face match to finish verification.' },
     face_match_failed: { icon: Camera, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.25)',
                 title: 'Selfie did not match',
@@ -99,15 +105,17 @@ const STEPS = [
   { label: 'Review & Submit',   icon: CheckCircle },
 ];
 
-const AUTO_STEPS = [
-  { label: 'DigiLocker', icon: Shield },
-  { label: 'Selfie', icon: Camera },
-];
+function buildAutoSteps(panVerifyRequired, faceMatchRequired) {
+  const steps = [{ label: 'DigiLocker', icon: Shield }];
+  if (panVerifyRequired) steps.push({ label: 'PAN', icon: CreditCard });
+  if (faceMatchRequired) steps.push({ label: 'Selfie', icon: Camera });
+  return steps;
+}
 
-function AutoStepIndicator({ current }) {
+function AutoStepIndicator({ steps, current }) {
   return (
     <div className="flex items-center mb-8 overflow-x-auto scrollbar-hide">
-      {AUTO_STEPS.map(({ label, icon: Icon }, i) => (
+      {steps.map(({ label, icon: Icon }, i) => (
         <div key={label} className="flex items-center flex-1 last:flex-none min-w-[80px]">
           <div className="flex flex-col items-center">
             <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold transition-all ${
@@ -121,7 +129,7 @@ function AutoStepIndicator({ current }) {
               {label}
             </span>
           </div>
-          {i < AUTO_STEPS.length - 1 && (
+          {i < steps.length - 1 && (
             <div className="flex-1 h-0.5 mx-2 sm:mx-4 mb-5 rounded-full transition-all"
               style={{ background: i < current ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.07)' }} />
           )}
@@ -129,6 +137,22 @@ function AutoStepIndicator({ current }) {
       ))}
     </div>
   );
+}
+
+function normalizePanInput(value) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+}
+
+function isValidPanFormat(pan) {
+  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan);
+}
+
+function formatDobDisplay(dob) {
+  if (!dob) return '—';
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dob)) return dob;
+  const iso = dob.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  return dob;
 }
 
 function StepIndicator({ current }) {
@@ -663,8 +687,134 @@ function SelfieVerificationPanel({ kyc, onRefresh, onApproved }) {
   );
 }
 
+// ─── PAN verify panel (when PAN not linked in DigiLocker) ────────────────────
+function PanVerificationPanel({ kyc, onRefresh, onApproved }) {
+  const [pan, setPan] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const personal = kyc?.personal_info || {};
+  const pv = kyc?.pan_verify;
+
+  const submitPan = async () => {
+    const panNorm = normalizePanInput(pan);
+    if (!isValidPanFormat(panNorm)) {
+      setError('Enter a valid PAN (e.g. ABCDE1234F).');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const res = await authFetch(`${API}/api/kyc/pan/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pan: panNorm }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(parseApiError(data));
+      if (!data.verified) {
+        setError(data.message || 'PAN verification failed.');
+        await onRefresh?.();
+        return;
+      }
+      await onRefresh?.();
+      if (data.kyc_status === 'approved') {
+        onApproved?.();
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl p-6 space-y-4"
+        style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.2)' }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.25)' }}>
+            <CreditCard size={20} className="text-violet-400" />
+          </div>
+          <div>
+            <p className="text-base font-bold text-white">Verify your PAN</p>
+            <p className="text-xs text-white/50 mt-0.5">PAN was not found in your DigiLocker account</p>
+          </div>
+        </div>
+        <p className="text-sm text-white/65 leading-relaxed">
+          We verify your PAN with the Income Tax Department using the same name and date of birth
+          from your Aadhaar. Enter your 10-character PAN below.
+        </p>
+
+        <div className="rounded-xl p-4 space-y-2 text-sm"
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="flex justify-between gap-4">
+            <span className="text-white/45 shrink-0">Name (from Aadhaar)</span>
+            <span className="text-white font-semibold text-right">{personal.full_name || '—'}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-white/45 shrink-0">Date of birth</span>
+            <span className="text-white font-semibold">{formatDobDisplay(personal.date_of_birth)}</span>
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-xl px-4 py-2.5 text-sm text-red-300"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            {error}
+          </div>
+        )}
+
+        {pv && !pv.verified && kyc?.status === 'pan_verify_failed' && !error && (
+          <div className="rounded-xl px-4 py-2.5 text-sm text-red-300"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            {pv.message || 'Previous PAN verification failed. Try again.'}
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-semibold text-white mb-2">
+            PAN number <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            value={pan}
+            onChange={(e) => setPan(normalizePanInput(e.target.value))}
+            placeholder="ABCDE1234F"
+            maxLength={10}
+            autoComplete="off"
+            className="w-full rounded-xl px-4 py-3.5 text-white text-base font-mono tracking-widest uppercase outline-none focus:border-gold/50 transition-colors placeholder:text-white/35"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={submitPan}
+          disabled={busy || pan.length < 10}
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-[#05070d] disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)' }}
+        >
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
+          {busy ? 'Verifying PAN…' : 'Verify PAN'}
+        </button>
+      </div>
+
+      <div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <p className="text-xs font-bold text-white/50 uppercase tracking-wider mb-2">Why PAN?</p>
+        <ul className="space-y-1.5 text-sm text-white/60 list-disc list-inside">
+          <li>Regulatory requirement for Indian exchange onboarding.</li>
+          <li>Name and DOB must match your Aadhaar exactly.</li>
+          <li>Link PAN in DigiLocker next time to skip this step.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // ─── DigiLocker panel (auto KYC mode — step 1) ───────────────────────────────
-function DigiLockerPanel({ kyc, onCheckStatus, faceMatchRequired, syncError, onClearSyncError }) {
+function DigiLockerPanel({ kyc, onCheckStatus, faceMatchRequired, panVerifyRequired, syncError, onClearSyncError }) {
   const [busy,        setBusy]        = useState(false);
   const [checking,    setChecking]    = useState(false);
   const [error,       setError]       = useState('');
@@ -715,8 +865,8 @@ function DigiLockerPanel({ kyc, onCheckStatus, faceMatchRequired, syncError, onC
         <p className="text-sm text-white/65 leading-relaxed">
           Click the button below to open DigiLocker. Log in with your Aadhaar-linked account
           and grant consent.
-          {faceMatchRequired
-            ? ' After DigiLocker, you will complete selfie verification on step 2.'
+          {faceMatchRequired || panVerifyRequired
+            ? ` After DigiLocker, you will${panVerifyRequired ? ' verify PAN and' : ''}${faceMatchRequired ? ' complete selfie verification' : ' finish verification'}.`
             : <> Your KYC will be <span className="text-green-400 font-semibold">approved instantly</span> — no document upload required.</>}
         </p>
         {error && (
@@ -781,7 +931,11 @@ function DigiLockerPanel({ kyc, onCheckStatus, faceMatchRequired, syncError, onC
           <li>Click "Open DigiLocker" — a new tab opens with the DigiLocker sign-in.</li>
           <li>Log in or sign up with your Aadhaar-linked mobile number.</li>
           <li>Grant consent to share your Aadhaar details with BITZX.</li>
-          <li>Return to this page{faceMatchRequired ? ' to continue with selfie verification.' : ' — your KYC will be approved automatically.'}</li>
+          <li>Return to this page
+            {panVerifyRequired || faceMatchRequired
+              ? ` to continue${panVerifyRequired ? ' with PAN verification' : ''}${faceMatchRequired ? ' and selfie verification' : ''}.`
+              : ' — your KYC will be approved automatically.'}
+          </li>
         </ol>
       </div>
     </div>
@@ -797,6 +951,7 @@ export default function KYCPage() {
   const [loading,    setLoading]    = useState(true);
   const [kycMode,    setKycMode]    = useState('manual');   // "manual" | "auto" | "disabled"
   const [faceMatchRequired, setFaceMatchRequired] = useState(false);
+  const [panVerifyRequired, setPanVerifyRequired] = useState(false);
   const [digiSyncError, setDigiSyncError] = useState('');
   const [step,       setStep]       = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -854,6 +1009,7 @@ export default function KYCPage() {
         .then((d) => {
           setKycMode(d.kyc_mode || 'manual');
           setFaceMatchRequired(!!d.face_match_required);
+          setPanVerifyRequired(!!d.pan_verify_required);
         })
         .catch(() => {}),
     ]).finally(() => setLoading(false));
@@ -1129,9 +1285,23 @@ export default function KYCPage() {
   const needsForm   = !submitted && (kyc?.status === 'rejected' || kyc?.status === 'digilocker_failed' || kyc?.status === 'face_match_failed' || !kyc || kyc.status === 'unverified');
   const showForm    = needsForm && kycMode === 'manual';
   const showAutoKyc = kycMode === 'auto' && !submitted && !isApproved && !isPending;
-  const autoStep = ['awaiting_selfie', 'face_match_failed'].includes(kyc?.status) ? 1 : 0;
-  const showDigiLockerStep = showAutoKyc && autoStep === 0;
-  const showSelfieStep = showAutoKyc && faceMatchRequired && autoStep === 1;
+  const panAlreadyOnFile = !!(kyc?.pan_info?.linked || kyc?.pan_info?.verified);
+  const needPanStep = panVerifyRequired && !panAlreadyOnFile;
+  const autoSteps = useMemo(
+    () => buildAutoSteps(needPanStep, faceMatchRequired),
+    [needPanStep, faceMatchRequired],
+  );
+
+  const showDigiLockerStep = showAutoKyc && ['digilocker_pending', 'digilocker_failed', 'unverified'].includes(kyc?.status || 'unverified');
+  const showPanStep = showAutoKyc && needPanStep && ['awaiting_pan', 'pan_verify_failed'].includes(kyc?.status);
+  const showSelfieStep = showAutoKyc && faceMatchRequired && ['awaiting_selfie', 'face_match_failed'].includes(kyc?.status);
+
+  const autoStepIndex = useMemo(() => {
+    if (showSelfieStep) return Math.max(0, autoSteps.length - 1);
+    if (showPanStep) return autoSteps.findIndex((s) => s.label === 'PAN');
+    return 0;
+  }, [showSelfieStep, showPanStep, autoSteps]);
+
   const showDisabled   = kycMode === 'disabled' && !isApproved && !isPending;
 
   const handleKycApproved = useCallback(() => {
@@ -1204,16 +1374,16 @@ export default function KYCPage() {
           className="relative z-10 mt-8 rounded-2xl p-5 space-y-2"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
           <p className="text-xs font-bold text-white uppercase tracking-wider mb-3">Verification Process</p>
-          {(kycMode === 'auto' ? AUTO_STEPS : STEPS).map(({ label, icon: Icon }, i) => (
+          {(kycMode === 'auto' ? autoSteps : STEPS).map(({ label, icon: Icon }, i) => (
             <div key={label} className="flex items-center gap-3">
               <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
-                i < (kycMode === 'auto' ? autoStep : step) ? 'bg-green-500 text-white' : i === (kycMode === 'auto' ? autoStep : step) ? 'text-surface-dark' : 'text-white'}`}
-                style={i === (kycMode === 'auto' ? autoStep : step) ? { background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }
-                  : i < (kycMode === 'auto' ? autoStep : step) ? {} : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                {i < (kycMode === 'auto' ? autoStep : step) ? '✓' : i + 1}
+                i < (kycMode === 'auto' ? autoStepIndex : step) ? 'bg-green-500 text-white' : i === (kycMode === 'auto' ? autoStepIndex : step) ? 'text-surface-dark' : 'text-white'}`}
+                style={i === (kycMode === 'auto' ? autoStepIndex : step) ? { background: 'linear-gradient(135deg, #9C7941, #EBD38D)' }
+                  : i < (kycMode === 'auto' ? autoStepIndex : step) ? {} : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                {i < (kycMode === 'auto' ? autoStepIndex : step) ? '✓' : i + 1}
               </div>
               <span className={`text-sm font-semibold ${
-                i === (kycMode === 'auto' ? autoStep : step) ? 'text-gold-light' : i < (kycMode === 'auto' ? autoStep : step) ? 'text-green-400' : 'text-white'}`}>
+                i === (kycMode === 'auto' ? autoStepIndex : step) ? 'text-gold-light' : i < (kycMode === 'auto' ? autoStepIndex : step) ? 'text-green-400' : 'text-white'}`}>
                 {label}
               </span>
             </div>
@@ -1263,10 +1433,11 @@ export default function KYCPage() {
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
               className="rounded-2xl p-8"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              {faceMatchRequired && <AutoStepIndicator current={autoStep} />}
+              {autoSteps.length > 1 && <AutoStepIndicator steps={autoSteps} current={autoStepIndex} />}
               <DigiLockerPanel
                 kyc={kyc}
                 faceMatchRequired={faceMatchRequired}
+                panVerifyRequired={needPanStep}
                 syncError={digiSyncError}
                 onClearSyncError={() => setDigiSyncError('')}
                 onCheckStatus={handleDigiCheckStatus}
@@ -1274,12 +1445,22 @@ export default function KYCPage() {
             </motion.div>
           )}
 
-          {/* Auto KYC — step 2: Selfie + face match */}
+          {/* Auto KYC — PAN verify (when not linked in DigiLocker) */}
+          {showPanStep && (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl p-8"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <AutoStepIndicator steps={autoSteps} current={autoStepIndex} />
+              <PanVerificationPanel kyc={kyc} onRefresh={refreshKyc} onApproved={handleKycApproved} />
+            </motion.div>
+          )}
+
+          {/* Auto KYC — Selfie + face match */}
           {showSelfieStep && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
               className="rounded-2xl p-8"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <AutoStepIndicator current={autoStep} />
+              <AutoStepIndicator steps={autoSteps} current={autoStepIndex} />
               <SelfieVerificationPanel
                 kyc={kyc}
                 onRefresh={refreshKyc}
@@ -1392,7 +1573,7 @@ export default function KYCPage() {
           )}
 
           {/* Pending — no form */}
-          {!submitted && isPending && !showDigiLockerStep && !showSelfieStep && (
+          {!submitted && isPending && !showDigiLockerStep && !showPanStep && !showSelfieStep && (
             <div className="rounded-2xl p-8 text-center space-y-4"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"

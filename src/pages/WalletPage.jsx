@@ -870,8 +870,8 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
       setSubmitError('Please pick an asset and network.');
       return;
     }
-    if (String(asset).toUpperCase() === 'BZX') {
-      setSubmitError('BZX can only be cashed out via Withdraw INR (bank/UPI), not on-chain.');
+    if (String(asset).toUpperCase() === 'BZX' && !withdrawReady) {
+      setSubmitError('BZX on-chain withdrawal is not enabled yet. Use Withdraw INR for bank/UPI, or try again later.');
       return;
     }
     if (!withdrawReady) {
@@ -986,13 +986,21 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
 
         {hasSupported && (
           <form onSubmit={onSubmit} className="space-y-4">
-            {isBzxSelected && (
+            {isBzxSelected && !withdrawReady && (
               <div className="rounded-xl border border-gold/30 bg-gold/10 px-4 py-3 text-sm text-amber-100">
-                BZX cannot be sent to an on-chain address. Use{' '}
+                BZX on-chain withdrawal is not active on this network yet. Use{' '}
                 <Link to="/wallet/withdraw/inr" className="font-bold text-gold-light underline">
                   Withdraw INR
                 </Link>{' '}
                 to receive rupees in your bank or UPI.
+              </div>
+            )}
+            {isBzxSelected && withdrawReady && (
+              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                Send BZX to any external BEP-20 wallet. For INR (bank/UPI), use{' '}
+                <Link to="/wallet/withdraw/inr" className="font-bold text-emerald-200 underline">
+                  Withdraw INR
+                </Link>.
               </div>
             )}
             <AssetSelect value={asset} onChange={handleAsset} label="Asset" assets={availableAssets} />

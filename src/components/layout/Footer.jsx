@@ -21,11 +21,30 @@ const LINKS = {
   ],
 };
 
+function FacebookIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+    </svg>
+  );
+}
+
+function InstagramIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 const SOCIAL = [
-  { icon: ExternalLink, href: '#', label: 'Twitter'  },
-  { icon: Send,         href: '#', label: 'Telegram' },
-  { icon: ExternalLink, href: '#', label: 'GitHub'   },
-  { icon: Mail,         href: '#', label: 'Email'    },
+  { icon: ExternalLink, href: 'https://x.com/bitzxofficial', label: 'Twitter' },
+  { icon: Send,         href: 'https://t.me/bitzxofficial', label: 'Telegram' },
+  { icon: FacebookIcon, href: 'https://www.facebook.com/profile.php?id=61590368919405', label: 'Facebook' },
+  { icon: InstagramIcon, href: 'https://www.instagram.com/thebitzx/', label: 'Instagram' },
+  { icon: Mail,         href: 'mailto:admin@bitzx.io', label: 'Email', isMailto: true },
 ];
 
 export default function Footer() {
@@ -54,8 +73,13 @@ export default function Footer() {
             </div>
             <div className="flex items-center gap-3">
               {SOCIAL.map(s => (
-                <a key={s.label} href={s.href} aria-label={s.label}
-                  className="bitzx-social-btn p-2 rounded-lg bg-surface-card border border-surface-border text-white hover:text-gold-light hover:border-gold/30">
+                <a
+                  key={s.label}
+                  href={s.href}
+                  aria-label={s.label}
+                  {...(s.isMailto ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                  className="bitzx-social-btn p-2 rounded-lg bg-surface-card border border-surface-border text-white hover:text-gold-light hover:border-gold/30"
+                >
                   <s.icon size={15} />
                 </a>
               ))}

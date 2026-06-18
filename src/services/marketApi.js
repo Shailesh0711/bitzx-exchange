@@ -48,7 +48,12 @@ export const PAIRS = [
 /** Resolve coin logo: API/catalog URL first, then static majors map. */
 export function coinIconUrl(base, logoUrl) {
   const url = logoUrl != null ? String(logoUrl).trim() : '';
-  if (url) return url;
+  if (url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('//')) return `https:${url}`;
+    const rel = url.startsWith('/') ? url : `/${url}`;
+    return `${BACKEND}${rel}`;
+  }
   const b = String(base || '').toUpperCase();
   return COIN_ICONS[b] || null;
 }
@@ -101,11 +106,29 @@ export function isBzxQuotedRouteSymbol(param) {
   return Boolean(upper && /^[A-Z0-9]{2,12}BZX$/.test(upper) && upper !== 'BZXBZX');
 }
 
+/** Listed / dynamic USDT spot pair from route, e.g. MIDASUSDT. */
+export function isListedUsdtRouteSymbol(param) {
+  const upper = apiSymbolFromRouteParam(param);
+  return Boolean(upper && /^[A-Z0-9]{2,12}USDT$/.test(upper));
+}
+
+/** Normalize `/trade/:symbol` → API wire symbol (MIDAS → MIDASUSDT). */
+export function normalizeTradeRouteSymbol(param) {
+  const upper = apiSymbolFromRouteParam(param);
+  if (!upper) return null;
+  if (upper.endsWith('BZX') && upper.length > 3) return upper;
+  if (upper.endsWith('USDT')) return upper;
+  if (/^[A-Z0-9]{2,12}$/.test(upper)) return `${upper}USDT`;
+  return null;
+}
+
 /** Valid spot pair from `/trade/:symbol`, or null if unknown / empty. */
 export function tradeSymbolFromRouteParam(param) {
-  const upper = apiSymbolFromRouteParam(param);
-  if (upper && SPOT_SYMBOL_SET.has(upper)) return upper;
-  if (isBzxQuotedRouteSymbol(upper)) return upper;
+  const normalized = normalizeTradeRouteSymbol(param);
+  if (!normalized) return null;
+  if (SPOT_SYMBOL_SET.has(normalized)) return normalized;
+  if (isBzxQuotedRouteSymbol(normalized)) return normalized;
+  if (isListedUsdtRouteSymbol(normalized)) return normalized;
   return null;
 }
 

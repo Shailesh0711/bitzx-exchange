@@ -31,6 +31,8 @@ import {
   INTERNAL_SPOT_SYMBOL,
   isBzxMockMarketSymbol,
   marketApi,
+  apiSymbolFromRouteParam,
+  normalizeTradeRouteSymbol,
   tradePathForApiSymbol,
   tradeSymbolFromRouteParam,
   displayBaseForApiSymbol,
@@ -1067,12 +1069,14 @@ export default function TradePage() {
   }, [symbol, isBzxMock]);
 
   useEffect(() => {
-    if (!routeParam) {
+    const resolved = tradeSymbolFromRouteParam(routeParam);
+    if (!routeParam || !resolved) {
       navigate(`/trade/${INTERNAL_SPOT_SYMBOL}`, { replace: true });
       return;
     }
-    if (!tradeSymbolFromRouteParam(routeParam)) {
-      navigate(`/trade/${INTERNAL_SPOT_SYMBOL}`, { replace: true });
+    const canonical = normalizeTradeRouteSymbol(routeParam);
+    if (canonical && canonical !== apiSymbolFromRouteParam(routeParam)) {
+      navigate(`/trade/${canonical}`, { replace: true });
     }
   }, [routeParam, navigate]);
 

@@ -3,6 +3,8 @@ import { Send, Mail, Shield, Zap, ExternalLink } from 'lucide-react';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
+const SUPPORT_EMAIL = 'support@bitzx.io';
+
 const LINKS = {
   Exchange: [
     { label: 'Markets',        to: '/markets' },
@@ -15,6 +17,7 @@ const LINKS = {
     { label: 'About',          href: 'https://bitzx.io/about' },
   ],
   Support: [
+    { label: SUPPORT_EMAIL,    href: `mailto:${SUPPORT_EMAIL}`, isMailto: true },
     { label: 'Help Center',    href: '#' },
     { label: 'API Docs',       href: '#' },
     { label: 'Status',         href: '#' },
@@ -44,7 +47,11 @@ const SOCIAL = [
   { icon: Send,         href: 'https://t.me/bitzxofficial', label: 'Telegram' },
   { icon: FacebookIcon, href: 'https://www.facebook.com/profile.php?id=61590368919405', label: 'Facebook' },
   { icon: InstagramIcon, href: 'https://www.instagram.com/thebitzx/', label: 'Instagram' },
+
   { icon: Mail,         href: 'mailto:admin@bitzx.io', label: 'Email', isMailto: true },
+
+  { icon: Mail,         href: `mailto:${SUPPORT_EMAIL}`, label: 'Email', isMailto: true },
+
 ];
 
 export default function Footer() {
@@ -98,8 +105,11 @@ export default function Footer() {
                         {item.label}
                       </Link>
                     ) : (
-                      <a href={item.href} target="_blank" rel="noopener noreferrer"
-                        className="bitzx-footer-link text-white/90 text-base">
+                      <a
+                        href={item.href}
+                        {...(item.isMailto ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                        className="bitzx-footer-link text-white/90 text-base"
+                      >
                         {item.label}
                       </a>
                     )}
@@ -112,7 +122,13 @@ export default function Footer() {
 
         <div className="border-t border-surface-border mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-white text-sm">© 2026 BITZX Exchange. All rights reserved.</p>
-          <div className="flex items-center gap-5 text-white text-sm">
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-5 gap-y-2 text-white text-sm">
+            <a
+              href={`mailto:${SUPPORT_EMAIL}`}
+              className="text-white/90 hover:text-gold-light transition-colors"
+            >
+              {SUPPORT_EMAIL}
+            </a>
             <span className="flex items-center gap-1"><Shield size={11} /> Secured</span>
             <span className="flex items-center gap-1"><Zap size={11} /> Fast Execution</span>
             <span>Trading involves risk. Demo platform only.</span>

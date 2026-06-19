@@ -93,6 +93,26 @@ export function isBzxMockMarketSymbol(sym) {
   return isBzxQuotedRouteSymbol(upper);
 }
 
+/**
+ * TradingView is only available for Binance-listed USDT pairs.
+ * Listed / internal mock USDT pairs (e.g. MIDASUSDT) use SyntheticChart + backend klines.
+ */
+export function isSyntheticUsdtChartSymbol(sym, marketMeta) {
+  const upper = String(sym || '').trim().toUpperCase();
+  if (!upper) return false;
+  if (isBzxMockMarketSymbol(upper)) return true;
+
+  const meta = marketMeta && typeof marketMeta === 'object' ? marketMeta : null;
+  if (meta) {
+    const stats = String(meta.stats_source || '');
+    if (stats === 'listed' || stats === 'internal_mock') return true;
+    if (meta.is_listed || meta.source === 'listed') return true;
+  }
+
+  if (SPOT_SYMBOL_SET.has(upper)) return false;
+  return isListedUsdtRouteSymbol(upper);
+}
+
 /** Route `/trade/BZXUSDT` → API symbol (identity for bitzx). */
 export function apiSymbolFromRouteParam(param) {
   return String(param || '').trim().toUpperCase();

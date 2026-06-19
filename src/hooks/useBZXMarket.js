@@ -191,7 +191,7 @@ export function useBZXMarket({ symbol = 'BZXUSDT', interval = '1m', enabled = tr
               setTicker(msg);
               break;
 
-            // ── Orderbook (every ~4 s) ──────────────────────────────────
+            // ── Orderbook (every ~1 s, tracks live price) ─────────────────
             case 'orderbook':
               scheduleObUpdate({ bids: msg.bids || [], asks: msg.asks || [] });
               break;

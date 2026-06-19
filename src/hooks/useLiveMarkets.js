@@ -7,6 +7,19 @@ const PRICE_KEYS = [
   'volume', 'quoteVolume', 'weightedAvgPrice', 'bidPrice', 'askPrice', 'prevClosePrice', 'count',
 ];
 
+function positiveNum(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) && n > 0;
+}
+
+function pickPriceField(liveVal, metaVal) {
+  if (positiveNum(liveVal)) return liveVal;
+  if (positiveNum(metaVal)) return metaVal;
+  if (liveVal != null && liveVal !== '') return liveVal;
+  if (metaVal != null && metaVal !== '') return metaVal;
+  return undefined;
+}
+
 /** Merge admin catalog metadata with live WS rows; append catalog-only visible pairs. */
 export function mergeCatalogWithLive(metaBySymbol, liveRows) {
   const map = metaBySymbol instanceof Map ? metaBySymbol : new Map();
@@ -24,10 +37,16 @@ export function mergeCatalogWithLive(metaBySymbol, liveRows) {
     }
     const merged = { ...meta };
     for (const k of Object.keys(row)) {
-      if (PRICE_KEYS.includes(k) && row[k] != null && row[k] !== '') {
-        merged[k] = row[k];
+      if (PRICE_KEYS.includes(k)) {
+        const picked = pickPriceField(row[k], meta[k]);
+        if (picked != null && picked !== '') merged[k] = picked;
       } else if (row[k] != null && row[k] !== '') {
         merged[k] = row[k];
+      }
+    }
+    for (const k of PRICE_KEYS) {
+      if ((merged[k] == null || merged[k] === '') && meta[k] != null && meta[k] !== '') {
+        merged[k] = meta[k];
       }
     }
     if (merged.market_visible === false) continue;
@@ -36,6 +55,7 @@ export function mergeCatalogWithLive(metaBySymbol, liveRows) {
 
   for (const [sym, meta] of map) {
     if (seen.has(sym) || meta.market_visible === false) continue;
+    if (!positiveNum(meta.price)) continue;
     out.push(meta);
   }
 

@@ -17,8 +17,12 @@ export function hasLive24hStats(market) {
   if (statsSource === 'fallback') return false;
   if (statsSource === 'internal' && market.symbol === 'BZXUSDT') return true;
 
-  if (statsSource === 'internal_mock' || src === 'internal_mock') {
-    return hasPositivePrice(market);
+  if (statsSource === 'listed' || statsSource === 'internal_mock') {
+    return (
+      market.priceChangePercent != null
+      && market.priceChangePercent !== ''
+      && hasPositivePrice(market)
+    );
   }
 
   if (market.source === 'binance' && statsSource !== 'fallback') return true;

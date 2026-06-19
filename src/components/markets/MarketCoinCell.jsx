@@ -8,11 +8,14 @@ export default function MarketCoinCell({ market, size = 40, showQuote = true, li
   const base = market?.base || market?.symbol?.replace(/USDT$/, '').replace(/BZX$/, '') || '';
   const quote = market?.quote || market?.quoteAsset || (market?.symbol?.endsWith('BZX') ? 'BZX' : 'USDT');
   const icon = coinIconUrl(base, market?.logo_url);
-  const name = market?.token_name || market?.project_name || base;
+  const displayName = [market?.project_name, market?.token_name]
+    .map((v) => (v != null ? String(v).trim() : ''))
+    .find((v) => v && v.toUpperCase() !== String(base).toUpperCase()) || '';
   const tagline = market?.market_tagline;
   const category = market?.market_category;
   const isListed = market?.is_listed || market?.source === 'listed' || market?.source === 'internal_mock';
   const isBzx = base === 'BZX' || market?.is_platform_default;
+  const showCategory = category && category !== 'alt' && !(isListed && category === 'listed');
 
   const inner = (
     <div className="flex items-center gap-3 min-w-0">
@@ -49,11 +52,13 @@ export default function MarketCoinCell({ market, size = 40, showQuote = true, li
               Listed
             </span>
           ) : null}
-          {category && category !== 'alt' ? (
+          {showCategory ? (
             <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold">{category}</span>
           ) : null}
         </div>
-        <p className="text-[11px] text-zinc-400 truncate max-w-[min(100%,12rem)] sm:max-w-[280px]">{name}</p>
+        {displayName ? (
+          <p className="text-[11px] text-zinc-400 truncate max-w-[min(100%,12rem)] sm:max-w-[280px]">{displayName}</p>
+        ) : null}
         {tagline ? (
           <p className="text-[10px] text-zinc-500 truncate max-w-[min(100%,14rem)] hidden sm:block">{tagline}</p>
         ) : null}

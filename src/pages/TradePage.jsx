@@ -970,7 +970,6 @@ export default function TradePage() {
     enabled: isBzxMock,
   });
   const [ticker,        setTicker]        = useState(null);
-  const [marketMeta,    setMarketMeta]    = useState(null);
   const [pairOpen,      setPairOpen]      = useState(false);
   const [formPrice,     setFormPrice]     = useState('');
   const [mobilePanelTab, setMobilePanelTab] = useState('trade'); // 'trade' | 'book'
@@ -999,23 +998,6 @@ export default function TradePage() {
       cancelled = true;
     };
   }, [symbol, displayBase, apiQuote]);
-
-  useEffect(() => {
-    let cancelled = false;
-    marketApi
-      .getMarkets()
-      .then((markets) => {
-        if (cancelled) return;
-        const hit = (markets || []).find((m) => String(m.symbol).toUpperCase() === symbol);
-        setMarketMeta(hit || null);
-      })
-      .catch(() => {
-        if (!cancelled) setMarketMeta(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [symbol]);
 
   const icon = coinIconUrl(displayBase, apiQuote === 'BZX' ? bzxLogoUrl : null)
     ?? coinIconUrl(apiBase, null);
@@ -1174,7 +1156,7 @@ export default function TradePage() {
               fill
             />
           ) : (
-            <TradingChart key={symbol} symbol={symbol} lastPrice={livePrice} marketMeta={marketMeta} />
+            <TradingChart key={symbol} symbol={symbol} />
           )}
         </div>
 
@@ -1275,7 +1257,7 @@ export default function TradePage() {
                 fill
               />
             ) : (
-              <TradingChart key={symbol} symbol={symbol} lastPrice={livePrice} marketMeta={marketMeta} />
+              <TradingChart key={symbol} symbol={symbol} />
             )}
           </div>
           <div

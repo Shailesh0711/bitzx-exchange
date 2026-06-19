@@ -93,23 +93,6 @@ export function isBzxMockMarketSymbol(sym) {
   return isBzxQuotedRouteSymbol(upper);
 }
 
-/** Demo USDT pairs with backend synthetic klines (not on Binance / TradingView). */
-export const INTERNAL_MOCK_USDT_SYMBOLS = new Set(['MIDASUSDT']);
-
-/** Use lightweight-charts + `/api/trading/klines` instead of TradingView for non-Binance USDT pairs. */
-export function isSyntheticUsdtChartSymbol(sym, marketMeta = null) {
-  const upper = String(sym || '').trim().toUpperCase();
-  if (!upper.endsWith('USDT') || upper === 'BZXUSDT') return false;
-  if (INTERNAL_MOCK_USDT_SYMBOLS.has(upper)) return true;
-  if (marketMeta) {
-    const src = String(marketMeta.source || '').toLowerCase();
-    const stats = String(marketMeta.stats_source || '').toLowerCase();
-    if (src === 'internal_mock' || stats === 'internal_mock') return true;
-    if (stats === 'listed' || src === 'listed') return true;
-  }
-  return false;
-}
-
 /** Route `/trade/BZXUSDT` → API symbol (identity for bitzx). */
 export function apiSymbolFromRouteParam(param) {
   return String(param || '').trim().toUpperCase();
@@ -251,14 +234,8 @@ function normalizeMarketRow(m) {
     featured_landing: m.featured_landing,
     market_sort_order: m.market_sort_order,
     listed_token_id: m.listed_token_id,
-    is_listed: Boolean(m.is_listed || m.source === 'internal_mock'),
-    stats_source: m.stats_source ?? (
-      src === 'binance' ? 'binance'
-        : src === 'internal' ? 'internal'
-          : src === 'internal_mock' ? 'internal_mock'
-            : src === 'listed' ? 'listed'
-              : ''
-    ),
+    is_listed: m.is_listed,
+    stats_source: m.stats_source ?? (src === 'binance' ? 'binance' : src === 'internal' ? 'internal' : ''),
     is_platform_default: m.is_platform_default,
     blockchain_network: m.blockchain_network,
     official_website: m.official_website,

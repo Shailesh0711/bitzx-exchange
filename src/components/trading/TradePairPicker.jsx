@@ -119,7 +119,7 @@ export default function TradePairPicker({ symbol, onSelect, displayBase, apiQuot
       .then((markets) => {
         const staticSyms = new Set(USDT_PAIRS.map((p) => p.symbol));
         const extra = (markets || [])
-          .filter((m) => m?.symbol?.endsWith('USDT') && (m.is_listed || m.source === 'listed' || m.source === 'internal_mock'))
+          .filter((m) => m?.symbol?.endsWith('USDT') && (m.is_listed || m.source === 'listed'))
           .map(normalizeListedUsdtPair)
           .filter((p) => p && !staticSyms.has(p.symbol));
         setListedUsdt(extra);

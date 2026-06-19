@@ -37,7 +37,7 @@ function filterMarkets(markets, filterId) {
       .sort((a, b) => num(b.quoteVolume) - num(a.quoteVolume));
   }
   if (filterId === 'listed') {
-    return spot.filter((m) => m.is_listed || m.source === 'listed');
+    return spot.filter((m) => m.is_listed || m.source === 'listed' || m.source === 'internal_mock');
   }
   return spot;
 }

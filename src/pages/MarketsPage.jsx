@@ -529,7 +529,7 @@ export default function MarketsPage() {
     let list = markets.filter(m => m.market_visible !== false).filter(m => {
       const base = m.base || m.symbol?.replace('USDT', '');
       if (category !== 'bzx' && !isUsdtSpotMarket(m)) return false;
-      if (category === 'listed') return m.is_listed || m.source === 'listed';
+      if (category === 'listed') return m.is_listed || m.source === 'listed' || m.source === 'internal_mock';
       if (category === 'favorites') return favorites.includes(m.symbol);
       if (category === 'bzx') return base === 'BZX';
       if (category === 'major') return MAJOR_BASES.has(base);

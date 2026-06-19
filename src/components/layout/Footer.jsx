@@ -47,11 +47,7 @@ const SOCIAL = [
   { icon: Send,         href: 'https://t.me/bitzxofficial', label: 'Telegram' },
   { icon: FacebookIcon, href: 'https://www.facebook.com/profile.php?id=61590368919405', label: 'Facebook' },
   { icon: InstagramIcon, href: 'https://www.instagram.com/thebitzx/', label: 'Instagram' },
-
-  { icon: Mail,         href: 'mailto:support@bitzx.io', label: 'Email', isMailto: true },
-
-  { icon: Mail,         href: `mailto:support@bitzx.io`, label: 'Email', isMailto: true },
-
+  { icon: Mail,         href: `mailto:${SUPPORT_EMAIL}`, label: 'Email', isMailto: true },
 ];
 
 export default function Footer() {

@@ -11,7 +11,7 @@ export default function MarketCoinCell({ market, size = 40, showQuote = true, li
   const name = market?.token_name || market?.project_name || base;
   const tagline = market?.market_tagline;
   const category = market?.market_category;
-  const isListed = market?.is_listed || market?.source === 'listed';
+  const isListed = market?.is_listed || market?.source === 'listed' || market?.source === 'internal_mock';
   const isBzx = base === 'BZX' || market?.is_platform_default;
 
   const inner = (

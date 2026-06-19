@@ -1,22 +1,34 @@
 import { num } from '@/lib/marketFormat';
 
+function hasPositivePrice(market) {
+  return num(market?.price) > 0;
+}
+
 /**
- * True when 24h % / volume / heatmap should use this row (live Binance or platform BZX).
- * Excludes synthetic listed rows and flat Binance fallbacks.
+ * True when 24h % / volume / heatmap should use this row (live Binance, platform BZX, or backend mock).
+ * Excludes flat Binance fallbacks and catalog stubs with no price.
  */
 export function hasLive24hStats(market) {
   if (!market) return false;
-  const statsSource = market.stats_source || '';
+  const statsSource = String(market.stats_source || '');
+  const src = String(market.source || '');
+
   if (statsSource === 'binance') return true;
   if (statsSource === 'fallback') return false;
   if (statsSource === 'internal' && market.symbol === 'BZXUSDT') return true;
+
+  if (statsSource === 'internal_mock' || src === 'internal_mock') {
+    return hasPositivePrice(market);
+  }
+
   if (market.source === 'binance' && statsSource !== 'fallback') return true;
-  // Listed pairs merged from catalog may omit stats_source; trust live OHLC from WS.
+
+  // Listed pairs merged from catalog may omit stats_source; trust live OHLC from WS when priced.
   if (
-    market.source === 'listed' &&
+    (src === 'listed' || market.is_listed) &&
     market.priceChangePercent != null &&
     market.priceChangePercent !== '' &&
-    market.price
+    hasPositivePrice(market)
   ) {
     return true;
   }

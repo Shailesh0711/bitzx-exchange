@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
+import { exchangeWsPath, marketApi, normalizeMarketsList } from '@/services/marketApi';
 import { fetchMarketCatalog } from '@/services/listingsApi';
 
 const PRICE_KEYS = [
@@ -88,6 +88,12 @@ export function useLiveMarkets({ enabled = true } = {}) {
 
   useEffect(() => {
     if (!enabled) return undefined;
+    let cancelled = false;
+
+    marketApi.getMarkets().then((rows) => {
+      if (!cancelled && rows?.length) applyLive(rows);
+    }).catch(() => { /* WS will follow */ });
+
     const url = exchangeWsPath('/api/ws/exchange/markets');
     let closed = false;
     let reconnectTimer = null;

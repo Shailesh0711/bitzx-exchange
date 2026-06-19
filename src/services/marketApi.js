@@ -252,7 +252,13 @@ function normalizeMarketRow(m) {
     market_sort_order: m.market_sort_order,
     listed_token_id: m.listed_token_id,
     is_listed: Boolean(m.is_listed || m.source === 'internal_mock'),
-    stats_source: m.stats_source ?? (src === 'binance' ? 'binance' : src === 'internal' ? 'internal' : ''),
+    stats_source: m.stats_source ?? (
+      src === 'binance' ? 'binance'
+        : src === 'internal' ? 'internal'
+          : src === 'internal_mock' ? 'internal_mock'
+            : src === 'listed' ? 'listed'
+              : ''
+    ),
     is_platform_default: m.is_platform_default,
     blockchain_network: m.blockchain_network,
     official_website: m.official_website,

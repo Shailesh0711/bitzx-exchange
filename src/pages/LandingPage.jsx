@@ -19,6 +19,8 @@ import MobileAppDownload from '@/components/ui/MobileAppDownload';
 import LandingPromoModal from '@/components/ui/LandingPromoModal';
 import MobileAppStickyBar from '@/components/ui/MobileAppStickyBar';
 import LandingPlatformFlow from '@/components/landing/LandingPlatformFlow';
+import LandingInstantKyc from '@/components/landing/LandingInstantKyc';
+import LandingTrustBadges from '@/components/landing/LandingTrustBadges';
 import LandingInrFiat from '@/components/landing/LandingInrFiat';
 import { LandingHomeBanners } from '@/components/dashboard/HomeBannerCarousel';
 
@@ -31,7 +33,7 @@ const FEATURES = [
   { icon: BarChart2, color: '#60a5fa', title: 'TradingView Charts',    desc: 'Full-feature charts with 100+ indicators, drawing tools, and multi-timeframe analysis.' },
   { icon: Globe,     color: '#a78bfa', title: 'Global Liquidity',      desc: 'Deep order books aggregated across providers for tight spreads around the clock.' },
   { icon: Wallet,    color: '#f97316', title: 'Multi-Asset Portfolio', desc: 'Trade 100+ pairs. Manage USDT, crypto assets, and INR deposit/withdraw flow in one place.' },
-  { icon: Lock,      color: '#ec4899', title: 'Fully KYC Compliant',   desc: 'Regulated platform serving 100+ countries. Identity verified, funds protected.' },
+  { icon: Lock,      color: '#ec4899', title: 'Instant KYC (India)',   desc: 'Aadhaar, PAN, live face match, and bank verification — onboard in minutes, not days.' },
   { icon: IndianRupee, color: '#22c55e', title: 'INR Deposit & Payout', desc: 'Deposit INR via bank or UPI; sell BZX and withdraw INR to your bank or UPI account.' },
 ];
 
@@ -271,7 +273,7 @@ export default function LandingPage() {
       {/* ══════════════════════════════════════════════════════════════════
           HERO
           ══════════════════════════════════════════════════════════════════ */}
-      <section className="relative min-h-[100svh] flex flex-col overflow-hidden">
+      <section className="relative flex flex-col overflow-hidden pb-2">
 
         <div className="absolute inset-0 z-0 bg-[#030405]" />
         <HeroVideoBackground />
@@ -304,22 +306,24 @@ export default function LandingPage() {
           <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_35%,rgba(8,9,12,0.94)_100%)]" />
         </div>
 
-        <div className="relative z-[3] flex-1 flex flex-col justify-center">
-          <div className="bitzx-landing-container py-14 sm:py-16 md:py-20 lg:py-24">
+        <div className="relative z-[3]">
+          <div className="bitzx-landing-container pt-14 sm:pt-16 md:pt-20 lg:pt-24 pb-4 sm:pb-5">
             <div className="max-w-3xl xl:max-w-4xl">
-                <motion.div
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 mb-7 sm:mb-8 backdrop-blur-md"
-                >
-                  <Sparkles size={14} className="text-gold-light shrink-0" />
-                  <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.2em] text-zinc-300">
-                    BZX · USDT · INR · BEP-20
-                  </span>
-                  <span className="hidden sm:inline w-px h-3.5 bg-white/15" />
-                  <span className="hidden sm:inline text-[11px] font-medium text-emerald-400/95 tracking-wide">Deposit → trade → portfolio</span>
-                </motion.div>
+                <div className="flex flex-col items-start mb-4 sm:mb-5">
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5 }}
+                    className="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 backdrop-blur-md"
+                  >
+                    <Sparkles size={14} className="text-gold-light shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.2em] text-zinc-300">
+                      BZX · USDT · INR · BEP-20
+                    </span>
+                    <span className="hidden sm:inline w-px h-3.5 bg-white/15" />
+                    <span className="hidden sm:inline text-[11px] font-medium text-emerald-400/95 tracking-wide">Deposit → trade → portfolio</span>
+                  </motion.div>
+                </div>
 
                 <div className="mb-6 sm:mb-8 space-y-4">
                   <motion.h1
@@ -383,46 +387,60 @@ export default function LandingPage() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.38 }}
-                  className="mb-11 sm:mb-12 flex flex-wrap items-center gap-3"
+                  className="mb-0 flex flex-col items-start gap-5 sm:gap-6 w-full"
                 >
-                  <MobileAppDownload id="mobile-app" variant="pill" />
-                  <MobileAppDownload variant="inline" className="hidden sm:inline-flex" />
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.45 }}
-                  className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4"
-                >
-                  {[
-                    { k: 'Maker fee', v: '0.05%', icon: BarChart2 },
-                    { k: 'Taker fee', v: '0.10%', icon: Activity },
-                    { k: 'Cold storage', v: 'Majority', icon: Shield },
-                    { k: 'Uptime', v: '99.98%', icon: Award },
-                  ].map(({ k, v, icon: Icon }, i) => (
-                    <div
-                      key={k}
-                      className="bitzx-hover-lift bitzx-hover-border rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-4 sm:py-4"
+                  <div className="flex flex-wrap items-center gap-4 sm:gap-5">
+                    <MobileAppDownload id="mobile-app" variant="pill" />
+                    <MobileAppDownload variant="inline" className="hidden sm:inline-flex" />
+                  </div>
+                  <div className="flex flex-col items-start gap-3 w-full">
+                    <motion.a
+                      href="#instant-kyc"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.45, delay: 0.42 }}
+                      className="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 backdrop-blur-md hover:bg-white/[0.06] transition-colors"
                     >
-                      <Icon size={15} className="text-gold-light/85 mb-2.5" />
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{k}</p>
-                      <p className="text-[15px] sm:text-base font-semibold text-white mt-1 tabular-nums">{v}</p>
-                    </div>
-                  ))}
+                      <Shield size={14} className="text-gold-light shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.2em] text-zinc-300">
+                        Instant KYC
+                      </span>
+                      <span className="hidden sm:inline w-px h-3.5 bg-white/15" />
+                      <span className="hidden sm:inline text-[11px] font-medium text-emerald-400/95 tracking-wide">
+                        Aadhaar · PAN · Face · Bank
+                      </span>
+                    </motion.a>
+                    <LandingTrustBadges className="justify-start" animateOnMount />
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
+                    {[
+                      { k: 'Maker fee', v: '0.05%', icon: BarChart2 },
+                      { k: 'Taker fee', v: '0.10%', icon: Activity },
+                      { k: 'Cold storage', v: 'Majority', icon: Shield },
+                      { k: 'Uptime', v: '99.98%', icon: Award },
+                    ].map(({ k, v, icon: Icon }) => (
+                      <div
+                        key={k}
+                        className="bitzx-hover-lift bitzx-hover-border rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-4 sm:py-4"
+                      >
+                        <Icon size={15} className="text-gold-light/85 mb-2.5" />
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{k}</p>
+                        <p className="text-[15px] sm:text-base font-semibold text-white mt-1 tabular-nums">{v}</p>
+                      </div>
+                    ))}
+                  </div>
                 </motion.div>
             </div>
+            <motion.div
+              animate={{ y: [0, 8, 0] }}
+              transition={{ repeat: Infinity, duration: 2.2 }}
+              className="flex flex-col items-center justify-center gap-2 text-white/50 pt-6 w-full"
+            >
+              <span className="text-xs font-semibold uppercase tracking-widest">Explore</span>
+              <div className="w-px h-7 bg-gradient-to-b from-white/40 to-transparent rounded-full" />
+            </motion.div>
           </div>
         </div>
-
-        <motion.div
-          animate={{ y: [0, 8, 0] }}
-          transition={{ repeat: Infinity, duration: 2.2 }}
-          className="relative z-[3] flex flex-col items-center gap-2 text-white/50 pb-8 pt-2"
-        >
-          <span className="text-xs font-semibold uppercase tracking-widest">Explore</span>
-          <div className="w-px h-7 bg-gradient-to-b from-white/40 to-transparent rounded-full" />
-        </motion.div>
       </section>
 
       <LandingHomeBanners />
@@ -440,6 +458,7 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
             {[
+              { to: '/kyc', label: 'Instant KYC', sub: 'Aadhaar · PAN · Face · Bank', icon: Shield },
               { to: '/wallet', label: 'Deposit', sub: 'USDT · BEP-20 search', icon: Wallet },
               { to: '/wallet?tab=swap', label: 'Swap', sub: 'BZX ↔ USDT instant', icon: RefreshCw },
               { to: '/trade/BZXUSDT', label: 'Spot trade', sub: 'Limit · Market · Charts', icon: BarChart2 },
@@ -466,6 +485,8 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      <LandingInstantKyc />
 
       <LandingPlatformFlow />
 

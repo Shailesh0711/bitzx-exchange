@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Lock, Eye, EyeOff, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
 import {
@@ -15,8 +15,12 @@ const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
+  const { token: pathToken } = useParams();
   const navigate = useNavigate();
-  const token = useMemo(() => (searchParams.get('token') || '').trim(), [searchParams]);
+  const token = useMemo(
+    () => (searchParams.get('token') || pathToken || '').trim(),
+    [searchParams, pathToken],
+  );
 
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');

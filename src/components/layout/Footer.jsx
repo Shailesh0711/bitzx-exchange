@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Send, Mail, Shield, Zap, ExternalLink } from 'lucide-react';
-import DunsRegisteredSeal from './DunsRegisteredSeal';
+// import DunsRegisteredSeal from './DunsRegisteredSeal';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -117,22 +117,20 @@ export default function Footer() {
           ))}
         </div>
 
-        <div className="border-t border-surface-border mt-10 pt-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 flex-1 min-w-0 w-full">
-            <p className="text-white text-sm">© 2026 BITZX Exchange. All rights reserved.</p>
-            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-5 gap-y-2 text-white text-sm">
-              <a
-                href={`mailto:${SUPPORT_EMAIL}`}
-                className="text-white/90 hover:text-gold-light transition-colors"
-              >
-                {SUPPORT_EMAIL}
-              </a>
-              <span className="flex items-center gap-1"><Shield size={11} /> Secured</span>
-              <span className="flex items-center gap-1"><Zap size={11} /> Fast Execution</span>
-              <span>Trading involves risk. Demo platform only.</span>
-            </div>
+        <div className="border-t border-surface-border mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-white text-sm">© 2026 BITZX Exchange. All rights reserved.</p>
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-5 gap-y-2 text-white text-sm">
+            <a
+              href={`mailto:${SUPPORT_EMAIL}`}
+              className="text-white/90 hover:text-gold-light transition-colors"
+            >
+              {SUPPORT_EMAIL}
+            </a>
+            <span className="flex items-center gap-1"><Shield size={11} /> Secured</span>
+            <span className="flex items-center gap-1"><Zap size={11} /> Fast Execution</span>
+            <span>Trading involves risk. Demo platform only.</span>
           </div>
-          <DunsRegisteredSeal className="mx-auto sm:ml-6 sm:mr-0" />
+          {/* <DunsRegisteredSeal className="mx-auto sm:ml-6 sm:mr-0" /> */}
         </div>
       </div>
     </footer>

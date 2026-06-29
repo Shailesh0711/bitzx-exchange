@@ -1,17 +1,32 @@
-/** Official-style Google Play store badge (GET IT ON Google Play). */
+/** Official Google Play badge — PNG with crop so visible badge matches CTA button height. */
 const BADGE_SRC = '/badges/google-play-badge.png';
 
+/** Quick trade / create account buttons use py-3.5 + 15px text ≈ 52px tall. */
+const SIZES = {
+  hero: { height: 52, imageScale: 2.65 },
+  md: { height: 52, imageScale: 2.65 },
+  sm: { height: 44, imageScale: 2.5 },
+};
+
 export default function GooglePlayBadge({ className = '', size = 'md' }) {
-  const height = size === 'sm' ? 40 : 48;
+  const cfg = SIZES[size] || SIZES.md;
 
   return (
-    <img
-      src={BADGE_SRC}
-      alt="Get it on Google Play"
-      height={height}
-      className={`inline-block w-auto object-contain transition-transform duration-200 hover:scale-[1.03] ${className}`}
-      style={{ height, maxWidth: '100%' }}
-      draggable={false}
-    />
+    <span
+      className={`inline-flex items-center justify-center overflow-hidden rounded-xl align-middle bitzx-hover-scale ${className}`}
+      style={{ height: cfg.height }}
+    >
+      <img
+        src={BADGE_SRC}
+        alt="Get it on Google Play"
+        className="w-auto max-w-none select-none pointer-events-none"
+        style={{
+          height: cfg.height * cfg.imageScale,
+          objectFit: 'cover',
+          objectPosition: 'center',
+        }}
+        draggable={false}
+      />
+    </span>
   );
 }

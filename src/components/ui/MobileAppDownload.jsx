@@ -68,9 +68,9 @@ export default function MobileAppDownload({
             {...linkProps}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`inline-flex items-center ${className}`}
+            className={`inline-flex items-center bitzx-hover-scale ${className}`}
           >
-            <GooglePlayBadge size="sm" />
+            <GooglePlayBadge size="hero" />
           </motion.a>
         );
       }
@@ -105,7 +105,7 @@ export default function MobileAppDownload({
           </div>
           {isGooglePlay ? (
             <StoreAnchor linkProps={linkProps}>
-              <GooglePlayBadge size="sm" />
+              <GooglePlayBadge size="md" />
             </StoreAnchor>
           ) : (
             <StoreAnchor
@@ -212,7 +212,7 @@ export default function MobileAppDownload({
           </div>
           {isGooglePlay ? (
             <StoreAnchor linkProps={linkProps} className="shrink-0">
-              <GooglePlayBadge size={isCompact ? 'sm' : 'md'} />
+              <GooglePlayBadge size="md" />
             </StoreAnchor>
           ) : (
             <StoreAnchor

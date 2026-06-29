@@ -211,7 +211,7 @@ function AppSlide({ data, apk }) {
               {...linkProps}
               className="group flex items-center justify-center w-full sm:w-auto mx-auto rounded-xl border border-white/10 bg-white/[0.06] active:bg-white/[0.1] px-4 py-3 sm:py-3.5 transition-all"
             >
-              <GooglePlayBadge size="sm" />
+              <GooglePlayBadge size="md" />
             </a>
           ) : (
             <a

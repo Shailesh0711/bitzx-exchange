@@ -172,7 +172,13 @@ export default function Navbar() {
     || location.pathname.startsWith('/futures')
     || location.pathname.startsWith('/options');
   const isHome = location.pathname === '/';
-  const { available: appAvailable, downloadHref: appDownloadHref, release: appRelease } = useMobileAppRelease();
+  const {
+    available: appAvailable,
+    storeHref: appStoreHref,
+    release: appRelease,
+    isGooglePlay: appIsGooglePlay,
+    linkProps: appLinkProps,
+  } = useMobileAppRelease();
 
   const moreActive = NAV_MORE.some((l) => pathActive(location.pathname, l.to));
 
@@ -372,15 +378,14 @@ export default function Navbar() {
             Quick
           </Link>
 
-          {appAvailable && appDownloadHref && (
+          {appAvailable && appStoreHref && appLinkProps && (
             <a
-              href={appDownloadHref}
-              download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
+              {...appLinkProps}
               className="hidden xl:flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 rounded-lg font-bold text-sm text-emerald-300 border border-emerald-500/35 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
-              title={`Download BITZX Mobile v${appRelease?.version || ''}`}
+              title={appIsGooglePlay ? 'Get BITZX on Google Play' : `Download BITZX Mobile v${appRelease?.version || ''}`}
             >
               <Smartphone size={14} />
-              App
+              {appIsGooglePlay ? 'Play Store' : 'App'}
             </a>
           )}
 
@@ -609,15 +614,16 @@ export default function Navbar() {
                     <Zap size={16} /> Quick Trade
                   </Link>
 
-                  {appAvailable && appDownloadHref ? (
+                  {appAvailable && appStoreHref && appLinkProps ? (
                     <a
-                      href={appDownloadHref}
-                      download={appRelease?.version ? `bitzx-${appRelease.version}.apk` : 'bitzx.apk'}
+                      {...appLinkProps}
                       onClick={() => setMenuOpen(false)}
                       className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-sm text-emerald-300 border border-emerald-500/35 bg-emerald-500/10 touch-manipulation"
                     >
-                      <Download size={16} />
-                      App{appRelease?.version ? ` v${appRelease.version}` : ''}
+                      {appIsGooglePlay ? <ExternalLink size={16} /> : <Download size={16} />}
+                      {appIsGooglePlay
+                        ? 'Get on Google Play'
+                        : `App${appRelease?.version ? ` v${appRelease.version}` : ''}`}
                     </a>
                   ) : null}
 

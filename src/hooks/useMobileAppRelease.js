@@ -3,18 +3,52 @@ import { exchangeApiOrigin } from '@/lib/apiBase';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
-/** Absolute URL for the published APK download (API stream endpoint). */
+export const MOBILE_DIST_GOOGLE_PLAY = 'google_play';
+export const MOBILE_DIST_DIRECT_APK = 'direct_apk';
+
+/** True when the public release payload points at Google Play. */
+export function isGooglePlayRelease(release) {
+  return release?.distribution === MOBILE_DIST_GOOGLE_PLAY;
+}
+
+/** Absolute URL for direct APK download (API stream endpoint). */
 export function mobileAppDownloadHref(release) {
-  if (!release?.available) return null;
+  if (!release?.available || isGooglePlayRelease(release)) return null;
   const rel = release.download_api_url || release.download_url;
   if (!rel) return null;
   if (rel.startsWith('http://') || rel.startsWith('https://')) return rel;
   return `${API}${rel.startsWith('/') ? '' : '/'}${rel}`;
 }
 
+/** Store / download href — Google Play URL or APK download URL. */
+export function mobileAppStoreHref(release) {
+  if (!release?.available) return null;
+  if (isGooglePlayRelease(release)) {
+    const url = release.google_play_url || release.download_url;
+    return url && (url.startsWith('http://') || url.startsWith('https://')) ? url : null;
+  }
+  return mobileAppDownloadHref(release);
+}
+
+/** Anchor props for store CTAs (Play Store opens in new tab; APK uses download). */
+export function mobileAppLinkProps(release) {
+  const href = mobileAppStoreHref(release);
+  if (!href) return null;
+  if (isGooglePlayRelease(release)) {
+    return {
+      href,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    };
+  }
+  return {
+    href,
+    download: release?.version ? `bitzx-${release.version}.apk` : 'bitzx.apk',
+  };
+}
+
 /**
  * Fetch GET /api/mobile-app/release once (public, no auth).
- * @returns {{ release: object|null, loaded: boolean, downloadHref: string|null }}
  */
 export function useMobileAppRelease() {
   const [release, setRelease] = useState(null);
@@ -36,8 +70,20 @@ export function useMobileAppRelease() {
     return () => { cancelled = true; };
   }, []);
 
+  const storeHref = mobileAppStoreHref(release);
   const downloadHref = mobileAppDownloadHref(release);
   const available = release?.available === true;
+  const isGooglePlay = isGooglePlayRelease(release);
+  const isDirectApk = !isGooglePlay;
 
-  return { release, loaded, available, downloadHref };
+  return {
+    release,
+    loaded,
+    available,
+    storeHref,
+    downloadHref,
+    isGooglePlay,
+    isDirectApk,
+    linkProps: mobileAppLinkProps(release),
+  };
 }

@@ -1,13 +1,14 @@
 import { Download, Smartphone, X } from 'lucide-react';
 import { useState } from 'react';
 import { useMobileAppRelease } from '@/hooks/useMobileAppRelease';
+import GooglePlayBadge from '@/components/ui/GooglePlayBadge';
 
-/** Sticky bottom bar when APK is published (landing page). */
+/** Sticky bottom bar when the mobile app CTA is available (landing page). */
 export default function MobileAppStickyBar() {
-  const { loaded, available, downloadHref, release } = useMobileAppRelease();
+  const { loaded, available, storeHref, release, isGooglePlay, linkProps } = useMobileAppRelease();
   const [hidden, setHidden] = useState(false);
 
-  if (!loaded || !available || !downloadHref || hidden) return null;
+  if (!loaded || !available || !storeHref || !linkProps || hidden) return null;
 
   return (
     <div className="fixed bottom-0 inset-x-0 z-[90] px-3 pb-3 sm:px-4 pointer-events-none">
@@ -15,16 +16,25 @@ export default function MobileAppStickyBar() {
         <Smartphone size={20} className="text-emerald-300 shrink-0 hidden sm:block" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white truncate">BITZX Android app is live</p>
-          <p className="text-xs text-zinc-400 truncate">v{release.version} · Tap to download the official APK</p>
+          <p className="text-xs text-zinc-400 truncate">
+            {isGooglePlay
+              ? 'Available on Google Play'
+              : `v${release.version} · Tap to download the official APK`}
+          </p>
         </div>
-        <a
-          href={downloadHref}
-          download={`bitzx-${release.version}.apk`}
-          className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold px-4 py-2 text-sm transition-colors"
-        >
-          <Download size={15} />
-          <span className="hidden xs:inline">Download</span>
-        </a>
+        {isGooglePlay ? (
+          <a {...linkProps} className="shrink-0">
+            <GooglePlayBadge size="sm" />
+          </a>
+        ) : (
+          <a
+            {...linkProps}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold px-4 py-2 text-sm transition-colors"
+          >
+            <Download size={15} />
+            <span className="hidden xs:inline">Download</span>
+          </a>
+        )}
         <button
           type="button"
           onClick={() => setHidden(true)}

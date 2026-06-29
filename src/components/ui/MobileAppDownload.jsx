@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Smartphone, Download, Clock, Shield, Sparkles } from 'lucide-react';
 import { useMobileAppRelease } from '@/hooks/useMobileAppRelease';
+import GooglePlayBadge from '@/components/ui/GooglePlayBadge';
 
 function fmtBytes(n) {
   const v = Number(n);
@@ -9,8 +10,17 @@ function fmtBytes(n) {
   return `${(v / 1024).toFixed(0)} KB`;
 }
 
+function StoreAnchor({ linkProps, className, children }) {
+  if (!linkProps) return null;
+  return (
+    <a {...linkProps} className={className}>
+      {children}
+    </a>
+  );
+}
+
 /**
- * APK download blocks for landing page.
+ * Mobile app download blocks for landing page.
  * variant: card | compact | banner | strip | pill | inline
  */
 export default function MobileAppDownload({
@@ -22,7 +32,14 @@ export default function MobileAppDownload({
   subtitle,
 }) {
   const resolvedVariant = variant || (compact ? 'compact' : 'card');
-  const { release, loaded, available, downloadHref } = useMobileAppRelease();
+  const {
+    release,
+    loaded,
+    available,
+    storeHref,
+    isGooglePlay,
+    linkProps,
+  } = useMobileAppRelease();
 
   if (!loaded) {
     const h = resolvedVariant === 'pill' ? 'h-11' : resolvedVariant === 'strip' ? 'h-14' : 'h-24';
@@ -35,18 +52,32 @@ export default function MobileAppDownload({
   }
 
   const sizeLabel = fmtBytes(release?.file_size_bytes);
-  const heading = title || 'Download BITZX Mobile';
+  const heading = title || (isGooglePlay ? 'BITZX on Google Play' : 'Download BITZX Mobile');
   const desc = subtitle || (available
-    ? `Trade on Android · v${release.version}${sizeLabel ? ` · ${sizeLabel}` : ''}`
+    ? (isGooglePlay
+      ? 'Install the official BITZX app from Google Play — trade on Android anytime.'
+      : `Trade on Android · v${release.version}${sizeLabel ? ` · ${sizeLabel}` : ''}`)
     : 'Native Android app launching shortly — use the web terminal today.');
 
-  if (available && downloadHref) {
+  if (available && storeHref && linkProps) {
     if (resolvedVariant === 'pill') {
+      if (isGooglePlay) {
+        return (
+          <motion.a
+            id={id}
+            {...linkProps}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`inline-flex items-center ${className}`}
+          >
+            <GooglePlayBadge size="sm" />
+          </motion.a>
+        );
+      }
       return (
         <motion.a
           id={id}
-          href={downloadHref}
-          download={`bitzx-${release.version}.apk`}
+          {...linkProps}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           className={`inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-500/15 px-5 py-2.5 text-sm font-bold text-emerald-200 hover:bg-emerald-500/25 transition-colors ${className}`}
@@ -72,14 +103,19 @@ export default function MobileAppDownload({
               <p className="text-xs text-zinc-400 truncate">{desc}</p>
             </div>
           </div>
-          <a
-            href={downloadHref}
-            download={`bitzx-${release.version}.apk`}
-            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold px-4 py-2 text-sm transition-colors"
-          >
-            <Download size={15} />
-            Download
-          </a>
+          {isGooglePlay ? (
+            <StoreAnchor linkProps={linkProps}>
+              <GooglePlayBadge size="sm" />
+            </StoreAnchor>
+          ) : (
+            <StoreAnchor
+              linkProps={linkProps}
+              className="shrink-0 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold px-4 py-2 text-sm transition-colors"
+            >
+              <Download size={15} />
+              Download
+            </StoreAnchor>
+          )}
         </motion.div>
       );
     }
@@ -108,29 +144,36 @@ export default function MobileAppDownload({
                 <p className="text-sm text-zinc-400 mt-2 leading-relaxed max-w-xl">{desc}</p>
                 <p className="text-[11px] text-zinc-500 mt-3 flex items-center gap-1.5">
                   <Shield size={11} className="shrink-0" />
-                  Official BITZX APK · enable “Install unknown apps” if prompted
+                  {isGooglePlay
+                    ? 'Official BITZX app on Google Play'
+                    : 'Official BITZX APK · enable “Install unknown apps” if prompted'}
                 </p>
               </div>
             </div>
-            <a
-              href={downloadHref}
-              download={`bitzx-${release.version}.apk`}
-              className="shrink-0 inline-flex items-center justify-center gap-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold px-8 py-3.5 text-[15px] shadow-lg shadow-emerald-500/25 transition-colors w-full md:w-auto"
-            >
-              <Download size={18} />
-              Download APK
-            </a>
+            {isGooglePlay ? (
+              <StoreAnchor linkProps={linkProps} className="shrink-0">
+                <GooglePlayBadge />
+              </StoreAnchor>
+            ) : (
+              <StoreAnchor
+                linkProps={linkProps}
+                className="shrink-0 inline-flex items-center justify-center gap-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold px-8 py-3.5 text-[15px] shadow-lg shadow-emerald-500/25 transition-colors w-full md:w-auto"
+              >
+                <Download size={18} />
+                Download APK
+              </StoreAnchor>
+            )}
           </div>
         </motion.div>
       );
     }
 
     if (resolvedVariant === 'inline') {
+      if (isGooglePlay) return null;
       return (
         <a
           id={id}
-          href={downloadHref}
-          download={`bitzx-${release.version}.apk`}
+          {...linkProps}
           className={`inline-flex items-center gap-1.5 text-emerald-300 hover:text-emerald-200 font-semibold text-sm underline underline-offset-4 ${className}`}
         >
           <Download size={14} />
@@ -139,7 +182,6 @@ export default function MobileAppDownload({
       );
     }
 
-    // card + compact
     const isCompact = resolvedVariant === 'compact';
     return (
       <motion.div
@@ -164,24 +206,28 @@ export default function MobileAppDownload({
               <p className="text-sm text-zinc-400 mt-1 leading-relaxed">{desc}</p>
               <p className="text-[11px] text-zinc-500 mt-2 flex items-center gap-1.5">
                 <Shield size={11} className="shrink-0" />
-                Official APK from BITZX
+                {isGooglePlay ? 'Official app on Google Play' : 'Official APK from BITZX'}
               </p>
             </div>
           </div>
-          <a
-            href={downloadHref}
-            download={`bitzx-${release.version}.apk`}
-            className={`shrink-0 inline-flex items-center justify-center gap-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold shadow-lg shadow-emerald-500/25 transition-colors ${isCompact ? 'w-full sm:w-auto px-6 py-3 text-sm' : 'px-8 py-3.5 text-[15px]'}`}
-          >
-            <Download size={18} />
-            Download APK
-          </a>
+          {isGooglePlay ? (
+            <StoreAnchor linkProps={linkProps} className="shrink-0">
+              <GooglePlayBadge size={isCompact ? 'sm' : 'md'} />
+            </StoreAnchor>
+          ) : (
+            <StoreAnchor
+              linkProps={linkProps}
+              className={`shrink-0 inline-flex items-center justify-center gap-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#041008] font-bold shadow-lg shadow-emerald-500/25 transition-colors ${isCompact ? 'w-full sm:w-auto px-6 py-3 text-sm' : 'px-8 py-3.5 text-[15px]'}`}
+            >
+              <Download size={18} />
+              Download APK
+            </StoreAnchor>
+          )}
         </div>
       </motion.div>
     );
   }
 
-  // coming soon variants
   if (resolvedVariant === 'pill') {
     return (
       <span id={id} className={`inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-zinc-500 ${className}`}>

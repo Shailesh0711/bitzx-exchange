@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X, Download, Smartphone, Sparkles, ChevronRight } from 'lucide-react';
 import { useLandingPromo, promoAssetUrl } from '@/hooks/useLandingPromo';
-import { mobileAppDownloadHref } from '@/hooks/useMobileAppRelease';
+import { mobileAppStoreHref, mobileAppLinkProps, isGooglePlayRelease } from '@/hooks/useMobileAppRelease';
+import GooglePlayBadge from '@/components/ui/GooglePlayBadge';
 
 const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
@@ -172,8 +173,10 @@ function CoinSlide({ data, onClose }) {
 }
 
 function AppSlide({ data, apk }) {
-  const downloadHref = mobileAppDownloadHref(apk);
-  const available = apk?.available === true && downloadHref;
+  const storeHref = mobileAppStoreHref(apk);
+  const linkProps = mobileAppLinkProps(apk);
+  const isGooglePlay = isGooglePlayRelease(apk);
+  const available = apk?.available === true && storeHref && linkProps;
   const features = (data.features || 'Fast | Secure | Real-Time').split('|').map((s) => s.trim()).filter(Boolean);
 
   return (
@@ -203,21 +206,29 @@ function AppSlide({ data, apk }) {
 
       <div className="promo-download-bar px-4 sm:px-6 py-3 sm:py-4 text-center shrink-0">
         {available ? (
-          <a
-            href={downloadHref}
-            download={`bitzx-${apk.version}.apk`}
-            className="group flex flex-col sm:inline-flex sm:flex-row sm:items-center justify-center gap-1 sm:gap-3 w-full sm:w-auto mx-auto rounded-xl border border-white/10 bg-white/[0.06] active:bg-white/[0.1] px-4 py-3 sm:py-3.5 transition-all"
-          >
-            <span className="inline-flex items-center justify-center gap-2 text-white font-semibold text-sm sm:text-base">
-              <Download size={17} className="text-emerald-400 shrink-0" />
-              <span className="underline underline-offset-4 decoration-emerald-400/50">
-                {data.cta_label || 'Click here to download'}
+          isGooglePlay ? (
+            <a
+              {...linkProps}
+              className="group flex items-center justify-center w-full sm:w-auto mx-auto rounded-xl border border-white/10 bg-white/[0.06] active:bg-white/[0.1] px-4 py-3 sm:py-3.5 transition-all"
+            >
+              <GooglePlayBadge size="sm" />
+            </a>
+          ) : (
+            <a
+              {...linkProps}
+              className="group flex flex-col sm:inline-flex sm:flex-row sm:items-center justify-center gap-1 sm:gap-3 w-full sm:w-auto mx-auto rounded-xl border border-white/10 bg-white/[0.06] active:bg-white/[0.1] px-4 py-3 sm:py-3.5 transition-all"
+            >
+              <span className="inline-flex items-center justify-center gap-2 text-white font-semibold text-sm sm:text-base">
+                <Download size={17} className="text-emerald-400 shrink-0" />
+                <span className="underline underline-offset-4 decoration-emerald-400/50">
+                  {data.cta_label || 'Click here to download'}
+                </span>
               </span>
-            </span>
-            {apk.version ? (
-              <span className="text-[11px] sm:text-xs text-zinc-500 font-medium">Android APK · v{apk.version}</span>
-            ) : null}
-          </a>
+              {apk.version ? (
+                <span className="text-[11px] sm:text-xs text-zinc-500 font-medium">Android APK · v{apk.version}</span>
+              ) : null}
+            </a>
+          )
         ) : (
           <p className="inline-flex items-center justify-center gap-2 text-zinc-400 text-sm">
             <Smartphone size={16} className="text-zinc-500 shrink-0" />

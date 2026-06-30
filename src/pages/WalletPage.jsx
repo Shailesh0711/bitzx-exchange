@@ -27,6 +27,7 @@ import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
 import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import DepositMonitorBanner from '@/components/wallet/DepositMonitorBanner';
+import SignupBonusKycBanner from '@/components/wallet/SignupBonusKycBanner';
 import { useDepositMonitor } from '@/hooks/useDepositMonitor';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
@@ -1501,7 +1502,8 @@ function HistoryTab() {
                       <td className="px-5 py-3 text-xs text-white whitespace-nowrap">{fmt(r.created_at)}</td>
                       <td className="px-5 py-3">
                         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-400">
-                          <ArrowDownCircle size={12} /> Deposit
+                          <ArrowDownCircle size={12} />
+                          {r.source === 'signup_bonus' ? 'Signup bonus' : 'Deposit'}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-sm text-white font-bold">{r.asset}</td>
@@ -2247,6 +2249,7 @@ export default function WalletPage() {
         </motion.div>
 
         <WalletChainsBanner />
+        <SignupBonusKycBanner />
 
         {/* Tabs + actions — one toolbar row uses full width without duplicating balance stats */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-surface-border pb-0 mb-6 w-full min-w-0">

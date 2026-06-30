@@ -27,7 +27,6 @@ import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
 import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import DepositMonitorBanner from '@/components/wallet/DepositMonitorBanner';
-import SignupBonusKycBanner from '@/components/wallet/SignupBonusKycBanner';
 import { useDepositMonitor } from '@/hooks/useDepositMonitor';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
@@ -2249,8 +2248,6 @@ export default function WalletPage() {
         </motion.div>
 
         <WalletChainsBanner />
-        <SignupBonusKycBanner />
-
         {/* Tabs + actions — one toolbar row uses full width without duplicating balance stats */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-surface-border pb-0 mb-6 w-full min-w-0">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide -mb-px flex-1 min-w-0">

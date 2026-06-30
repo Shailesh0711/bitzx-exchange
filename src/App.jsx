@@ -6,6 +6,7 @@ import ComingSoonPage from '@/pages/ComingSoonPage';
 import Navbar        from '@/components/layout/Navbar';
 import ImpersonationBanner from '@/components/layout/ImpersonationBanner';
 import FeaturesPausedBanner from '@/components/layout/FeaturesPausedBanner';
+import SignupBonusKycPrompt from '@/components/wallet/SignupBonusKycPrompt';
 import Footer        from '@/components/layout/Footer';
 import LandingPage   from '@/pages/LandingPage';
 import MarketsPage   from '@/pages/MarketsPage';
@@ -103,6 +104,7 @@ function Layout() {
         <Navbar />
         <ImpersonationBanner />
         <FeaturesPausedBanner />
+        <SignupBonusKycPrompt />
         {/* Trade pages: let main grow with content so the window scrolls (same feel as Spot/Futures).
             Non-trade keeps min-h-0 + overflow for dashboard-style inner scroll. */}
         <main

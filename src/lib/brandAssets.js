@@ -1,3 +1,2 @@
-import bitzxLogo from '../../../bitzx-mobile-app/src/assets/bitzx-logo.png';
-
-export const BRAND_LOGO = bitzxLogo;
+/** Bitzx brand logo — served from public/ so production builds stay self-contained. */
+export const BRAND_LOGO = '/bitzx-logo.png';

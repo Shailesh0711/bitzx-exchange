@@ -10,9 +10,10 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
 import { exchangeApiOrigin } from '@/lib/apiBase';
+import { BRAND_LOGO } from '@/lib/brandAssets';
 import { useMobileAppRelease } from '@/hooks/useMobileAppRelease';
 
-const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+const LOGO = BRAND_LOGO;
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 const IS_DEV = import.meta.env.DEV;
 const TOKEN_SITE_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';

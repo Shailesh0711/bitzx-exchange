@@ -2,7 +2,9 @@ import { Link } from 'react-router-dom';
 import { Send, Mail, Shield, Zap, ExternalLink } from 'lucide-react';
 // import DunsRegisteredSeal from './DunsRegisteredSeal';
 
-const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+import { BRAND_LOGO } from '@/lib/brandAssets';
+
+const LOGO = BRAND_LOGO;
 
 const SUPPORT_EMAIL = 'support@bitzx.io';
 

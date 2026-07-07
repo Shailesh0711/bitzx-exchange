@@ -5,7 +5,9 @@ import { Mail, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
 import { validateAuthEmail, authFormBannerMessage } from '@/lib/authValidation';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 
-const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+import { BRAND_LOGO } from '@/lib/brandAssets';
+
+const LOGO = BRAND_LOGO;
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 export default function ForgotPasswordPage() {

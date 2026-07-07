@@ -27,7 +27,7 @@ import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
 import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import DepositMonitorBanner from '@/components/wallet/DepositMonitorBanner';
-import { useDepositMonitor } from '@/hooks/useDepositMonitor';
+import { useVerifyDeposit } from '@/hooks/useVerifyDeposit';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
 import BzxSwapPanel from '@/components/wallet/BzxSwapPanel';
@@ -1361,15 +1361,10 @@ function HistoryTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // autoStart=true: the hook starts a session the moment the component mounts
-  // (i.e. the user opens Wallet → History). No button press required.
-  const monitor = useDepositMonitor({
-    autoStart: true,
+  // Polls GET /api/wallet/verify-deposit every 5 minutes while the page is open.
+  // Stops automatically on unmount — zero background RPC usage when user navigates away.
+  const monitor = useVerifyDeposit({
     onDeposit: () => load(),
-    onExpire: () => {
-      // Session ended — return user to Spot balances (default wallet tab).
-      setSearchParams({}, { replace: true });
-    },
   });
 
   const onCancelInrWithdrawal = useCallback(async (row) => {

@@ -6,7 +6,9 @@ import { useLandingPromo, promoAssetUrl } from '@/hooks/useLandingPromo';
 import { mobileAppStoreHref, mobileAppLinkProps, isGooglePlayRelease } from '@/hooks/useMobileAppRelease';
 import GooglePlayBadge from '@/components/ui/GooglePlayBadge';
 
-const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+import { BRAND_LOGO } from '@/lib/brandAssets';
+
+const LOGO = BRAND_LOGO;
 
 function PromoBrand({ label = 'BITZX', centered = true }) {
   return (

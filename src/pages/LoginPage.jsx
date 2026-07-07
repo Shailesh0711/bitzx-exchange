@@ -13,7 +13,9 @@ import {
   isAuthRequestError,
 } from '@/lib/authValidation';
 
-const LOGO      = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+import { BRAND_LOGO } from '@/lib/brandAssets';
+
+const LOGO      = BRAND_LOGO;
 const TOKEN_URL = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
 
 const STATS = [

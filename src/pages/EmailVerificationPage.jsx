@@ -4,7 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, ArrowLeft, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
-const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+import { BRAND_LOGO } from '@/lib/brandAssets';
+
+const LOGO = BRAND_LOGO;
 const OTP_LENGTH = 6;
 const RESEND_COOLDOWN_SEC = 60; // 1-minute UI cooldown between resend clicks
 

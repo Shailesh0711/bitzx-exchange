@@ -6,7 +6,9 @@ import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Clock, Globe, X as XIcon, Send, Star } from 'lucide-react';
 
-const LOGO  = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
+import { BRAND_LOGO } from '@/lib/brandAssets';
+
+const LOGO  = BRAND_LOGO;
 const TOKEN = import.meta.env.VITE_TOKEN_URL || 'https://bitzx.io';
 
 // ── Countdown helpers ─────────────────────────────────────────────────────────

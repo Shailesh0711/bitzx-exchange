@@ -1276,16 +1276,46 @@ function HistoryTab() {
     setError(null);
     const issues = [];
     try {
-      const [dRes, wRes, inrDepData, inrWdData] = await Promise.all([
+      const [dRes, wRes, inrDepData, inrWdData, ledgerRes] = await Promise.all([
         authFetch(`${API}/api/wallet/deposit-events?limit=200`),
         authFetch(`${API}/api/wallet/withdrawals?limit=200`),
         fetchInrDeposits({ limit: 100 }).catch((e) => ({ error: e.message || 'INR deposits' })),
         fetchInrWithdrawals({ limit: 100 }).catch((e) => ({ error: e.message || 'INR withdrawals' })),
+        authFetch(`${API}/api/wallet/transactions?type=deposit&limit=100&skip=0`),
       ]);
 
       if (dRes.ok) {
         const dData = await dRes.json().catch(() => ({}));
-        setEvents(Array.isArray(dData.items) ? dData.items : []);
+        let depItems = Array.isArray(dData.items) ? dData.items : [];
+
+        if (ledgerRes?.ok) {
+          const ledgerData = await ledgerRes.json().catch(() => ({}));
+          const ledgerItems = Array.isArray(ledgerData.items) ? ledgerData.items : [];
+          const depositHashes = new Set(
+            depItems.map((d) => String(d.tx_hash || '').toLowerCase()).filter(Boolean),
+          );
+          for (const txn of ledgerItems) {
+            const source = String(txn.source ?? txn.meta?.source ?? '').toLowerCase();
+            if (source !== 'signup_bonus') continue;
+            const hash = String(txn.tx_hash ?? txn.meta?.tx_hash ?? '').toLowerCase();
+            if (hash && depositHashes.has(hash)) continue;
+            depItems.push({
+              id: txn.id,
+              asset: txn.asset,
+              amount: txn.amount,
+              tx_hash: txn.tx_hash ?? txn.meta?.tx_hash,
+              network: txn.network ?? txn.meta?.network,
+              status: 'credited',
+              source: 'signup_bonus',
+              label: txn.label || 'Signup bonus',
+              status_note: 'Credited to trading wallet',
+              created_at: txn.created_at,
+            });
+            if (hash) depositHashes.add(hash);
+          }
+        }
+
+        setEvents(depItems);
       } else {
         const j = await dRes.json().catch(() => ({}));
         setEvents([]);
@@ -1502,7 +1532,7 @@ function HistoryTab() {
                       <td className="px-5 py-3">
                         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-400">
                           <ArrowDownCircle size={12} />
-                          {r.source === 'signup_bonus' ? 'Signup bonus' : 'Deposit'}
+                          {r.label || (r.source === 'signup_bonus' ? 'Signup bonus' : 'Deposit')}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-sm text-white font-bold">{r.asset}</td>
@@ -1527,7 +1557,14 @@ function HistoryTab() {
                           Number(r.confirmations ?? 0)
                         )}
                       </td>
-                      <td className="px-5 py-3 text-right"><StatusBadge status={r.status || 'pending'} /></td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          {r.status_note ? (
+                            <span className="text-[10px] text-white/50 max-w-[140px] text-right leading-tight">{r.status_note}</span>
+                          ) : null}
+                          <StatusBadge status={r.status || 'pending'} />
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

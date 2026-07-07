@@ -141,6 +141,38 @@ export function ledgerTypeLabel(row) {
     if (kind === 'inr_sell_cancel' || row.type === 'unlock') return 'INR sell cancel';
     return 'INR withdrawal';
   }
+
+  const explicit = String(row?.label ?? row?.note ?? '').trim();
+  if (explicit) return explicit;
+
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+  const source = String(row?.source ?? meta.source ?? '').toLowerCase();
+  if (source === 'signup_bonus') return 'Signup bonus';
+
+  const description = meta.description;
+  if (typeof description === 'string' && description.trim()) return description.trim();
+
+  const refType = String(row?.ref_type || '').toLowerCase();
+  const direction = String(meta.direction || '').toLowerCase();
+  if (refType === 'futures_transfer') {
+    if (direction === 'spot_to_futures') return 'Transfer to Futures';
+    if (direction === 'futures_to_spot') return 'Transfer from Futures';
+    return 'Futures transfer';
+  }
+
+  const typeLabels = {
+    deposit: 'Deposit',
+    withdraw: 'Withdrawal',
+    trade: 'Trade',
+    fee: 'Trading fee',
+    adjustment: 'Balance adjustment',
+    lock: 'Lock',
+    unlock: 'Unlock',
+    seed: 'Seed',
+    opening_balance: 'Opening balance',
+  };
+  const t = String(row?.type || '').toLowerCase();
+  if (typeLabels[t]) return typeLabels[t];
   return row?.type || '—';
 }
 

@@ -55,7 +55,9 @@ function signedAmount(t) {
 }
 
 function txnLabel(t) {
-  const label = LEDGER_TYPE_LABELS[t?.type] || (t?.type || '—').replace(/_/g, ' ');
+  const label = String(t?.label ?? t?.note ?? '').trim()
+    || LEDGER_TYPE_LABELS[t?.type]
+    || (t?.type || '—').replace(/_/g, ' ');
   const signed = signedAmount(t);
   const color  = signed >= 0 ? 'text-emerald-300' : 'text-rose-300';
   return { label, color };

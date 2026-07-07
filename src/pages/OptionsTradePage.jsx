@@ -235,7 +235,12 @@ function fmtMarketPx(v) {
   if (v == null || v === '') return '—';
   const n = Number(v);
   if (!Number.isFinite(n)) return '—';
-  return fmtNum(n, 8);
+  const abs = Math.abs(n);
+  if (abs >= 10_000) return fmtNum(n, 0);
+  if (abs >= 1_000) return fmtNum(n, 1);
+  if (abs >= 100) return fmtNum(n, 2);
+  if (abs >= 1) return fmtNum(n, 4);
+  return fmtNum(n, 6);
 }
 
 function fmtOi(v) {
@@ -301,7 +306,8 @@ function ChainArm({
       : 'bg-[#07080c]';
 
   const m = contract.market || {};
-  const pick = (e) => { e.stopPropagation(); onPick(contract.id); };
+  const pickBuy = (e) => { e.stopPropagation(); onPick(contract.id, 'buy'); };
+  const pickSell = (e) => { e.stopPropagation(); onPick(contract.id, 'sell'); };
 
   const ivStr = m.iv != null && Number.isFinite(Number(m.iv))
     ? `${(Number(m.iv) * 100).toFixed(1)}%`
@@ -313,66 +319,69 @@ function ChainArm({
   const posLabel = positionQtyLabel(contract.id, positions);
   const hasPos = posLabel !== '—';
 
-  // Shared cell wrapper: taller, clear padding, vertically centered
-  const Cell = ({ children, accent = false, className = '' }) => (
-    <div className={`flex flex-col items-center justify-center gap-[2px] px-1.5 py-2 min-h-[44px] sm:min-h-[48px] min-w-0 font-mono text-center ${accent ? 'bg-white/[0.015]' : ''} ${className}`}>
+  // Shared cell wrapper: compact, no duplicate sub-labels (header row already labels columns).
+  const Cell = ({ children, accent = false, className = '', onClick, clickable = false }) => (
+    <div
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={clickable && onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(e); } } : undefined}
+      className={`flex flex-col items-center justify-center px-1 py-1.5 min-h-[40px] sm:min-h-[44px] min-w-0 max-w-full overflow-hidden font-mono text-center ${
+        accent ? 'bg-white/[0.015]' : ''
+      } ${clickable ? 'cursor-pointer hover:bg-white/[0.05] active:bg-white/[0.08]' : ''} ${className}`}
+    >
       {children}
     </div>
   );
 
-  // Main price/number — large, bold, clearly legible
-  const Num = ({ v, cls = 'text-zinc-200' }) => (
-    <span className={`text-[12px] sm:text-[13px] font-bold tabular-nums leading-none whitespace-nowrap ${cls}`}>{v}</span>
+  const Num = ({ v, cls = 'text-zinc-200', title }) => (
+    <span
+      title={title ?? (v !== '—' ? String(v) : undefined)}
+      className={`block w-full max-w-full text-[10px] sm:text-[11px] font-bold tabular-nums leading-tight truncate ${cls}`}
+    >
+      {v}
+    </span>
   );
-  // Secondary label under a number — dim, tiny
-  const Lbl = ({ v }) => (
-    <span className="hidden sm:block text-[9px] font-semibold uppercase tracking-[0.06em] text-zinc-600 leading-none mt-0.5">{v}</span>
-  );
-  // IV sub-line — shown only on sm+
   const IvSub = () => (
-    <span className={`hidden sm:block text-[9px] leading-none mt-px font-mono ${ivStr === '—' ? 'text-zinc-700' : 'text-sky-400/70'}`}>
-      IV {ivStr}
+    <span className={`block w-full truncate text-[8px] sm:text-[9px] leading-none mt-px font-mono ${ivStr === '—' ? 'text-zinc-700' : 'text-sky-400/70'}`}>
+      {ivStr === '—' ? '—' : `IV ${ivStr}`}
     </span>
   );
 
   const askSzCell = (
     <Cell>
       <Num v={m.ask_qty != null ? fmtNum(m.ask_qty, 2) : '—'} cls="text-rose-400/90" />
-      <Lbl v="ask sz" />
     </Cell>
   );
   const bidSzCell = (
     <Cell>
       <Num v={m.bid_qty != null ? fmtNum(m.bid_qty, 2) : '—'} cls="text-emerald-400/90" />
-      <Lbl v="bid sz" />
     </Cell>
   );
   const openCell = (
     <Cell>
       <Num v={fmtOpenUsdtNotional(m.open_interest, m.mid)} cls="text-amber-300/85" />
-      <Lbl v="OI" />
     </Cell>
   );
   const deltaCell = (
     <Cell accent>
       <Num v={deltaVal} cls={hasDelta ? 'text-sky-300/90' : 'text-zinc-600'} />
-      <Lbl v="delta" />
     </Cell>
   );
   const askCell = (
-    <Cell accent>
+    <Cell accent clickable onClick={pickBuy} title="Buy (lift ask)">
       <Num v={fmtMarketPx(m.best_ask)} cls={m.best_ask != null ? 'text-rose-300 font-extrabold' : 'text-zinc-600'} />
       <IvSub />
     </Cell>
   );
   const markCell = (
-    <Cell accent>
-      <Num v={fmtMarketPx(m.mid)} cls={m.mid != null ? 'text-white font-extrabold' : 'text-zinc-600'} />
+    <Cell accent clickable onClick={pickBuy} title="Buy at mark">
+      <Num v={fmtMarketPx(m.mid ?? m.mark_price)} cls={(m.mid ?? m.mark_price) != null ? 'text-white font-extrabold' : 'text-zinc-600'} />
       <IvSub />
     </Cell>
   );
   const bidCell = (
-    <Cell accent>
+    <Cell accent clickable onClick={pickSell} title="Sell to close (hit bid)">
       <Num v={fmtMarketPx(m.best_bid)} cls={m.best_bid != null ? 'text-emerald-300 font-extrabold' : 'text-zinc-600'} />
       <IvSub />
     </Cell>
@@ -380,11 +389,10 @@ function ChainArm({
   const posCell = (
     <Cell>
       <Num v={posLabel} cls={hasPos ? 'text-gold-light font-extrabold' : 'text-zinc-700'} />
-      <Lbl v="pos" />
     </Cell>
   );
 
-  const armGrid = 'grid h-full min-w-0 divide-x divide-white/[0.06] [grid-template-columns:repeat(8,minmax(3.5rem,1fr))]';
+  const armGrid = 'grid h-full min-w-0 divide-x divide-white/[0.06] [grid-template-columns:repeat(8,minmax(4.5rem,1fr))] sm:[grid-template-columns:repeat(8,minmax(5rem,1fr))]';
 
   const inner = side === 'call' ? (
     <div className={armGrid}>
@@ -399,15 +407,11 @@ function ChainArm({
   return (
     <td
       colSpan={8}
-      role="button"
-      tabIndex={0}
-      title={`${contractStateTitle(contract)}\nClick to select ${side} option`}
-      onClick={pick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(contract.id); } }}
+      title={`${contractStateTitle(contract)}\nTap Ask/Mark to buy · Bid to sell`}
       className={`border-b border-white/[0.06] p-0 align-stretch transition-colors ${rowBg} ${
         isSel
           ? 'ring-2 ring-inset ring-gold-light/80 z-[1] relative shadow-[inset_0_0_0_1px_rgba(235,211,141,0.12)]'
-          : 'cursor-pointer hover:brightness-[1.08] active:brightness-125'
+          : ''
       }`}
     >
       {inner}
@@ -567,8 +571,22 @@ export default function OptionsTradePage() {
     let list = [];
     let chainErr = null;
     try {
+      const fast = await optionsApi.listContracts({
+        underlying_symbol: underlying,
+        listed_only: true,
+        limit: 500,
+      });
+      if (Array.isArray(fast?.contracts) && fast.contracts.length) {
+        list = fast.contracts;
+        setContracts(list);
+        setLoading(false);
+      }
+    } catch {
+      /* continue to full chain */
+    }
+    try {
       const cRes = await optionsApi.getChain(underlying, true);
-      list = cRes.contracts || [];
+      list = cRes.contracts || list;
     } catch (e) {
       chainErr = e.message || 'Could not load chain from API';
     }
@@ -701,11 +719,20 @@ export default function OptionsTradePage() {
     return () => handle?.close();
   }, [underlying, usingDemoChain]);
 
-  const selectContractFromChain = useCallback((id) => {
+  const selectContractFromChain = useCallback((id, sideHint = 'buy') => {
     if (!id) return;
     setSelectedId(id);
-    setMobilePanelTab('trade'); /* mobile: show buy/sell after tap */
-  }, []);
+    setSide(sideHint);
+    const c = contracts.find((x) => x.id === id);
+    const mk = c?.market || {};
+    const px = sideHint === 'buy'
+      ? (mk.best_ask ?? mk.mid ?? mk.mark_price)
+      : (mk.best_bid ?? mk.mid ?? mk.mark_price);
+    if (px != null && Number.isFinite(Number(px)) && Number(px) > 0) {
+      setPrice(String(Number(px)));
+    }
+    setMobilePanelTab('trade');
+  }, [contracts]);
 
   /* Keep mobile UI coherent if selection is cleared (e.g. reload). */
   useEffect(() => {
@@ -1046,7 +1073,7 @@ export default function OptionsTradePage() {
     );
 
     return (
-      <table className="w-full min-w-[900px] sm:min-w-[980px] md:min-w-[1060px] lg:min-w-[1160px] border-collapse">
+      <table className="w-full min-w-[1040px] sm:min-w-[1120px] md:min-w-[1200px] lg:min-w-[1280px] border-collapse table-fixed">
         <thead className="sticky top-0 z-20">
           {/* Zone row: Calls | Strike | Puts */}
           <tr>

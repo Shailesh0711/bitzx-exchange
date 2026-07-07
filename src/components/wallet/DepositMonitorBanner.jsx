@@ -1,22 +1,18 @@
 /**
  * DepositMonitorBanner
  *
- * Shows a minimal status indicator while the deposit page polls for new
- * deposits via useVerifyDeposit.  Displays:
- *   • A spinner + "Checking for deposits…" while an RPC call is in-flight.
- *   • A quiet "Monitoring active" badge at rest (between polls).
- *   • Nothing when there's an error (silent — errors are non-critical).
+ * Minimal countdown-only UI while deposit monitoring is active.
+ * Hides completely when the session ends — no restart / pause messaging.
  */
 
-import { RefreshCw, CheckCircle } from 'lucide-react';
+import { RefreshCw, Clock } from 'lucide-react';
+import { MONITOR_STATUS } from '@/hooks/useDepositMonitor';
 
-function fmtTime(isoStr) {
-  if (!isoStr) return '';
-  try {
-    return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
+function fmtCountdown(secs) {
+  if (secs <= 0) return '0:00';
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function BannerShell({ children, className = '' }) {
@@ -29,36 +25,35 @@ function BannerShell({ children, className = '' }) {
 
 /**
  * @param {object} props
- * @param {ReturnType<import('@/hooks/useVerifyDeposit').useVerifyDeposit>} props.monitor
- * @param {string}  [props.className]
+ * @param {ReturnType<import('@/hooks/useDepositMonitor').useDepositMonitor>} props.monitor
+ * @param {string}   [props.className]
  */
 export default function DepositMonitorBanner({ monitor, className = '' }) {
-  const { isVerifying, lastVerifiedAt, error } = monitor;
+  const { status, secondsLeft } = monitor;
 
-  if (error) return null;
-
-  if (isVerifying) {
+  if (status === MONITOR_STATUS.IDLE || status === MONITOR_STATUS.STARTING) {
     return (
       <BannerShell className={`bg-white/3 border-white/10 ${className}`}>
-        <RefreshCw size={15} className="text-gold/70 shrink-0 animate-spin" />
-        <p className="text-white/60 text-xs">Checking for deposits…</p>
+        <RefreshCw size={15} className="text-gold/60 shrink-0 animate-spin" />
+        <p className="text-white/50 text-xs">Starting deposit check…</p>
       </BannerShell>
     );
   }
 
-  if (lastVerifiedAt) {
+  if (status === MONITOR_STATUS.ACTIVE) {
     return (
       <BannerShell className={`bg-green-500/8 border-green-500/20 ${className}`}>
-        <CheckCircle size={15} className="text-green-400 shrink-0" />
+        <Clock size={15} className="text-green-400 shrink-0" />
         <span className="text-green-300 font-semibold text-xs tracking-wide">
-          Monitoring active
+          Checking for deposits
         </span>
-        <span className="text-white/40 text-xs ml-auto">
-          Last checked {fmtTime(lastVerifiedAt)}
+        <span className="text-white/70 text-xs font-mono tabular-nums ml-auto">
+          {fmtCountdown(secondsLeft)}
         </span>
       </BannerShell>
     );
   }
 
+  // Expired, stopped, or error — hide the banner entirely.
   return null;
 }

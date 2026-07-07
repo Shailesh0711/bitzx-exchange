@@ -10,9 +10,7 @@ import {
 } from '@/lib/authValidation';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
-
-const LOGO = BRAND_LOGO;
+const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 export default function ResetPasswordPage() {

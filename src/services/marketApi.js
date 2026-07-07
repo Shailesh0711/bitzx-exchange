@@ -45,8 +45,6 @@ export const PAIRS = [
   { symbol: 'DOGEBZX', base: 'DOGE', quote: 'BZX',  source: 'internal' },
 ];
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
-
 /** Resolve coin logo: API/catalog URL first, then static majors map. */
 export function coinIconUrl(base, logoUrl) {
   const url = logoUrl != null ? String(logoUrl).trim() : '';
@@ -61,7 +59,7 @@ export function coinIconUrl(base, logoUrl) {
 }
 
 export const COIN_ICONS = {
-  BZX:  BRAND_LOGO,
+  BZX:  'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png',
   BTC:  'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
   ETH:  'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
   BNB:  'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',

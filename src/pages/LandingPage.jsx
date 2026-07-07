@@ -24,9 +24,7 @@ import LandingTrustBadges from '@/components/landing/LandingTrustBadges';
 import LandingInrFiat from '@/components/landing/LandingInrFiat';
 import { LandingHomeBanners } from '@/components/dashboard/HomeBannerCarousel';
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
-
-const LOGO = BRAND_LOGO;
+const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 const FEATURES = [

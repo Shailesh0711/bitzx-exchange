@@ -21,9 +21,7 @@ import {
   isAuthRequestError,
 } from '@/lib/authValidation';
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
-
-const LOGO = BRAND_LOGO;
+const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
 const PERKS = [
   { icon: TrendingUp, color: '#22c55e', title: 'Professional Charts',     desc: 'TradingView with 100+ indicators' },

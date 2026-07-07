@@ -66,9 +66,7 @@ function RangeBar({ low, high, price }) {
   );
 }
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
-
-const BZX_LOGO = BRAND_LOGO;
+const BZX_LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 const HEATMAP_CAP = 36;
 
 const TIER_TABS = [

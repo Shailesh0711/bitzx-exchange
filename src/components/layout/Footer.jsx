@@ -1,10 +1,8 @@
 import { Link } from 'react-router-dom';
 import { Send, Mail, Shield, Zap, ExternalLink } from 'lucide-react';
-import DunsRegisteredSeal from './DunsRegisteredSeal';
+// import DunsRegisteredSeal from './DunsRegisteredSeal';
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
-
-const LOGO = BRAND_LOGO;
+const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
 const SUPPORT_EMAIL = 'support@bitzx.io';
 
@@ -90,10 +88,6 @@ export default function Footer() {
                 </a>
               ))}
             </div>
-
-            <div className="mt-6">
-              <DunsRegisteredSeal />
-            </div>
           </div>
 
           {/* Link columns */}
@@ -136,6 +130,7 @@ export default function Footer() {
             <span className="flex items-center gap-1"><Zap size={11} /> Fast Execution</span>
             <span>Trading involves risk. Demo platform only.</span>
           </div>
+          {/* <DunsRegisteredSeal className="mx-auto sm:ml-6 sm:mr-0" /> */}
         </div>
       </div>
     </footer>

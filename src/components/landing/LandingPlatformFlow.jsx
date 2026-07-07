@@ -8,9 +8,7 @@ import {
   Wallet, Coins, TrendingUp, ChevronRight, Sparkles, Layers, Banknote,
 } from 'lucide-react';
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
-
-const LOGO = BRAND_LOGO;
+const LOGO = 'https://customer-assets.emergentagent.com/job_bitzx-launch/artifacts/egv3g6nq_Bitzx%20Logo%20%281%29.png';
 
 const BZX_POINTS = [
   { title: 'Native quote asset', desc: 'Trade altcoins against BZX on dedicated BZX Markets — not only USDT.' },

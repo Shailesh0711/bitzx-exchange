@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -20,10 +20,12 @@ import {
   authFormBannerMessage,
   isAuthRequestError,
 } from '@/lib/authValidation';
+import { exchangeApiOrigin } from '@/lib/apiBase';
 
 import { BRAND_LOGO } from '@/lib/brandAssets';
 
 const LOGO = BRAND_LOGO;
+const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 const PERKS = [
   { icon: TrendingUp, color: '#22c55e', title: 'Professional Charts',     desc: 'TradingView with 100+ indicators' },
@@ -74,6 +76,13 @@ export default function RegisterPage() {
   } = useAuth();
   const navigate = useNavigate();
 
+  // ── OTP service flags ────────────────────────────────────────────────────
+  // Loaded from /api/public/site-config on mount. Defaults to true so we
+  // don't skip verification steps before the server response arrives.
+  const [emailOtpEnabled, setEmailOtpEnabled] = useState(true);
+  const [smsOtpEnabled, setSmsOtpEnabled] = useState(true);
+  const [serviceConfigLoaded, setServiceConfigLoaded] = useState(false);
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
@@ -106,8 +115,30 @@ export default function RegisterPage() {
     confirm: false,
     terms: false,
   });
-  const showFieldError = key => Boolean(fieldErrors[key]) && (submitAttempted || touched[key]);
 
+  useEffect(() => {
+    fetch(`${API}/api/public/site-config`)
+      .then(r => r.json())
+      .then(cfg => {
+        const emailOn = cfg?.signup?.email_otp_enabled !== false;
+        const smsOn   = cfg?.signup?.sms_otp_enabled   !== false;
+        setEmailOtpEnabled(emailOn);
+        setSmsOtpEnabled(smsOn);
+        if (cfg?.signup?.default_country_code) {
+          setCountryCode(cfg.signup.default_country_code);
+        }
+        // When a service is disabled, pre-mark the step as verified so the
+        // submit button is unblocked. emailOtpSent stays false so
+        // handleCreateAccount knows it still needs to call registerRequest
+        // (which creates the backend pending record without sending an OTP).
+        if (!emailOn) setEmailVerified(true);
+        if (!smsOn)   { setSmsVerified(true); setSmsOtpSent(true); }
+      })
+      .catch(() => {})
+      .finally(() => setServiceConfigLoaded(true));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showFieldError = key => Boolean(fieldErrors[key]) && (submitAttempted || touched[key]);
   const strengthMeta = getPasswordStrengthMeta(password);
 
   const emailTrimmed = email.trim();
@@ -122,10 +153,12 @@ export default function RegisterPage() {
     const em = emailTrimmed;
     const mob = mobile.trim();
     const errs = emptyRegisterFieldErrors();
-    if (!mob) errs.mobile = 'Mobile number is required.';
-    else {
-      const mobErr = validateSignupMobile(mob);
-      if (mobErr) errs.mobile = mobErr;
+    if (smsOtpEnabled) {
+      if (!mob) errs.mobile = 'Mobile number is required.';
+      else {
+        const mobErr = validateSignupMobile(mob);
+        if (mobErr) errs.mobile = mobErr;
+      }
     }
     const regErr = validateRegisterFields({ name: nm, email: em, password });
     Object.assign(errs, regErr);
@@ -282,11 +315,11 @@ export default function RegisterPage() {
     setError('');
     setSuccess('');
 
-    if (!emailVerified) {
+    if (emailOtpEnabled && !emailVerified) {
       setError('Verify your email with the code we sent.');
       return;
     }
-    if (!smsVerified) {
+    if (smsOtpEnabled && !smsVerified) {
       setError('Verify your mobile with the SMS code we sent.');
       return;
     }
@@ -300,7 +333,25 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      await registerComplete(nm, em, password, mob, countryCode);
+      // When email OTP is disabled the frontend skips the Send OTP step, so
+      // no pending record exists yet. Call registerRequest first — the backend
+      // will create one with email_verified=true (no OTP sent).
+      if (!emailOtpEnabled && !emailOtpSent) {
+        const emailErr = validateAuthEmail(em);
+        if (emailErr) {
+          setFieldErrors(f => ({ ...f, email: emailErr }));
+          setError(emailErr);
+          setLoading(false);
+          return;
+        }
+        await registerRequest(em, undefined, undefined);
+        setEmailOtpSent(true);
+        setEmailVerified(true);
+      }
+
+      const mobToSend = smsOtpEnabled ? mob : undefined;
+      const ccToSend  = smsOtpEnabled ? countryCode : undefined;
+      await registerComplete(nm, em, password, mobToSend, ccToSend);
       navigate('/kyc', { replace: true, state: { justRegistered: true } });
     } catch (err) {
       if (isAuthRequestError(err) && err.fieldErrors) {
@@ -479,8 +530,15 @@ export default function RegisterPage() {
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.name}</p>
                 )}
               </div>
+
+              {/* ── Email field ── */}
               <div className="sm:col-span-2">
-                <label className="block text-sm font-semibold text-white mb-2">Email</label>
+                <label className="block text-sm font-semibold text-white mb-2">
+                  Email
+                  {serviceConfigLoaded && !emailOtpEnabled && (
+                    <span className="ml-2 text-xs font-normal text-amber-300/90">(OTP verification currently inactive)</span>
+                  )}
+                </label>
                 <div className="flex gap-2">
                   <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
                     showFieldError('email') ? 'border-red-500/50' : 'border-surface-border'
@@ -489,13 +547,13 @@ export default function RegisterPage() {
                     <input
                       type="email"
                       value={email}
-                      disabled={emailVerified}
+                      disabled={emailVerified && emailOtpEnabled}
                       onChange={e => {
                         setEmail(e.target.value);
                         setFieldErrors(f => ({ ...f, email: '' }));
                         setError('');
                         setSuccess('');
-                        if (emailOtpSent) resetEmailVerification();
+                        if (emailOtpSent && emailOtpEnabled) resetEmailVerification();
                       }}
                       onBlur={() => {
                         setTouched(t => ({ ...t, email: true }));
@@ -508,22 +566,24 @@ export default function RegisterPage() {
                       className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45 disabled:opacity-60"
                     />
                   </div>
-                  <OtpSendButton
-                    label={emailOtpSent && !emailVerified ? 'Resend' : 'Send OTP'}
-                    loading={emailSendLoading}
-                    disabled={emailVerified || !emailValidForOtp}
-                    onClick={handleSendEmailOtp}
-                  />
+                  {emailOtpEnabled && (
+                    <OtpSendButton
+                      label={emailOtpSent && !emailVerified ? 'Resend' : 'Send OTP'}
+                      loading={emailSendLoading}
+                      disabled={emailVerified || !emailValidForOtp}
+                      onClick={handleSendEmailOtp}
+                    />
+                  )}
                 </div>
                 {showFieldError('email') && (
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.email}</p>
                 )}
-                {emailVerified && (
+                {emailVerified && emailOtpEnabled && (
                   <p className="text-xs text-green-400 mt-1.5 font-medium flex items-center gap-1">
                     <CheckCircle size={12} /> Email verified
                   </p>
                 )}
-                {emailOtpSent && !emailVerified && (
+                {emailOtpEnabled && emailOtpSent && !emailVerified && (
                   <div className="flex gap-2 mt-2">
                     <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 ${
                       fieldErrors.emailOtp ? 'border-red-500/50' : 'border-surface-border'
@@ -564,6 +624,8 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {/* ── Mobile / SMS section — hidden when SMS OTP service is off ── */}
+            {smsOtpEnabled ? (
             <div>
               <label className="block text-sm font-semibold text-white mb-2">
                 Mobile <span className="text-white/45 font-normal">(SMS verification)</span>
@@ -664,6 +726,12 @@ export default function RegisterPage() {
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.smsOtp}</p>
               )}
             </div>
+            ) : serviceConfigLoaded ? (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-xs text-amber-200/80 leading-relaxed">
+                <p className="font-semibold text-amber-200 mb-0.5">Phone number not required right now</p>
+                <p>SMS verification is temporarily inactive. You can add and verify your mobile number from your profile after registration.</p>
+              </div>
+            ) : null}
 
             {/* Password */}
             <div>
@@ -787,7 +855,7 @@ export default function RegisterPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading || !emailVerified || !smsVerified}
+              disabled={loading || (emailOtpEnabled && !emailVerified) || (smsOtpEnabled && !smsVerified)}
               className="w-full flex items-center justify-center gap-2.5
                 bg-gradient-to-r from-gold to-gold-light text-surface-dark
                 font-bold text-base py-4 rounded-xl mt-2

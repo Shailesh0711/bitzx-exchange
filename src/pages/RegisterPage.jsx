@@ -22,6 +22,7 @@ import {
 } from '@/lib/authValidation';
 import { useSignupOtpConfig } from '@/hooks/useSignupOtpConfig';
 import { SITE_CONFIG } from '@/lib/siteConfig';
+import RegisterLiveMarketPreview from '@/components/markets/RegisterLiveMarketPreview';
 
 import { BRAND_LOGO } from '@/lib/brandAssets';
 
@@ -38,13 +39,6 @@ const PERKS = [
 const emptyRegisterFieldErrors = () => ({
   name: '', email: '', mobile: '', password: '', confirm: '', terms: '', emailOtp: '', smsOtp: '',
 });
-
-const TICKER = [
-  { pair: 'BTC/USDT', price: '$71,903', change: '+0.48%', up: true },
-  { pair: 'ETH/USDT', price: '$3,241',  change: '+1.22%', up: true },
-  { pair: 'BZX/USDT', price: '$0.453',  change: '+2.33%', up: true },
-  { pair: 'SOL/USDT', price: '$186',    change: '-0.71%', up: false },
-];
 
 function OtpSendButton({ label, loading, disabled, onClick }) {
   return (
@@ -421,19 +415,7 @@ export default function RegisterPage() {
           <p className="text-[10px] font-bold text-white uppercase tracking-widest mb-3">
             Live Market
           </p>
-          <div className="space-y-2">
-            {TICKER.map(t => (
-              <div key={t.pair} className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">{t.pair}</span>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-white font-mono">{t.price}</span>
-                  <span className={`text-[11px] font-bold ${t.up ? 'text-green-400' : 'text-red-400'}`}>
-                    {t.change}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <RegisterLiveMarketPreview />
         </motion.div>
       </div>
 

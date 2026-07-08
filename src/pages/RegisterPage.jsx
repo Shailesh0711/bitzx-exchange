@@ -20,12 +20,12 @@ import {
   authFormBannerMessage,
   isAuthRequestError,
 } from '@/lib/authValidation';
-import { exchangeApiOrigin } from '@/lib/apiBase';
+import { useSignupOtpConfig } from '@/hooks/useSignupOtpConfig';
+import { SITE_CONFIG } from '@/lib/siteConfig';
 
 import { BRAND_LOGO } from '@/lib/brandAssets';
 
 const LOGO = BRAND_LOGO;
-const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 const PERKS = [
   { icon: TrendingUp, color: '#22c55e', title: 'Professional Charts',     desc: 'TradingView with 100+ indicators' },
@@ -76,12 +76,13 @@ export default function RegisterPage() {
   } = useAuth();
   const navigate = useNavigate();
 
-  // ── OTP service flags ────────────────────────────────────────────────────
-  // Loaded from /api/public/site-config on mount. Defaults to true so we
-  // don't skip verification steps before the server response arrives.
-  const [emailOtpEnabled, setEmailOtpEnabled] = useState(true);
-  const [smsOtpEnabled, setSmsOtpEnabled] = useState(true);
-  const [serviceConfigLoaded, setServiceConfigLoaded] = useState(false);
+  // ── OTP service flags (from /api/public/site-config) ─────────────────────
+  const {
+    loaded: serviceConfigLoaded,
+    emailOtpEnabled,
+    smsOtpEnabled,
+    defaultCountryCode,
+  } = useSignupOtpConfig();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -117,26 +118,8 @@ export default function RegisterPage() {
   });
 
   useEffect(() => {
-    fetch(`${API}/api/public/site-config`)
-      .then(r => r.json())
-      .then(cfg => {
-        const emailOn = cfg?.signup?.email_otp_enabled !== false;
-        const smsOn   = cfg?.signup?.sms_otp_enabled   !== false;
-        setEmailOtpEnabled(emailOn);
-        setSmsOtpEnabled(smsOn);
-        if (cfg?.signup?.default_country_code) {
-          setCountryCode(cfg.signup.default_country_code);
-        }
-        // When a service is disabled, pre-mark the step as verified so the
-        // submit button is unblocked. emailOtpSent stays false so
-        // handleCreateAccount knows it still needs to call registerRequest
-        // (which creates the backend pending record without sending an OTP).
-        if (!emailOn) setEmailVerified(true);
-        if (!smsOn)   { setSmsVerified(true); setSmsOtpSent(true); }
-      })
-      .catch(() => {})
-      .finally(() => setServiceConfigLoaded(true));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (defaultCountryCode) setCountryCode(defaultCountryCode);
+  }, [defaultCountryCode]);
 
   const showFieldError = key => Boolean(fieldErrors[key]) && (submitAttempted || touched[key]);
   const strengthMeta = getPasswordStrengthMeta(password);
@@ -333,9 +316,8 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      // When email OTP is disabled the frontend skips the Send OTP step, so
-      // no pending record exists yet. Call registerRequest first — the backend
-      // will create one with email_verified=true (no OTP sent).
+      // When email OTP is disabled the frontend skips Send OTP; create the
+      // pending record without marking email verified (verify later in Profile).
       if (!emailOtpEnabled && !emailOtpSent) {
         const emailErr = validateAuthEmail(em);
         if (emailErr) {
@@ -346,7 +328,6 @@ export default function RegisterPage() {
         }
         await registerRequest(em, undefined, undefined);
         setEmailOtpSent(true);
-        setEmailVerified(true);
       }
 
       const mobToSend = smsOtpEnabled ? mob : undefined;
@@ -476,7 +457,11 @@ export default function RegisterPage() {
 
           <>
           <h1 className="text-3xl xl:text-4xl font-extrabold text-white mb-1">Create your account</h1>
-          <p className="text-white text-base mb-8">Free demo · No deposit required</p>
+          <p className="text-white text-base mb-8">
+            {serviceConfigLoaded && !emailOtpEnabled && !smsOtpEnabled
+              ? 'Free demo · Verify email and phone later from Profile'
+              : 'Free demo · No deposit required'}
+          </p>
 
           {/* Error */}
           {error && (
@@ -621,6 +606,11 @@ export default function RegisterPage() {
                 {fieldErrors.emailOtp && (
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.emailOtp}</p>
                 )}
+                {serviceConfigLoaded && !emailOtpEnabled && (
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 mt-2 text-xs text-amber-200/80 leading-relaxed">
+                    Email verification is optional during signup. Verify your email later from Profile.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -729,7 +719,7 @@ export default function RegisterPage() {
             ) : serviceConfigLoaded ? (
               <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-xs text-amber-200/80 leading-relaxed">
                 <p className="font-semibold text-amber-200 mb-0.5">Phone number not required right now</p>
-                <p>SMS verification is temporarily inactive. You can add and verify your mobile number from your profile after registration.</p>
+                <p>SMS verification is inactive. Add and verify your mobile number later from Profile.</p>
               </div>
             ) : null}
 
@@ -842,10 +832,23 @@ export default function RegisterPage() {
               </div>
               <span className="text-sm text-white leading-relaxed">
                 I agree to the{' '}
-                <a href="#" className="text-gold-light hover:underline">Terms of Service</a>
+                <Link
+                  to={SITE_CONFIG.termsPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gold-light hover:underline"
+                >
+                  Terms of Service
+                </Link>
                 {' '}and{' '}
-                <a href="#" className="text-gold-light hover:underline">Privacy Policy</a>.
-                This is a demo platform for educational purposes.
+                <Link
+                  to={SITE_CONFIG.privacyPolicyPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gold-light hover:underline"
+                >
+                  Privacy Policy
+                </Link>.
               </span>
             </label>
             {showFieldError('terms') && (
@@ -855,7 +858,12 @@ export default function RegisterPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading || (emailOtpEnabled && !emailVerified) || (smsOtpEnabled && !smsVerified)}
+              disabled={
+                loading
+                || !serviceConfigLoaded
+                || (emailOtpEnabled && !emailVerified)
+                || (smsOtpEnabled && !smsVerified)
+              }
               className="w-full flex items-center justify-center gap-2.5
                 bg-gradient-to-r from-gold to-gold-light text-surface-dark
                 font-bold text-base py-4 rounded-xl mt-2

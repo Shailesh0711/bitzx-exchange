@@ -22,6 +22,7 @@ import {
   validateStrongPassword,
 } from '@/lib/authValidation';
 import { exchangeApiOrigin } from '@/lib/apiBase';
+import { useSignupOtpConfig } from '@/hooks/useSignupOtpConfig';
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
@@ -89,6 +90,7 @@ function FieldGroup({ label, children, hint, required, error }) {
 
 function ProfileTab({ user, updateUser }) {
   const fileRef = useRef(null);
+  const { smsOtpEnabled, defaultCountryCode } = useSignupOtpConfig();
   const [countryCode, setCountryCode] = useState('91');
   const [form, setForm] = useState({
     name: '',
@@ -115,18 +117,8 @@ function ProfileTab({ user, updateUser }) {
   });
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${API}/api/public/site-config`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const cc = data?.signup?.default_country_code;
-        if (!cancelled && cc) setCountryCode(String(cc));
-      } catch { /* optional */ }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    if (defaultCountryCode) setCountryCode(defaultCountryCode);
+  }, [defaultCountryCode]);
 
   useEffect(() => {
     if (!user) return;
@@ -190,8 +182,12 @@ function ProfileTab({ user, updateUser }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatApiDetail(data.detail) || 'Could not send SMS code');
-      setPhoneOtpSent(true);
-      setPhoneOtp('');
+      if (data.otp_required === false) {
+        setPhoneOtpSent(false);
+      } else {
+        setPhoneOtpSent(true);
+        setPhoneOtp('');
+      }
       showToast(data.message || 'Verification code sent.', true);
     } catch (e) {
       showToast(e.message || 'Could not send SMS code', false);
@@ -210,7 +206,7 @@ function ProfileTab({ user, updateUser }) {
       country: form.country,
       bio: form.bio,
     });
-    if (phoneChanged) {
+    if (phoneChanged && smsOtpEnabled) {
       if (!phoneOtpSent) {
         errs.phoneOtp = 'Send a verification code to your new number first.';
       } else if (!phoneOtp.trim() || phoneOtp.trim().length < 6) {
@@ -233,7 +229,9 @@ function ProfileTab({ user, updateUser }) {
       if (phoneChanged) {
         payload.mobile = mobileDigits;
         if (countryCode) payload.country_code = countryCode;
-        payload.phone_otp = phoneOtp.trim();
+        if (smsOtpEnabled && phoneOtp.trim()) {
+          payload.phone_otp = phoneOtp.trim();
+        }
       }
       const res = await authFetch(`${API}/api/auth/profile`, {
         method: 'PUT',
@@ -407,9 +405,11 @@ function ProfileTab({ user, updateUser }) {
           hint={
             user?.phone && !phoneChanged
               ? `Current: ${user.phone}`
-              : phoneChanged
+              : phoneChanged && smsOtpEnabled
                 ? 'Verify your new number with SMS before saving.'
-                : '10-digit mobile (India: starts with 6–9)'
+                : phoneChanged && !smsOtpEnabled
+                  ? 'SMS verification is inactive — save now and verify later when SMS is enabled.'
+                  : '10-digit mobile (India: starts with 6–9)'
           }
         >
           <div className="flex gap-2">
@@ -435,7 +435,7 @@ function ProfileTab({ user, updateUser }) {
                 className="flex-1 min-w-0 bg-transparent text-base text-white outline-none placeholder:text-white/45"
               />
             </div>
-            {phoneChanged && (
+            {phoneChanged && smsOtpEnabled && (
               <OtpSendButton
                 label={phoneOtpSent ? 'Resend' : 'Send OTP'}
                 loading={phoneSendLoading}
@@ -446,7 +446,7 @@ function ProfileTab({ user, updateUser }) {
           </div>
         </FieldGroup>
 
-        {phoneChanged && (
+        {phoneChanged && smsOtpEnabled && (
           <FieldGroup
             label="SMS verification code"
             required

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { coinIconUrl } from '@/services/marketApi';
+import { BRAND_LOGO } from '@/lib/brandAssets';
 
 /**
  * Consistent coin identity cell for markets tables (admin-managed metadata).
@@ -27,6 +28,11 @@ export default function MarketCoinCell({ market, size = 40, showQuote = true, li
           height={size}
           className="rounded-full shrink-0 ring-1 ring-white/10 object-cover"
           loading="lazy"
+          onError={(e) => {
+            const fb = coinIconUrl(base, null);
+            if (fb && e.currentTarget.src !== fb) e.currentTarget.src = fb;
+            else if (base === 'BZX' && e.currentTarget.src !== BRAND_LOGO) e.currentTarget.src = BRAND_LOGO;
+          }}
         />
       ) : (
         <div

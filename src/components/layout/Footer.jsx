@@ -3,10 +3,11 @@ import { Send, Mail, Shield, Zap, ExternalLink } from 'lucide-react';
 import DunsRegisteredSeal from './DunsRegisteredSeal';
 
 import { BRAND_LOGO } from '@/lib/brandAssets';
+import { SITE_CONFIG } from '@/lib/siteConfig';
 
 const LOGO = BRAND_LOGO;
 
-const SUPPORT_EMAIL = 'support@bitzx.io';
+const SUPPORT_EMAIL = SITE_CONFIG.supportEmail;
 
 const LINKS = {
   Exchange: [
@@ -24,6 +25,10 @@ const LINKS = {
     { label: 'Help Center',    href: '#' },
     { label: 'API Docs',       href: '#' },
     { label: 'Status',         href: '#' },
+  ],
+  Legal: [
+    { label: 'Privacy Policy',   to: SITE_CONFIG.privacyPolicyPath },
+    { label: 'Terms of Service', to: SITE_CONFIG.termsPath },
   ],
 };
 
@@ -132,6 +137,12 @@ export default function Footer() {
             >
               {SUPPORT_EMAIL}
             </a>
+            <Link to={SITE_CONFIG.privacyPolicyPath} className="text-white/90 hover:text-gold-light transition-colors">
+              Privacy Policy
+            </Link>
+            <Link to={SITE_CONFIG.termsPath} className="text-white/90 hover:text-gold-light transition-colors">
+              Terms of Service
+            </Link>
             <span className="flex items-center gap-1"><Shield size={11} /> Secured</span>
             <span className="flex items-center gap-1"><Zap size={11} /> Fast Execution</span>
             <span>Trading involves risk. Demo platform only.</span>

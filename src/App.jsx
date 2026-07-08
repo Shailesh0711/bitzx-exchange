@@ -38,6 +38,8 @@ import P2PMerchantPage       from '@/pages/p2p/P2PMerchantPage';
 import BZXMarketsPage        from '@/pages/BZXMarketsPage';
 import BZXMarket             from '@/pages/BZXMarket';
 import ListCoinPage          from '@/pages/ListCoinPage';
+import PrivacyPolicyPage     from '@/pages/PrivacyPolicyPage';
+import TermsPage             from '@/pages/TermsPage';
 
 /** Surfaces render/import errors instead of a blank screen on the options route. */
 class OptionsRouteErrorBoundary extends React.Component {
@@ -197,6 +199,8 @@ export default function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password"  element={<ResetPasswordPage />} />
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+      <Route path="/privacy-policy"  element={<PrivacyPolicyPage />} />
+      <Route path="/terms-of-service" element={<TermsPage />} />
 
       <Route element={<Layout />}>
         <Route path="/"              element={<LandingPage />} />

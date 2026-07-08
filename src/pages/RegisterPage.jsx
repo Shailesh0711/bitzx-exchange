@@ -20,12 +20,12 @@ import {
   authFormBannerMessage,
   isAuthRequestError,
 } from '@/lib/authValidation';
-import { exchangeApiOrigin } from '@/lib/apiBase';
+import { useSignupOtpConfig } from '@/hooks/useSignupOtpConfig';
+import { SITE_CONFIG } from '@/lib/siteConfig';
 
 import { BRAND_LOGO } from '@/lib/brandAssets';
 
 const LOGO = BRAND_LOGO;
-const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 const PERKS = [
   { icon: TrendingUp, color: '#22c55e', title: 'Professional Charts',     desc: 'TradingView with 100+ indicators' },
@@ -76,12 +76,13 @@ export default function RegisterPage() {
   } = useAuth();
   const navigate = useNavigate();
 
-  // ── OTP service flags ────────────────────────────────────────────────────
-  // Loaded from /api/public/site-config on mount. Defaults to true so we
-  // don't skip verification steps before the server response arrives.
-  const [emailOtpEnabled, setEmailOtpEnabled] = useState(true);
-  const [smsOtpEnabled, setSmsOtpEnabled] = useState(true);
-  const [serviceConfigLoaded, setServiceConfigLoaded] = useState(false);
+  // ── OTP service flags (from /api/public/site-config) ─────────────────────
+  const {
+    loaded: serviceConfigLoaded,
+    emailOtpEnabled,
+    smsOtpEnabled,
+    defaultCountryCode,
+  } = useSignupOtpConfig();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -117,26 +118,8 @@ export default function RegisterPage() {
   });
 
   useEffect(() => {
-    fetch(`${API}/api/public/site-config`)
-      .then(r => r.json())
-      .then(cfg => {
-        const emailOn = cfg?.signup?.email_otp_enabled !== false;
-        const smsOn   = cfg?.signup?.sms_otp_enabled   !== false;
-        setEmailOtpEnabled(emailOn);
-        setSmsOtpEnabled(smsOn);
-        if (cfg?.signup?.default_country_code) {
-          setCountryCode(cfg.signup.default_country_code);
-        }
-        // When a service is disabled, pre-mark the step as verified so the
-        // submit button is unblocked. emailOtpSent stays false so
-        // handleCreateAccount knows it still needs to call registerRequest
-        // (which creates the backend pending record without sending an OTP).
-        if (!emailOn) setEmailVerified(true);
-        if (!smsOn)   { setSmsVerified(true); setSmsOtpSent(true); }
-      })
-      .catch(() => {})
-      .finally(() => setServiceConfigLoaded(true));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (defaultCountryCode) setCountryCode(defaultCountryCode);
+  }, [defaultCountryCode]);
 
   const showFieldError = key => Boolean(fieldErrors[key]) && (submitAttempted || touched[key]);
   const strengthMeta = getPasswordStrengthMeta(password);
@@ -159,6 +142,9 @@ export default function RegisterPage() {
         const mobErr = validateSignupMobile(mob);
         if (mobErr) errs.mobile = mobErr;
       }
+    } else if (mob) {
+      const mobErr = validateSignupMobile(mob);
+      if (mobErr) errs.mobile = mobErr;
     }
     const regErr = validateRegisterFields({ name: nm, email: em, password });
     Object.assign(errs, regErr);
@@ -333,9 +319,8 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      // When email OTP is disabled the frontend skips the Send OTP step, so
-      // no pending record exists yet. Call registerRequest first — the backend
-      // will create one with email_verified=true (no OTP sent).
+      // When email OTP is disabled the frontend skips Send OTP; create the
+      // pending record without marking email verified (verify later in Profile).
       if (!emailOtpEnabled && !emailOtpSent) {
         const emailErr = validateAuthEmail(em);
         if (emailErr) {
@@ -344,13 +329,12 @@ export default function RegisterPage() {
           setLoading(false);
           return;
         }
-        await registerRequest(em, undefined, undefined);
+        await registerRequest(em, mob || undefined, mob ? countryCode : undefined);
         setEmailOtpSent(true);
-        setEmailVerified(true);
       }
 
-      const mobToSend = smsOtpEnabled ? mob : undefined;
-      const ccToSend  = smsOtpEnabled ? countryCode : undefined;
+      const mobToSend = mob.trim() || undefined;
+      const ccToSend = mobToSend ? countryCode : undefined;
       await registerComplete(nm, em, password, mobToSend, ccToSend);
       navigate('/kyc', { replace: true, state: { justRegistered: true } });
     } catch (err) {
@@ -476,7 +460,11 @@ export default function RegisterPage() {
 
           <>
           <h1 className="text-3xl xl:text-4xl font-extrabold text-white mb-1">Create your account</h1>
-          <p className="text-white text-base mb-8">Free demo · No deposit required</p>
+          <p className="text-white text-base mb-8">
+            {serviceConfigLoaded && !emailOtpEnabled && !smsOtpEnabled
+              ? 'Free demo · Verify email and phone later from Profile'
+              : 'Free demo · No deposit required'}
+          </p>
 
           {/* Error */}
           {error && (
@@ -621,14 +609,23 @@ export default function RegisterPage() {
                 {fieldErrors.emailOtp && (
                   <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.emailOtp}</p>
                 )}
+                {serviceConfigLoaded && !emailOtpEnabled && (
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 mt-2 text-xs text-amber-200/80 leading-relaxed">
+                    Email verification is optional during signup. Verify your email later from Profile.
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* ── Mobile / SMS section — hidden when SMS OTP service is off ── */}
-            {smsOtpEnabled ? (
+            {/* ── Mobile — OTP controls only when SMS service is on ── */}
             <div>
               <label className="block text-sm font-semibold text-white mb-2">
-                Mobile <span className="text-white/45 font-normal">(SMS verification)</span>
+                Mobile
+                {smsOtpEnabled ? (
+                  <span className="text-white/45 font-normal"> (SMS verification)</span>
+                ) : serviceConfigLoaded ? (
+                  <span className="ml-2 text-xs font-normal text-amber-300/90">(SMS verification inactive)</span>
+                ) : null}
               </label>
               <div className="flex gap-2">
                 <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group ${
@@ -642,52 +639,64 @@ export default function RegisterPage() {
                     type="tel"
                     inputMode="numeric"
                     value={mobile}
-                    disabled={smsVerified}
+                    disabled={smsOtpEnabled && smsVerified}
                     onChange={e => {
                       setMobile(e.target.value.replace(/\D/g, '').slice(0, 10));
                       setFieldErrors(f => ({ ...f, mobile: '' }));
                       setError('');
                       setSuccess('');
-                      if (smsOtpSent) resetSmsVerification();
+                      if (smsOtpEnabled && smsOtpSent) resetSmsVerification();
                     }}
                     onBlur={() => {
                       setTouched(t => ({ ...t, mobile: true }));
-                      if (!mobile.trim()) {
+                      if (smsOtpEnabled && !mobile.trim()) {
                         setFieldErrors(f => ({ ...f, mobile: 'Mobile number is required.' }));
+                        return;
+                      }
+                      if (!mobile.trim()) {
+                        setFieldErrors(f => ({ ...f, mobile: '' }));
                         return;
                       }
                       const msg = validateSignupMobile(mobile);
                       setFieldErrors(f => ({ ...f, mobile: msg || '' }));
                     }}
-                    placeholder="10-digit mobile number"
+                    placeholder={smsOtpEnabled ? '10-digit mobile number' : '10-digit mobile (optional)'}
                     autoComplete="tel-national"
                     aria-invalid={Boolean(fieldErrors.mobile)}
                     className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45 disabled:opacity-60"
                   />
                 </div>
-                <OtpSendButton
-                  label={smsOtpSent && !smsVerified ? 'Resend' : 'Send OTP'}
-                  loading={smsSendLoading}
-                  disabled={smsVerified || !mobileValidForOtp}
-                  onClick={handleSendSmsOtp}
-                />
+                {smsOtpEnabled && (
+                  <OtpSendButton
+                    label={smsOtpSent && !smsVerified ? 'Resend' : 'Send OTP'}
+                    loading={smsSendLoading}
+                    disabled={smsVerified || !mobileValidForOtp}
+                    onClick={handleSendSmsOtp}
+                  />
+                )}
               </div>
-              <p className="text-[11px] text-white/50 mt-1.5">
-                {smsVerified
-                  ? 'Mobile verified.'
-                  : smsOtpSent
-                    ? `SMS code${phoneHint ? ` sent to ${phoneHint}` : ''}. Use Resend if you did not receive it.`
-                    : 'Enter a valid 10-digit number and tap Send OTP — no need to verify email first.'}
-              </p>
+              {smsOtpEnabled ? (
+                <p className="text-[11px] text-white/50 mt-1.5">
+                  {smsVerified
+                    ? 'Mobile verified.'
+                    : smsOtpSent
+                      ? `SMS code${phoneHint ? ` sent to ${phoneHint}` : ''}. Use Resend if you did not receive it.`
+                      : 'Enter a valid 10-digit number and tap Send OTP — no need to verify email first.'}
+                </p>
+              ) : serviceConfigLoaded ? (
+                <p className="text-[11px] text-white/50 mt-1.5">
+                  Your number will be saved without SMS verification. Verify later from Profile when SMS is enabled.
+                </p>
+              ) : null}
               {showFieldError('mobile') && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.mobile}</p>
               )}
-              {smsVerified && (
+              {smsOtpEnabled && smsVerified && (
                 <p className="text-xs text-green-400 mt-1.5 font-medium flex items-center gap-1">
                   <CheckCircle size={12} /> Mobile verified
                 </p>
               )}
-              {smsOtpSent && !smsVerified && (
+              {smsOtpEnabled && smsOtpSent && !smsVerified && (
                 <div className="flex gap-2 mt-2">
                   <div className={`flex-1 flex items-center bg-surface-card border rounded-xl px-4 py-3 focus-within:border-gold/50 ${
                     fieldErrors.smsOtp ? 'border-red-500/50' : 'border-surface-border'
@@ -722,16 +731,10 @@ export default function RegisterPage() {
                   </button>
                 </div>
               )}
-              {fieldErrors.smsOtp && (
+              {smsOtpEnabled && fieldErrors.smsOtp && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.smsOtp}</p>
               )}
             </div>
-            ) : serviceConfigLoaded ? (
-              <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-xs text-amber-200/80 leading-relaxed">
-                <p className="font-semibold text-amber-200 mb-0.5">Phone number not required right now</p>
-                <p>SMS verification is temporarily inactive. You can add and verify your mobile number from your profile after registration.</p>
-              </div>
-            ) : null}
 
             {/* Password */}
             <div>
@@ -842,10 +845,23 @@ export default function RegisterPage() {
               </div>
               <span className="text-sm text-white leading-relaxed">
                 I agree to the{' '}
-                <a href="#" className="text-gold-light hover:underline">Terms of Service</a>
+                <Link
+                  to={SITE_CONFIG.termsPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gold-light hover:underline"
+                >
+                  Terms of Service
+                </Link>
                 {' '}and{' '}
-                <a href="#" className="text-gold-light hover:underline">Privacy Policy</a>.
-                This is a demo platform for educational purposes.
+                <Link
+                  to={SITE_CONFIG.privacyPolicyPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gold-light hover:underline"
+                >
+                  Privacy Policy
+                </Link>.
               </span>
             </label>
             {showFieldError('terms') && (
@@ -855,7 +871,12 @@ export default function RegisterPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading || (emailOtpEnabled && !emailVerified) || (smsOtpEnabled && !smsVerified)}
+              disabled={
+                loading
+                || !serviceConfigLoaded
+                || (emailOtpEnabled && !emailVerified)
+                || (smsOtpEnabled && !smsVerified)
+              }
               className="w-full flex items-center justify-center gap-2.5
                 bg-gradient-to-r from-gold to-gold-light text-surface-dark
                 font-bold text-base py-4 rounded-xl mt-2

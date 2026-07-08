@@ -45,11 +45,11 @@ export const PAIRS = [
   { symbol: 'DOGEBZX', base: 'DOGE', quote: 'BZX',  source: 'internal' },
 ];
 
-import { BRAND_LOGO } from '@/lib/brandAssets';
+import { BRAND_LOGO, resolveBrandLogoUrl } from '@/lib/brandAssets';
 
 /** Resolve coin logo: API/catalog URL first, then static majors map. */
 export function coinIconUrl(base, logoUrl) {
-  const url = logoUrl != null ? String(logoUrl).trim() : '';
+  const url = logoUrl != null ? resolveBrandLogoUrl(String(logoUrl).trim(), '') : '';
   if (url) {
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
     if (url.startsWith('//')) return `https:${url}`;

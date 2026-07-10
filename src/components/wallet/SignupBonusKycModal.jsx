@@ -66,7 +66,10 @@ export default function SignupBonusKycModal({ visible, prompt, onDismiss }) {
               </button>
               <button
                 type="button"
-                onClick={onDismiss}
+                onClick={() => {
+                  onDismiss();
+                  navigate('/wallet?tab=history');
+                }}
                 className="w-full rounded-xl py-2.5 text-sm font-semibold text-white/55 hover:text-white/80 transition-colors"
               >
                 Later

@@ -4,7 +4,23 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import {
+  readImpersonationTokenFromUrl,
+  stripImpersonationTokenFromUrl,
+  stashImpersonationBootstrapToken,
+} from './lib/impersonationAuth';
 import './index.css';
+
+// Capture admin impersonation token before React Router renders.
+try {
+  const bootstrapToken = readImpersonationTokenFromUrl();
+  if (bootstrapToken) {
+    stashImpersonationBootstrapToken(bootstrapToken);
+    stripImpersonationTokenFromUrl();
+  }
+} catch {
+  /* ignore storage errors */
+}
 
 class RootErrorBoundary extends React.Component {
   constructor(props) {

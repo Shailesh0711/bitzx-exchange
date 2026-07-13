@@ -452,7 +452,7 @@ function AccountActivityPanel({ open, onClose }) {
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [logoutLoading, setLogoutLoading] = useState(false);
-  const { revokeAllSessions }     = useAuth();
+  const { revokeAllSessions, impersonationActive } = useAuth();
   const navigate                  = useNavigate();
 
   const load = useCallback(() => {
@@ -498,18 +498,20 @@ function AccountActivityPanel({ open, onClose }) {
               <p className="text-xs font-extrabold uppercase tracking-wider text-white/50">
                 Active Sessions ({data.sessions?.length ?? 0})
               </p>
-              <button
-                type="button"
-                onClick={handleLogoutAll}
-                disabled={logoutLoading}
-                className="flex items-center gap-1.5 text-xs font-bold text-red-400 hover:text-red-300
-                  border border-red-500/25 rounded-lg px-3 py-1.5 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-              >
-                {logoutLoading
-                  ? <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                  : <LogOut size={12} />}
-                Log Out All
-              </button>
+              {!impersonationActive ? (
+                <button
+                  type="button"
+                  onClick={handleLogoutAll}
+                  disabled={logoutLoading}
+                  className="flex items-center gap-1.5 text-xs font-bold text-red-400 hover:text-red-300
+                    border border-red-500/25 rounded-lg px-3 py-1.5 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                >
+                  {logoutLoading
+                    ? <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                    : <LogOut size={12} />}
+                  Log Out All
+                </button>
+              ) : null}
             </div>
             {!data.sessions?.length
               ? <p className="text-xs text-white/35 py-4 text-center">No active sessions found.</p>

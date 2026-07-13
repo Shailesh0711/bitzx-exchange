@@ -7,30 +7,79 @@ import {
   authFormBannerMessage,
 } from '@/lib/authValidation';
 import { exchangeApiOrigin } from '@/lib/apiBase';
+import { peekImpersonationBootstrapToken } from '@/lib/impersonationAuth';
 
 const AuthContext = createContext(null);
 
 const API = exchangeApiOrigin(import.meta.env.VITE_BACKEND_URL);
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
+// Normal user sessions use localStorage (shared across tabs).
+// Admin impersonation uses sessionStorage (isolated per tab) so opening a
+// support view never overwrites or logs out the real user's exchange session.
+
+const LS_TOKEN = 'bitzx_ex_token';
+const LS_REFRESH = 'bitzx_ex_refresh';
+const LS_USER = 'bitzx_ex_user';
+const SS_IMP_ACTIVE = 'bitzx_imp_active';
+const SS_IMP_TOKEN = 'bitzx_imp_token';
+const SS_IMP_USER = 'bitzx_imp_user';
+
+function isImpersonationTab() {
+  try {
+    return sessionStorage.getItem(SS_IMP_ACTIVE) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const store = {
-  getUser:  () => { try { return JSON.parse(localStorage.getItem('bitzx_ex_user') || 'null'); } catch { return null; } },
-  getToken: () => localStorage.getItem('bitzx_ex_token') || null,
-  // Phase 7b — refresh token (rotated on every /auth/refresh). Optional
-  // on disk: if it's missing we simply fall back to the Phase-1 single
-  // access token behaviour and the user re-logs in when it expires.
-  getRefresh: () => localStorage.getItem('bitzx_ex_refresh') || null,
-  setUser:  (u) => localStorage.setItem('bitzx_ex_user', JSON.stringify(u)),
-  setToken: (t) => localStorage.setItem('bitzx_ex_token', t),
-  setRefresh: (t) => {
-    if (t) localStorage.setItem('bitzx_ex_refresh', t);
-    else   localStorage.removeItem('bitzx_ex_refresh');
+  isImpersonation: isImpersonationTab,
+  getUser: () => {
+    try {
+      if (isImpersonationTab()) {
+        return JSON.parse(sessionStorage.getItem(SS_IMP_USER) || 'null');
+      }
+      return JSON.parse(localStorage.getItem(LS_USER) || 'null');
+    } catch {
+      return null;
+    }
   },
-  clear:    () => {
-    localStorage.removeItem('bitzx_ex_token');
-    localStorage.removeItem('bitzx_ex_refresh');
-    localStorage.removeItem('bitzx_ex_user');
+  getToken: () => {
+    try {
+      if (isImpersonationTab()) {
+        return sessionStorage.getItem(SS_IMP_TOKEN) || null;
+      }
+      return localStorage.getItem(LS_TOKEN) || null;
+    } catch {
+      return null;
+    }
+  },
+  // Impersonation is access-only — never touch the user's refresh token.
+  getRefresh: () => {
+    if (isImpersonationTab()) return null;
+    return localStorage.getItem(LS_REFRESH) || null;
+  },
+  setUser: (u) => localStorage.setItem(LS_USER, JSON.stringify(u)),
+  setToken: (t) => localStorage.setItem(LS_TOKEN, t),
+  setRefresh: (t) => {
+    if (t) localStorage.setItem(LS_REFRESH, t);
+    else localStorage.removeItem(LS_REFRESH);
+  },
+  setImpersonation: (token, user) => {
+    sessionStorage.setItem(SS_IMP_ACTIVE, '1');
+    sessionStorage.setItem(SS_IMP_TOKEN, token);
+    sessionStorage.setItem(SS_IMP_USER, JSON.stringify(user));
+  },
+  clearImpersonation: () => {
+    sessionStorage.removeItem(SS_IMP_ACTIVE);
+    sessionStorage.removeItem(SS_IMP_TOKEN);
+    sessionStorage.removeItem(SS_IMP_USER);
+  },
+  clear: () => {
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_REFRESH);
+    localStorage.removeItem(LS_USER);
   },
 };
 
@@ -91,7 +140,8 @@ function buildAuthRequest(url, options) {
 let _refreshInFlight = null;
 
 function clearAuthStorage() {
-  store.clear();
+  if (store.isImpersonation()) store.clearImpersonation();
+  else store.clear();
 }
 
 async function attemptRefresh() {
@@ -362,17 +412,67 @@ export function AuthProvider({ children }) {
     };
   }, [user?.uid]);
 
-  // ── On mount: validate stored token, then load wallet + orders ────────────
-  useEffect(() => {
-    const token = store.getToken();
-    if (!token) { setAuthLoading(false); return; }
+  /** Admin impersonation — access-only JWT in sessionStorage (tab-isolated). */
+  const establishImpersonationSession = useCallback(async (accessToken) => {
+    const token = String(accessToken || '').trim();
+    if (!token) throw new Error('Missing impersonation token');
 
-    authFetch(`${API}/api/auth/me`)
-      .then(res => { if (!res.ok) throw new Error('Token invalid'); return res.json(); })
-      .then(userData => {
+    // Never touch localStorage — the real user's session in other tabs stays intact.
+    store.setImpersonation(token, null);
+
+    const res = await authFetch(`${API}/api/auth/me`);
+    const data = await readJsonSafe(res);
+    if (!res.ok) {
+      store.clearImpersonation();
+      setUser(null);
+      throw new Error(formatApiDetail(data?.detail) || 'Impersonation session invalid or expired');
+    }
+
+    store.setImpersonation(token, data);
+    setUser(data);
+    await Promise.all([
+      fetchWallet(),
+      fetchOrders(),
+      fetchUserTrades(),
+      fetchLiveSpotPositions(),
+      fetchKyc(),
+      refreshSession(),
+    ]);
+    return data;
+  }, [fetchWallet, fetchOrders, fetchUserTrades, fetchLiveSpotPositions, fetchKyc, refreshSession]);
+
+  // ── On mount: validate stored session (impersonation handoff is handled by
+  //    /auth/impersonate → ImpersonateLoginPage — skip here to avoid races).
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      const onImpersonateRoute =
+        typeof window !== 'undefined'
+        && window.location.pathname.includes('/auth/impersonate');
+      if (onImpersonateRoute || peekImpersonationBootstrapToken()) {
+        setAuthLoading(false);
+        return;
+      }
+
+      const token = store.getToken();
+      if (!token) {
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const res = await authFetch(`${API}/api/auth/me`);
+        if (!res.ok) throw new Error('Token invalid');
+        const userData = await res.json();
+        if (cancelled) return;
         setUser(userData);
-        store.setUser(userData);
-        return Promise.all([
+        if (store.isImpersonation()) {
+          store.setImpersonation(token, userData);
+        } else {
+          store.setUser(userData);
+        }
+        await Promise.all([
           fetchWallet(),
           fetchOrders(),
           fetchUserTrades(),
@@ -380,10 +480,20 @@ export function AuthProvider({ children }) {
           fetchKyc(),
           refreshSession(),
         ]);
-      })
-      .catch(() => { store.clear(); setUser(null); })
-      .finally(() => setAuthLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      } catch {
+        if (!cancelled) {
+          if (store.isImpersonation()) store.clearImpersonation();
+          else store.clear();
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    }
+
+    void bootstrap();
+    return () => { cancelled = true; };
+  }, [fetchWallet, fetchOrders, fetchUserTrades, fetchLiveSpotPositions, fetchKyc, refreshSession]);
 
   // ── Login ─────────────────────────────────────────────────────────────────
   const login = useCallback(async (email, password) => {
@@ -564,25 +674,31 @@ export function AuthProvider({ children }) {
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(() => {
-    // Fire-and-forget refresh-token revocation so the server drops the
-    // rotated jti even if we never use it again. The response is ignored
-    // — if it fails (offline / 401) the TTL index still reaps the row.
-    const rt = store.getRefresh();
-    const tok = store.getToken();
-    if (rt && tok) {
-      try {
-        fetch(`${API}/api/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${tok}`,
-          },
-          body: JSON.stringify({ refresh_token: rt }),
-          keepalive: true,
-        }).catch(() => {});
-      } catch { /* ignore */ }
+    const impersonating = store.isImpersonation();
+
+    if (!impersonating) {
+      // Fire-and-forget refresh-token revocation for the real user session only.
+      const rt = store.getRefresh();
+      const tok = store.getToken();
+      if (rt && tok) {
+        try {
+          fetch(`${API}/api/auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${tok}`,
+            },
+            body: JSON.stringify({ refresh_token: rt }),
+            keepalive: true,
+          }).catch(() => {});
+        } catch { /* ignore */ }
+      }
+      store.clear();
+    } else {
+      // Support view — drop tab-local impersonation only; never revoke user refresh tokens.
+      store.clearImpersonation();
     }
-    clearAuthStorage();
+
     setUser(null);
     setWalletAssets([]); setBalance({}); setLockedBalance({});
     setOpenOrders([]); setOrderHistory([]);
@@ -635,7 +751,7 @@ export function AuthProvider({ children }) {
       // Auth
       login, register, registerRequest, registerMobileSendOtp, registerVerifyEmail,
       registerVerifyMobile, registerComplete, registerVerify, registerResend, logout,
-      revokeAllSessions,
+      revokeAllSessions, establishImpersonationSession,
       impersonationActive, impersonatorAdminId, refreshSession,
       userFeaturesPaused, userTradingPaused, userWithdrawalsPaused, userPauseNote,
     }}>

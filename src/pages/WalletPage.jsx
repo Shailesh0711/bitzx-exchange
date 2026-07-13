@@ -724,6 +724,7 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
   const [withdrawConfig, setWithdrawConfig] = useState({
     withdraw_fee_rate: 0,
     withdraw_gas_fee_bzx: 0,
+    withdraw_gas_fee_bzx_by_chain: {},
     bzx_price_usdt: 0,
     gas_fee_description: '',
     platform_fee_description: '',
@@ -740,19 +741,23 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${API}/api/wallet/withdraw-config`);
+        const qs = network
+          ? `?network=${encodeURIComponent(network)}`
+          : '';
+        const res = await fetch(`${API}/api/wallet/withdraw-config${qs}`);
         if (!res.ok) return;
         const data = await res.json();
         setWithdrawConfig({
           withdraw_fee_rate: Number(data?.withdraw_fee_rate || 0),
           withdraw_gas_fee_bzx: Number(data?.withdraw_gas_fee_bzx || 0),
+          withdraw_gas_fee_bzx_by_chain: data?.withdraw_gas_fee_bzx_by_chain || {},
           bzx_price_usdt: Number(data?.bzx_price_usdt || 0),
           gas_fee_description: data?.gas_fee_description || '',
           platform_fee_description: data?.platform_fee_description || '',
         });
       } catch { /* fee panel stays hidden when config unavailable */ }
     })();
-  }, []);
+  }, [network]);
 
   useEffect(() => {
     let cancelled = false;
@@ -885,12 +890,20 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
       setSubmitError(`Insufficient ${asset} balance (need ${totalAssetDebit.toFixed(8)} for withdrawal).`);
       return;
     }
-    if (totalBzxFees > 0 && totalBzxFees > bzxAvailable + 1e-12) {
+    const bzxNeeded = String(asset).toUpperCase() === 'BZX'
+      ? totalAssetDebit + totalBzxFees
+      : totalBzxFees;
+    if (bzxNeeded > 0 && bzxNeeded > bzxAvailable + 1e-12) {
       setSubmitError(
-        `Insufficient BZX for fees (need ~${totalBzxFees.toFixed(8)} BZX: `
-        + `${platformFeeBzx > 0 ? `platform ~${platformFeeBzx.toFixed(8)}` : ''}`
-        + `${platformFeeBzx > 0 && bzxGasFee > 0 ? ', ' : ''}`
-        + `${bzxGasFee > 0 ? `gas ${bzxGasFee.toFixed(8)}` : ''}).`,
+        String(asset).toUpperCase() === 'BZX'
+          ? `Insufficient BZX. Need ${(bzxNeeded).toFixed(8)} BZX `
+            + `(${totalAssetDebit.toFixed(8)} withdraw + ${totalBzxFees.toFixed(8)} fees), `
+            + `available ${bzxAvailable.toFixed(8)}.`
+          : `Insufficient BZX for fees (need ~${totalBzxFees.toFixed(8)} BZX: `
+            + `${platformFeeBzx > 0 ? `platform ~${platformFeeBzx.toFixed(8)}` : ''}`
+            + `${platformFeeBzx > 0 && bzxGasFee > 0 ? ', ' : ''}`
+            + `${bzxGasFee > 0 ? `gas ${bzxGasFee.toFixed(8)}` : ''}). `
+            + `Available ${bzxAvailable.toFixed(8)} BZX.`,
       );
       return;
     }
@@ -1104,7 +1117,7 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
                 )}
                 {bzxGasFee > 0 && (
                   <div className="flex justify-between gap-3">
-                    <span>Network gas fee (BZX)</span>
+                    <span>Network gas fee (paid by you in BZX)</span>
                     <span className="font-mono text-white">{bzxGasFee.toFixed(8)} BZX</span>
                   </div>
                 )}
@@ -1120,10 +1133,10 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
                 )}
                 {(totalBzxFees > 0 || withdrawConfig.platform_fee_description) && (
                   <p className="text-[11px] text-white/50 leading-relaxed">
-                    {withdrawConfig.platform_fee_description
-                      || 'Platform and gas fees are charged in BZX from your spot wallet.'}
+                    {withdrawConfig.gas_fee_description
+                      || 'Network gas is paid by the platform in BNB/ETH/TRX; you are charged BZX only.'}
                     {' '}
-                    {withdrawConfig.gas_fee_description || ''}
+                    {withdrawConfig.platform_fee_description || ''}
                     {' '}BZX available: <span className="font-mono text-white/70">{bzxAvailable.toFixed(4)}</span>
                   </p>
                 )}
@@ -1220,9 +1233,9 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
           <ol className="space-y-3 text-sm text-white">
             {[
               'Pick the asset, network and paste your destination address.',
-              'We lock the amount (plus the platform fee) in your balance the moment you submit.',
+              'We lock the withdrawal amount and debit platform + gas fees in BZX immediately (withdrawal is blocked if you do not have enough BZX).',
               'Small withdrawals auto-broadcast on-chain; larger ones wait for admin approval.',
-              'Once the network confirms the transaction, the lock is released from your balance.',
+              'Once the network confirms the transaction, the locked amount is finalized from your balance.',
             ].map((step, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-gold/20 text-gold-light text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>

@@ -27,6 +27,7 @@ import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
 import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import DepositMonitorBanner from '@/components/wallet/DepositMonitorBanner';
+import DepositSuccessModal from '@/components/wallet/DepositSuccessModal';
 import { useDepositMonitor } from '@/hooks/useDepositMonitor';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
@@ -106,6 +107,36 @@ function CopyBtn({ text }) {
       {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
     </button>
   );
+}
+
+/**
+ * Fetches the just-detected deposit event and drives the success pop-up.
+ * Shared by DepositTab and HistoryTab so either page can surface the modal
+ * the instant the on-demand monitor finds a new on-chain transaction.
+ */
+function useDepositDetectedModal() {
+  const [open, setOpen] = useState(false);
+  const [deposit, setDeposit] = useState(null);
+
+  const handleDetected = useCallback(async (count) => {
+    try {
+      const res = await authFetch(`${API}/api/wallet/deposit-events?limit=${Math.max(count || 1, 5)}`);
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      const items = Array.isArray(data.items) ? data.items : [];
+      const latest = items
+        .slice()
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+      if (latest) {
+        setDeposit(latest);
+        setOpen(true);
+      }
+    } catch {
+      // Silent — the deposit still shows up in History even if the modal fails to load.
+    }
+  }, []);
+
+  return { open, deposit, close: () => setOpen(false), handleDetected };
 }
 
 function AssetSelect({ value, onChange, label, assets }) {
@@ -300,6 +331,17 @@ function DepositTab({ kycBlocked, kyc }) {
   const [depAddrLoading, setDepAddrLoading]     = useState(false);
   const [depAddrError, setDepAddrError]         = useState(null);
 
+  // On-demand deposit monitoring — starts (or resumes) a 7-min backend
+  // session the moment this tab is opened. No visible countdown; the
+  // banner below only shows a static "stay on this page" reminder. If the
+  // user later opens History, that tab resumes the same session instead of
+  // starting a new timer.
+  const successModal = useDepositDetectedModal();
+  const depositMonitor = useDepositMonitor({
+    autoStart: true,
+    onDeposit: (count) => { successModal.handleDetected(count); },
+  });
+
   // Fetch supported networks once on mount. This endpoint is public so it
   // works the same way regardless of auth state.
   useEffect(() => {
@@ -449,6 +491,9 @@ function DepositTab({ kycBlocked, kyc }) {
 
   return (
     <div className="space-y-6">
+      <DepositMonitorBanner monitor={depositMonitor} />
+      <DepositSuccessModal open={successModal.open} onClose={successModal.close} deposit={successModal.deposit} />
+
       <div className="rounded-2xl border border-gold/25 bg-gradient-to-r from-gold/10 to-transparent p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-white font-bold flex items-center gap-2">
@@ -686,6 +731,7 @@ function DepositTab({ kycBlocked, kyc }) {
             <li>Minimum deposit: {MIN_WALLET_NOTIONAL_USDT} USDT equivalent.</li>
             <li>Your balance is credited automatically once the required confirmations are reached.</li>
             <li>Incoming transactions appear in the History tab as soon as they are detected on-chain.</li>
+            <li className="text-white font-semibold">After sending funds, stay on this page (or History) until you see the deposit confirmation pop-up.</li>
           </ul>
         </div>
       </div>
@@ -1374,11 +1420,14 @@ function HistoryTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // autoStart=true: the hook starts a session the moment the component mounts
-  // (i.e. the user opens Wallet → History). No button press required.
+  // autoStart=true: the hook starts (or resumes) the shared 7-min monitoring
+  // session the moment this tab mounts (i.e. the user opens Wallet →
+  // History). If a session is already running — e.g. started from the
+  // Deposit tab — this resumes it instead of starting a new timer.
+  const successModal = useDepositDetectedModal();
   const monitor = useDepositMonitor({
     autoStart: true,
-    onDeposit: () => load(),
+    onDeposit: (count) => { load(); successModal.handleDetected(count); },
     onExpire: () => {
       // Session ended — return user to Spot balances (default wallet tab).
       setSearchParams({}, { replace: true });
@@ -1508,6 +1557,8 @@ function HistoryTab() {
           </div>
         </div>
       )}
+
+      <DepositSuccessModal open={successModal.open} onClose={successModal.close} deposit={successModal.deposit} />
 
       {mainTab === 'onchain' && onchainTab === 'deposits' && (
         <DepositMonitorBanner monitor={monitor} className="mb-2" />

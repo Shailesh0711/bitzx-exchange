@@ -43,6 +43,8 @@ import ListCoinPage          from '@/pages/ListCoinPage';
 import PrivacyPolicyPage     from '@/pages/PrivacyPolicyPage';
 import TermsPage             from '@/pages/TermsPage';
 import ImpersonateLoginPage  from '@/pages/ImpersonateLoginPage';
+import ReferAndEarnPage      from '@/pages/ReferAndEarnPage';
+import { captureReferralCodeFromUrl } from '@/lib/referral';
 
 /** Surfaces render/import errors instead of a blank screen on the options route. */
 class OptionsRouteErrorBoundary extends React.Component {
@@ -199,6 +201,13 @@ function AuthBootstrapShell() {
 export default function App() {
   const launch = useLaunchStatus();
 
+  // Capture ?ref=<code> from any entry point (landing, direct register link,
+  // shared trade page, etc.) so it survives to whichever signup flow the
+  // user eventually completes.
+  useEffect(() => {
+    captureReferralCodeFromUrl(window.location.search);
+  }, []);
+
   // While the status hasn't been fetched yet, show a minimal loading indicator
   // so we don't flash the full UI before potentially redirecting to Coming Soon.
   if (!launch.checked) {
@@ -270,6 +279,9 @@ export default function App() {
         } />
         <Route path="/profile" element={
           <ProtectedRoute><ProfilePage /></ProtectedRoute>
+        } />
+        <Route path="/refer-earn" element={
+          <ProtectedRoute><ReferAndEarnPage /></ProtectedRoute>
         } />
         <Route path="/kyc" element={
           <ProtectedRoute><KYCPage /></ProtectedRoute>

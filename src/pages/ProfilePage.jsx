@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   User, Lock, Shield, CheckCircle, AlertCircle,
   ChevronRight, Edit2, Eye, EyeOff, Mail, Phone,
-  Camera, Trash2, Globe, FileText, Copy, RefreshCw, LogOut, KeyRound,
+  Camera, Trash2, Globe, FileText, Copy, RefreshCw, LogOut, KeyRound, Gift,
 } from 'lucide-react';
 import { useAuth, authFetch } from '@/context/AuthContext';
 import {
@@ -1107,13 +1107,22 @@ export default function ProfilePage() {
               </button>
             ))}
           </div>
-          <Link
-            to="/kyc"
-            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold border border-surface-border
-              text-white hover:border-gold/40 hover:bg-white/[.04] transition-colors shrink-0 mb-3 sm:mb-0"
-          >
-            <Shield size={14} /> KYC
-          </Link>
+          <div className="flex items-center gap-2 shrink-0 mb-3 sm:mb-0">
+            <Link
+              to="/refer-earn"
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold border border-gold/40
+                text-gold-light hover:bg-gold/10 transition-colors"
+            >
+              <Gift size={14} /> Refer & Earn
+            </Link>
+            <Link
+              to="/kyc"
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold border border-surface-border
+                text-white hover:border-gold/40 hover:bg-white/[.04] transition-colors"
+            >
+              <Shield size={14} /> KYC
+            </Link>
+          </div>
         </div>
 
         <motion.div

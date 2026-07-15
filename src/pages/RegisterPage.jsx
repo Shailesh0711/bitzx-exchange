@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Eye, EyeOff, Lock, Mail, User, Phone, ArrowRight, CheckCircle,
-  TrendingUp, Shield, Zap, BarChart2, Star,
+  TrendingUp, Shield, Zap, BarChart2, Star, Gift,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -22,6 +22,11 @@ import {
 } from '@/lib/authValidation';
 import { useSignupOtpConfig } from '@/hooks/useSignupOtpConfig';
 import { SITE_CONFIG } from '@/lib/siteConfig';
+import {
+  captureReferralCodeFromUrl,
+  getStoredReferralCode,
+  setStoredReferralCode,
+} from '@/lib/referral';
 import RegisterLiveMarketPreview from '@/components/markets/RegisterLiveMarketPreview';
 
 import { BRAND_LOGO } from '@/lib/brandAssets';
@@ -110,6 +115,12 @@ export default function RegisterPage() {
     confirm: false,
     terms: false,
   });
+  const [referralCode, setReferralCode] = useState('');
+
+  useEffect(() => {
+    captureReferralCodeFromUrl();
+    setReferralCode(getStoredReferralCode());
+  }, []);
 
   useEffect(() => {
     if (defaultCountryCode) setCountryCode(defaultCountryCode);
@@ -181,6 +192,7 @@ export default function RegisterPage() {
 
     setEmailSendLoading(true);
     try {
+      setStoredReferralCode(referralCode);
       if (emailOtpSent && !emailVerified) {
         await registerResend(em, 'email');
         setEmailOtp('');
@@ -329,6 +341,7 @@ export default function RegisterPage() {
 
       const mobToSend = mob.trim() || undefined;
       const ccToSend = mobToSend ? countryCode : undefined;
+      setStoredReferralCode(referralCode);
       await registerComplete(nm, em, password, mobToSend, ccToSend);
       navigate('/kyc', { replace: true, state: { justRegistered: true } });
     } catch (err) {
@@ -716,6 +729,33 @@ export default function RegisterPage() {
               {smsOtpEnabled && fieldErrors.smsOtp && (
                 <p className="text-xs text-red-400 mt-1.5 font-medium" role="alert">{fieldErrors.smsOtp}</p>
               )}
+            </div>
+
+            {/* Referral code (optional) */}
+            <div>
+              <label className="block text-sm font-semibold text-white mb-2">
+                Referral code
+                <span className="text-white/45 font-normal"> (optional)</span>
+              </label>
+              <div className="flex items-center bg-surface-card border border-surface-border rounded-xl px-4 py-3.5 focus-within:border-gold/50 transition-colors group">
+                <Gift size={16} className="text-white mr-3 group-focus-within:text-gold transition-colors" />
+                <input
+                  type="text"
+                  value={referralCode}
+                  onChange={e => {
+                    const next = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    setReferralCode(next);
+                    setStoredReferralCode(next);
+                  }}
+                  onBlur={() => setStoredReferralCode(referralCode)}
+                  placeholder="Enter a friend's code"
+                  autoComplete="off"
+                  className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/45 font-mono tracking-wide"
+                />
+              </div>
+              <p className="text-xs text-white/45 mt-1.5">
+                Have a referral link? The code is filled in automatically, or type it here.
+              </p>
             </div>
 
             {/* Password */}

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown, LogOut, User, LayoutDashboard, Menu, X, Wallet, Bell,
   ExternalLink, Shield, Zap, LineChart, HelpCircle, Settings, Smartphone,
-  Download, MoreHorizontal, Coins,
+  Download, MoreHorizontal, Coins, Gift,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { exchangeWsPath, normalizeMarketsList } from '@/services/marketApi';
@@ -29,6 +29,7 @@ const NAV_PRIMARY = [
   { label: 'Trade', to: '/trade/BZXUSDT' },
   { label: 'Futures', to: '/futures/BTCUSDT-PERP' },
   { label: 'Wallet', to: '/wallet' },
+  { label: 'Refer & Earn', to: '/refer-earn', icon: Gift, accent: true },
 ];
 
 /** Grouped under “More” until 2xl, or always in mobile drawer */
@@ -135,18 +136,21 @@ function LiveTicker() {
   );
 }
 
-function NavLink({ to, label, active, compact }) {
+function NavLink({ to, label, active, compact, icon: Icon, accent }) {
   return (
     <Link
       to={to}
-      className={`rounded-lg font-semibold transition-colors whitespace-nowrap ${
+      className={`rounded-lg font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 ${
         compact ? 'px-2.5 py-1.5 text-sm' : 'px-3 py-2 text-sm'
       } ${
         active
           ? 'text-gold-light bg-gold/10'
-          : 'text-white/90 hover:text-white hover:bg-white/[0.06] bitzx-nav-link'
+          : accent
+            ? 'text-gold-light/90 hover:text-gold-light hover:bg-gold/10 bitzx-nav-link'
+            : 'text-white/90 hover:text-white hover:bg-white/[0.06] bitzx-nav-link'
       }`}
     >
+      {Icon ? <Icon size={14} className="flex-shrink-0 opacity-90" /> : null}
       {label}
     </Link>
   );
@@ -328,6 +332,8 @@ export default function Navbar() {
                 key={l.to}
                 to={l.to}
                 label={l.label}
+                icon={l.icon}
+                accent={l.accent}
                 active={pathActive(location.pathname, l.to)}
                 compact
               />
@@ -451,6 +457,10 @@ export default function Navbar() {
                     <Link to="/dashboard" onClick={() => setUserOpen(false)}
                       className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
                       <LayoutDashboard size={16} /> Dashboard
+                    </Link>
+                    <Link to="/refer-earn" onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gold-light hover:bg-gold/10 transition-colors">
+                      <Gift size={16} /> Refer &amp; Earn
                     </Link>
                     <Link to="/portfolio" onClick={() => setUserOpen(false)}
                       className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-white hover:bg-surface-hover transition-colors">
@@ -636,12 +646,15 @@ export default function Navbar() {
                           key={l.to}
                           to={l.to}
                           onClick={() => setMenuOpen(false)}
-                          className={`block px-3 py-3 rounded-lg text-[15px] font-semibold transition-colors touch-manipulation ${
+                          className={`flex items-center gap-2.5 px-3 py-3 rounded-lg text-[15px] font-semibold transition-colors touch-manipulation ${
                             pathActive(location.pathname, l.to)
                               ? 'text-gold-light bg-gold/10'
-                              : 'text-white hover:bg-white/[0.06]'
+                              : l.accent
+                                ? 'text-gold-light/90 hover:bg-gold/10'
+                                : 'text-white hover:bg-white/[0.06]'
                           }`}
                         >
+                          {l.icon ? <l.icon size={16} className="flex-shrink-0 opacity-80" /> : null}
                           {l.label}
                         </Link>
                       ))}
@@ -654,6 +667,7 @@ export default function Navbar() {
                       <div className="space-y-1">
                         {[
                           { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                          { to: '/refer-earn', label: 'Refer & Earn', icon: Gift, accent: true },
                           { to: '/portfolio', label: 'P&L & fills', icon: LineChart },
                           { to: '/wallet', label: 'Wallet', icon: Wallet },
                           { to: '/profile', label: 'Profile', icon: User },
@@ -665,7 +679,11 @@ export default function Navbar() {
                             key={to}
                             to={to}
                             onClick={() => setMenuOpen(false)}
-                            className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-[15px] font-medium text-white/90 hover:bg-white/[0.06] touch-manipulation"
+                            className={`flex items-center gap-2.5 px-3 py-3 rounded-lg text-[15px] font-medium touch-manipulation ${
+                              to === '/refer-earn'
+                                ? 'text-gold-light hover:bg-gold/10'
+                                : 'text-white/90 hover:bg-white/[0.06]'
+                            }`}
                           >
                             <Icon size={16} className="opacity-70 flex-shrink-0" />
                             {label}

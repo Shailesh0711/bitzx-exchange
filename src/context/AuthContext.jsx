@@ -8,6 +8,7 @@ import {
 } from '@/lib/authValidation';
 import { exchangeApiOrigin } from '@/lib/apiBase';
 import { peekImpersonationBootstrapToken } from '@/lib/impersonationAuth';
+import { getStoredReferralCode } from '@/lib/referral';
 
 const AuthContext = createContext(null);
 
@@ -540,7 +541,7 @@ export function AuthProvider({ children }) {
       email: String(email ?? '').trim(),
       password: String(password ?? ''),
     };
-    const ref = referralCode != null && String(referralCode).trim();
+    const ref = (referralCode != null && String(referralCode).trim()) || getStoredReferralCode();
     if (ref) payload.referral_code = ref;
     const body = JSON.stringify(payload);
     const res = await authFetch(`${API}/api/auth/register`, {
@@ -565,6 +566,8 @@ export function AuthProvider({ children }) {
     if (mob) body.mobile = mob;
     const cc = String(countryCode ?? '').replace(/\D/g, '');
     if (cc) body.country_code = cc;
+    const ref = getStoredReferralCode();
+    if (ref) body.referral_code = ref;
     const res = await authFetch(`${API}/api/auth/register/request`, {
       method: 'POST',
       body,
@@ -634,6 +637,8 @@ export function AuthProvider({ children }) {
     if (mob) body.mobile = mob;
     const cc = String(countryCode ?? '').replace(/\D/g, '');
     if (cc) body.country_code = cc;
+    const ref = getStoredReferralCode();
+    if (ref) body.referral_code = ref;
     const res = await authFetch(`${API}/api/auth/register/complete`, {
       method: 'POST',
       body,

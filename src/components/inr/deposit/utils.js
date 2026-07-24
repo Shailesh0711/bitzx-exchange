@@ -27,3 +27,23 @@ export function formatAmountDisplay(raw) {
   const dec = parts[1] != null ? `.${parts[1].slice(0, 2)}` : '';
   return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + dec;
 }
+
+export function resolveMinDepositInr(config) {
+  const n = Number(config?.min_deposit_inr);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function normalizeInrAmount(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return NaN;
+  return Math.round(n * 100) / 100;
+}
+
+export function validateMinDepositAmount(amount, minDepositInr, formatInrAmount) {
+  const amt = normalizeInrAmount(amount);
+  if (!Number.isFinite(amt) || amt <= 0) return 'Enter a valid INR amount';
+  if (minDepositInr > 0 && amt < minDepositInr) {
+    return `Minimum deposit is ${formatInrAmount(minDepositInr)}`;
+  }
+  return null;
+}

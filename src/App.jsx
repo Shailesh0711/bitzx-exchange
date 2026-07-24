@@ -2,13 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { exchangeApiOrigin } from '@/lib/apiBase';
-import { peekImpersonationBootstrapToken } from '@/lib/impersonationAuth';
 import ComingSoonPage from '@/pages/ComingSoonPage';
 import Navbar        from '@/components/layout/Navbar';
 import ImpersonationBanner from '@/components/layout/ImpersonationBanner';
 import FeaturesPausedBanner from '@/components/layout/FeaturesPausedBanner';
 import SignupBonusKycPrompt from '@/components/wallet/SignupBonusKycPrompt';
-import BackgroundDepositWatcher from '@/components/wallet/BackgroundDepositWatcher';
 import Footer        from '@/components/layout/Footer';
 import LandingPage   from '@/pages/LandingPage';
 import MarketsPage   from '@/pages/MarketsPage';
@@ -42,7 +40,6 @@ import BZXMarket             from '@/pages/BZXMarket';
 import ListCoinPage          from '@/pages/ListCoinPage';
 import PrivacyPolicyPage     from '@/pages/PrivacyPolicyPage';
 import TermsPage             from '@/pages/TermsPage';
-import ImpersonateLoginPage  from '@/pages/ImpersonateLoginPage';
 import ReferAndEarnPage      from '@/pages/ReferAndEarnPage';
 import { captureReferralCodeFromUrl } from '@/lib/referral';
 
@@ -112,7 +109,6 @@ function Layout() {
         <ImpersonationBanner />
         <FeaturesPausedBanner />
         <SignupBonusKycPrompt />
-        <BackgroundDepositWatcher />
         {/* Trade pages: let main grow with content so the window scrolls (same feel as Spot/Futures).
             Non-trade keeps min-h-0 + overflow for dashboard-style inner scroll. */}
         <main
@@ -177,27 +173,6 @@ function useLaunchStatus() {
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
-function AuthBootstrapShell() {
-  const { authLoading } = useAuth();
-  const location = useLocation();
-
-  // Handoff landed on `/` with a stashed token (legacy hash URL) → send to impersonate page.
-  if (!authLoading && peekImpersonationBootstrapToken() && location.pathname === '/') {
-    return <Navigate to="/auth/impersonate" replace />;
-  }
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-surface-dark flex flex-col items-center justify-center gap-4 px-6">
-        <div className="w-10 h-10 border-2 border-gold border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-white/65">Loading BITZX Exchange…</p>
-      </div>
-    );
-  }
-
-  return <Outlet />;
-}
-
 export default function App() {
   const launch = useLaunchStatus();
 
@@ -226,10 +201,6 @@ export default function App() {
 
   return (
     <Routes>
-      {/* Must stay outside AuthBootstrapShell so admin handoff is not blocked by authLoading */}
-      <Route path="/auth/impersonate" element={<ImpersonateLoginPage />} />
-
-      <Route element={<AuthBootstrapShell />}>
       <Route path="/login"         element={<LoginPage />} />
       <Route path="/register"      element={<RegisterPage />} />
       <Route path="/verify-mobile" element={<Navigate to="/register" replace />} />
@@ -307,7 +278,6 @@ export default function App() {
         <Route path="/p2p/merchant"         element={<ProtectedRoute><P2PMerchantPage /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
       </Route>
     </Routes>
   );

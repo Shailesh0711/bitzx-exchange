@@ -164,18 +164,7 @@ export function ledgerTypeLabel(row) {
     deposit: 'Deposit',
     withdraw: 'Withdrawal',
     trade: 'Trade',
-    fee: (() => {
-      const phase = String(meta.phase || '').toLowerCase();
-      const feeKind = String(meta.fee_kind || '').toLowerCase();
-      if (phase.includes('withdrawal') && (phase.includes('gas') || feeKind === 'gas')) {
-        return 'Withdrawal gas fee';
-      }
-      if (phase.includes('withdrawal') || feeKind === 'platform' || refType === 'withdrawal') {
-        return 'Withdrawal fee';
-      }
-      if (phase.includes('swap') || refType === 'swap') return 'Swap fee';
-      return 'Trading fee';
-    })(),
+    fee: 'Trading fee',
     adjustment: 'Balance adjustment',
     lock: 'Lock',
     unlock: 'Unlock',

@@ -13,8 +13,10 @@ import {
 } from '@/services/inrApi';
 import PaymentDetailsPanel from '@/components/inr/deposit/PaymentDetailsPanel';
 import SubmitProofForm from '@/components/inr/deposit/SubmitProofForm';
-import { parseAmount, UTR_PATTERN } from '@/components/inr/deposit/utils';
+import { parseAmount, resolveMinDepositInr, UTR_PATTERN, validateMinDepositAmount } from '@/components/inr/deposit/utils';
+import { formatInrAmount } from '@/lib/inrDisplay';
 import InrDepositSkeleton from '@/components/inr/deposit/InrDepositSkeleton';
+import { AmountBelowMinPill } from '@/components/inr/deposit/MinDepositHints';
 import { INR_BTN_PRIMARY, INR_CONTAINER, INR_INPUT, INR_PAGE_BG } from '@/components/inr/deposit/styles';
 
 const TYPE_ORDER = ['qr', 'upi', 'bank'];
@@ -45,16 +47,16 @@ export default function InrDepositPage() {
   const [screenshot, setScreenshot] = useState(null);
   const [preview, setPreview] = useState('');
 
+  const [configLoaded, setConfigLoaded] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr('');
+    setOk('');
+    setConfigLoaded(false);
     try {
-      const [m, cfg] = await Promise.all([
-        fetchInrPaymentMethods(),
-        fetchInrDepositConfig().catch(() => null),
-      ]);
+      const m = await fetchInrPaymentMethods();
       setMethods(m);
-      setDepositConfig(cfg);
       if (m.length) {
         const types = TYPE_ORDER.filter((t) => m.some((x) => x.type === t));
         const type = types[0] || m[0].type;
@@ -63,8 +65,19 @@ export default function InrDepositPage() {
         setActiveId(id);
         setPaymentMethodId(id);
       }
+
+      try {
+        const cfg = await fetchInrDepositConfig();
+        setDepositConfig(cfg);
+      } catch (cfgErr) {
+        setDepositConfig(null);
+        setErr(cfgErr.message || 'Could not load INR deposit settings');
+      } finally {
+        setConfigLoaded(true);
+      }
     } catch (e) {
       setErr(e.message || 'Could not load INR deposit options');
+      setConfigLoaded(true);
     } finally {
       setLoading(false);
     }
@@ -121,15 +134,32 @@ export default function InrDepositPage() {
     setPreview('');
   };
 
+  const manualEnabled = configLoaded && depositConfig?.manual_enabled !== false;
+  const gatewayEnabled = configLoaded && !!depositConfig?.gateway_enabled;
+  const gatewayReady = configLoaded && !!depositConfig?.gateway_ready;
+  const gatewayMisconfigured = configLoaded && !!depositConfig?.gateway_misconfigured;
+  const gatewayOnly = gatewayEnabled && !manualEnabled;
+  const gatewayOnlyPending = gatewayOnly && gatewayMisconfigured && !gatewayReady;
+  const settingsReady = configLoaded && depositConfig != null;
+  const minDepositInr = useMemo(() => resolveMinDepositInr(depositConfig), [depositConfig]);
+
+  const validateDepositAmount = (rawAmount) =>
+    validateMinDepositAmount(parseAmount(rawAmount), minDepositInr, formatInrAmount);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErr('');
     setOk('');
-    const amt = parseAmount(amountInr);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setErr('Enter a valid INR amount');
+    if (!settingsReady) {
+      setErr('Deposit settings could not be loaded. Refresh the page and try again.');
       return;
     }
+    const amountError = validateDepositAmount(amountInr);
+    if (amountError) {
+      setErr(amountError);
+      return;
+    }
+    const amt = parseAmount(amountInr);
     if (!paymentMethodId) {
       setErr('Select the payment method you used');
       return;
@@ -181,21 +211,19 @@ export default function InrDepositPage() {
     }
   };
 
-  const manualEnabled = depositConfig?.manual_enabled !== false;
-  const gatewayEnabled = !!depositConfig?.gateway_enabled;
-  const gatewayReady = !!depositConfig?.gateway_ready;
-  const gatewayMisconfigured = !!depositConfig?.gateway_misconfigured;
-  const gatewayOnly = gatewayEnabled && !manualEnabled;
-  const gatewayOnlyPending = gatewayOnly && gatewayMisconfigured && !gatewayReady;
-
   const handleGatewayPay = async () => {
     setErr('');
     setOk('');
-    const amt = parseAmount(amountInr);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setErr('Enter a valid INR amount');
+    if (!settingsReady) {
+      setErr('Deposit settings could not be loaded. Refresh the page and try again.');
       return;
     }
+    const amountError = validateDepositAmount(amountInr);
+    if (amountError) {
+      setErr(amountError);
+      return;
+    }
+    const amt = parseAmount(amountInr);
     setGatewayPaying(true);
     try {
       const data = await startInrGatewayDeposit({
@@ -278,6 +306,12 @@ export default function InrDepositPage() {
           )}
         </AnimatePresence>
 
+        {configLoaded && !depositConfig ? (
+          <div className="mb-6 rounded-[18px] border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
+            Deposit settings could not be loaded. Minimum rules still apply on the server — refresh to retry.
+          </div>
+        ) : null}
+
         {!gatewayOnlyPending && methods.length === 0 && (
           <div className="rounded-2xl border border-surface-border bg-surface-card p-8 text-white/65 text-center">
             INR deposits are not available right now. Please use on-chain deposit from your wallet.
@@ -317,11 +351,14 @@ export default function InrDepositPage() {
                   className={`${INR_INPUT} pl-10`}
                 />
               </div>
+              <div className="mt-2 min-h-[28px]">
+                <AmountBelowMinPill amountRaw={amountInr} minDepositInr={minDepositInr} />
+              </div>
             </div>
             <button
               type="button"
               onClick={handleGatewayPay}
-              disabled={gatewayPaying}
+              disabled={gatewayPaying || !settingsReady}
               className={`px-8 py-3.5 ${INR_BTN_PRIMARY} w-auto inline-flex`}
             >
               {gatewayPaying ? 'Starting checkout…' : 'Continue to payment'}
@@ -347,12 +384,15 @@ export default function InrDepositPage() {
                 collapsed={detailsCollapsed}
                 onToggleCollapse={() => setDetailsCollapsed((c) => !c)}
                 showMobileCollapse
+                minDepositInr={minDepositInr}
               />
 
               <SubmitProofForm
                 methods={methods}
                 amountInr={amountInr}
                 onAmountChange={setAmountInr}
+                minDepositInr={minDepositInr}
+                settingsReady={settingsReady}
                 paymentMethodId={paymentMethodId}
                 onPaymentMethodChange={onPaymentMethodChange}
                 utr={utr}
@@ -379,7 +419,7 @@ export default function InrDepositPage() {
             <button
               type="button"
               onClick={() => document.getElementById('inr-submit-form')?.requestSubmit()}
-              disabled={submitting}
+              disabled={submitting || !settingsReady}
               className={`pointer-events-auto ${INR_BTN_PRIMARY}`}
             >
               {submitting ? 'Submitting…' : 'Submit Deposit Request'}

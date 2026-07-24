@@ -3,11 +3,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, Lock, ImageIcon, X, Loader2 } from 'lucide-react';
 import { INR_CARD, INR_CARD_GLOW, INR_BTN_PRIMARY, INR_INPUT, INR_LABEL } from './styles';
 import { formatAmountDisplay, methodSelectLabel, UTR_PATTERN } from './utils';
+import { formatInrAmount } from '@/lib/inrDisplay';
+import { AmountBelowMinPill } from './MinDepositHints';
 
 export default function SubmitProofForm({
   methods,
   amountInr,
   onAmountChange,
+  minDepositInr = 0,
+  settingsReady = true,
   paymentMethodId,
   onPaymentMethodChange,
   utr,
@@ -83,10 +87,13 @@ export default function SubmitProofForm({
               inputMode="decimal"
               value={amountInr}
               onChange={handleAmountInput}
-              placeholder="0.00"
+              placeholder={minDepositInr > 0 ? formatInrAmount(minDepositInr) : '0.00'}
               className={`${INR_INPUT} pl-10 text-lg font-normal`}
               required
             />
+          </div>
+          <div className="mt-2 min-h-[28px]">
+            <AmountBelowMinPill amountRaw={amountInr} minDepositInr={minDepositInr} />
           </div>
         </div>
 
@@ -206,7 +213,7 @@ export default function SubmitProofForm({
       </div>
 
       <div className="mt-8 space-y-3 lg:sticky lg:bottom-0 lg:pt-4 lg:bg-gradient-to-t lg:from-surface-card lg:via-surface-card lg:to-transparent">
-        <button type="submit" disabled={submitting} className={INR_BTN_PRIMARY}>
+        <button type="submit" disabled={submitting || !settingsReady} className={INR_BTN_PRIMARY}>
           {submitting ? (
             <span className="inline-flex items-center justify-center gap-2">
               <Loader2 size={20} className="animate-spin" />

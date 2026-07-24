@@ -27,7 +27,6 @@ import NetworkChainDetails from '@/components/wallet/NetworkChainDetails';
 import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import DepositMonitorBanner from '@/components/wallet/DepositMonitorBanner';
-import DepositSuccessModal from '@/components/wallet/DepositSuccessModal';
 import { useDepositMonitor } from '@/hooks/useDepositMonitor';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
@@ -107,36 +106,6 @@ function CopyBtn({ text }) {
       {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
     </button>
   );
-}
-
-/**
- * Fetches the just-detected deposit event and drives the success pop-up.
- * Shared by DepositTab and HistoryTab so either page can surface the modal
- * the instant the on-demand monitor finds a new on-chain transaction.
- */
-function useDepositDetectedModal() {
-  const [open, setOpen] = useState(false);
-  const [deposit, setDeposit] = useState(null);
-
-  const handleDetected = useCallback(async (count) => {
-    try {
-      const res = await authFetch(`${API}/api/wallet/deposit-events?limit=${Math.max(count || 1, 5)}`);
-      if (!res.ok) return;
-      const data = await res.json().catch(() => ({}));
-      const items = Array.isArray(data.items) ? data.items : [];
-      const latest = items
-        .slice()
-        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
-      if (latest) {
-        setDeposit(latest);
-        setOpen(true);
-      }
-    } catch {
-      // Silent — the deposit still shows up in History even if the modal fails to load.
-    }
-  }, []);
-
-  return { open, deposit, close: () => setOpen(false), handleDetected };
 }
 
 function AssetSelect({ value, onChange, label, assets }) {
@@ -331,17 +300,6 @@ function DepositTab({ kycBlocked, kyc }) {
   const [depAddrLoading, setDepAddrLoading]     = useState(false);
   const [depAddrError, setDepAddrError]         = useState(null);
 
-  // On-demand deposit monitoring — starts (or resumes) a 7-min backend
-  // session the moment this tab is opened. No visible countdown; the
-  // banner below only shows a static "stay on this page" reminder. If the
-  // user later opens History, that tab resumes the same session instead of
-  // starting a new timer.
-  const successModal = useDepositDetectedModal();
-  const depositMonitor = useDepositMonitor({
-    autoStart: true,
-    onDeposit: (count) => { successModal.handleDetected(count); },
-  });
-
   // Fetch supported networks once on mount. This endpoint is public so it
   // works the same way regardless of auth state.
   useEffect(() => {
@@ -491,9 +449,6 @@ function DepositTab({ kycBlocked, kyc }) {
 
   return (
     <div className="space-y-6">
-      <DepositMonitorBanner monitor={depositMonitor} />
-      <DepositSuccessModal open={successModal.open} onClose={successModal.close} deposit={successModal.deposit} />
-
       <div className="rounded-2xl border border-gold/25 bg-gradient-to-r from-gold/10 to-transparent p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-white font-bold flex items-center gap-2">
@@ -731,7 +686,6 @@ function DepositTab({ kycBlocked, kyc }) {
             <li>Minimum deposit: {MIN_WALLET_NOTIONAL_USDT} USDT equivalent.</li>
             <li>Your balance is credited automatically once the required confirmations are reached.</li>
             <li>Incoming transactions appear in the History tab as soon as they are detected on-chain.</li>
-            <li className="text-white font-semibold">After sending funds, stay on this page (or History) until you see the deposit confirmation pop-up.</li>
           </ul>
         </div>
       </div>
@@ -770,7 +724,6 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
   const [withdrawConfig, setWithdrawConfig] = useState({
     withdraw_fee_rate: 0,
     withdraw_gas_fee_bzx: 0,
-    withdraw_gas_fee_bzx_by_chain: {},
     bzx_price_usdt: 0,
     gas_fee_description: '',
     platform_fee_description: '',
@@ -787,23 +740,19 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
   useEffect(() => {
     (async () => {
       try {
-        const qs = network
-          ? `?network=${encodeURIComponent(network)}`
-          : '';
-        const res = await fetch(`${API}/api/wallet/withdraw-config${qs}`);
+        const res = await fetch(`${API}/api/wallet/withdraw-config`);
         if (!res.ok) return;
         const data = await res.json();
         setWithdrawConfig({
           withdraw_fee_rate: Number(data?.withdraw_fee_rate || 0),
           withdraw_gas_fee_bzx: Number(data?.withdraw_gas_fee_bzx || 0),
-          withdraw_gas_fee_bzx_by_chain: data?.withdraw_gas_fee_bzx_by_chain || {},
           bzx_price_usdt: Number(data?.bzx_price_usdt || 0),
           gas_fee_description: data?.gas_fee_description || '',
           platform_fee_description: data?.platform_fee_description || '',
         });
       } catch { /* fee panel stays hidden when config unavailable */ }
     })();
-  }, [network]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -936,20 +885,12 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
       setSubmitError(`Insufficient ${asset} balance (need ${totalAssetDebit.toFixed(8)} for withdrawal).`);
       return;
     }
-    const bzxNeeded = String(asset).toUpperCase() === 'BZX'
-      ? totalAssetDebit + totalBzxFees
-      : totalBzxFees;
-    if (bzxNeeded > 0 && bzxNeeded > bzxAvailable + 1e-12) {
+    if (totalBzxFees > 0 && totalBzxFees > bzxAvailable + 1e-12) {
       setSubmitError(
-        String(asset).toUpperCase() === 'BZX'
-          ? `Insufficient BZX. Need ${(bzxNeeded).toFixed(8)} BZX `
-            + `(${totalAssetDebit.toFixed(8)} withdraw + ${totalBzxFees.toFixed(8)} fees), `
-            + `available ${bzxAvailable.toFixed(8)}.`
-          : `Insufficient BZX for fees (need ~${totalBzxFees.toFixed(8)} BZX: `
-            + `${platformFeeBzx > 0 ? `platform ~${platformFeeBzx.toFixed(8)}` : ''}`
-            + `${platformFeeBzx > 0 && bzxGasFee > 0 ? ', ' : ''}`
-            + `${bzxGasFee > 0 ? `gas ${bzxGasFee.toFixed(8)}` : ''}). `
-            + `Available ${bzxAvailable.toFixed(8)} BZX.`,
+        `Insufficient BZX for fees (need ~${totalBzxFees.toFixed(8)} BZX: `
+        + `${platformFeeBzx > 0 ? `platform ~${platformFeeBzx.toFixed(8)}` : ''}`
+        + `${platformFeeBzx > 0 && bzxGasFee > 0 ? ', ' : ''}`
+        + `${bzxGasFee > 0 ? `gas ${bzxGasFee.toFixed(8)}` : ''}).`,
       );
       return;
     }
@@ -1163,7 +1104,7 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
                 )}
                 {bzxGasFee > 0 && (
                   <div className="flex justify-between gap-3">
-                    <span>Network gas fee (paid by you in BZX)</span>
+                    <span>Network gas fee (BZX)</span>
                     <span className="font-mono text-white">{bzxGasFee.toFixed(8)} BZX</span>
                   </div>
                 )}
@@ -1179,10 +1120,10 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
                 )}
                 {(totalBzxFees > 0 || withdrawConfig.platform_fee_description) && (
                   <p className="text-[11px] text-white/50 leading-relaxed">
-                    {withdrawConfig.gas_fee_description
-                      || 'Network gas is paid by the platform in BNB/ETH/TRX; you are charged BZX only.'}
+                    {withdrawConfig.platform_fee_description
+                      || 'Platform and gas fees are charged in BZX from your spot wallet.'}
                     {' '}
-                    {withdrawConfig.platform_fee_description || ''}
+                    {withdrawConfig.gas_fee_description || ''}
                     {' '}BZX available: <span className="font-mono text-white/70">{bzxAvailable.toFixed(4)}</span>
                   </p>
                 )}
@@ -1279,9 +1220,9 @@ function WithdrawTab({ walletAssets, kycBlocked, kyc, priceByAsset = { USDT: 1 }
           <ol className="space-y-3 text-sm text-white">
             {[
               'Pick the asset, network and paste your destination address.',
-              'We lock the withdrawal amount and debit platform + gas fees in BZX immediately (withdrawal is blocked if you do not have enough BZX).',
+              'We lock the amount (plus the platform fee) in your balance the moment you submit.',
               'Small withdrawals auto-broadcast on-chain; larger ones wait for admin approval.',
-              'Once the network confirms the transaction, the locked amount is finalized from your balance.',
+              'Once the network confirms the transaction, the lock is released from your balance.',
             ].map((step, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-gold/20 text-gold-light text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
@@ -1420,14 +1361,11 @@ function HistoryTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // autoStart=true: the hook starts (or resumes) the shared 7-min monitoring
-  // session the moment this tab mounts (i.e. the user opens Wallet →
-  // History). If a session is already running — e.g. started from the
-  // Deposit tab — this resumes it instead of starting a new timer.
-  const successModal = useDepositDetectedModal();
+  // autoStart=true: the hook starts a session the moment the component mounts
+  // (i.e. the user opens Wallet → History). No button press required.
   const monitor = useDepositMonitor({
     autoStart: true,
-    onDeposit: (count) => { load(); successModal.handleDetected(count); },
+    onDeposit: () => load(),
     onExpire: () => {
       // Session ended — return user to Spot balances (default wallet tab).
       setSearchParams({}, { replace: true });
@@ -1557,8 +1495,6 @@ function HistoryTab() {
           </div>
         </div>
       )}
-
-      <DepositSuccessModal open={successModal.open} onClose={successModal.close} deposit={successModal.deposit} />
 
       {mainTab === 'onchain' && onchainTab === 'deposits' && (
         <DepositMonitorBanner monitor={monitor} className="mb-2" />

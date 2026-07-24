@@ -8,6 +8,7 @@ import { useToast } from '@/context/ToastContext';
 import { downloadUploadAsset, uploadUrl } from '@/services/inrApi';
 import { methodSelectLabel } from './utils';
 import CopyField from './CopyField';
+import { PaymentMinNotice } from './MinDepositHints';
 import {
   INR_CARD,
   INR_CARD_GLOW,
@@ -25,7 +26,7 @@ const TYPE_META = {
 
 const TYPE_ORDER = ['qr', 'upi', 'bank'];
 
-function QrPanel({ method }) {
+function QrPanel({ method, minDepositInr }) {
   const toast = useToast();
   const [downloading, setDownloading] = useState(false);
   const d = method.details || {};
@@ -54,6 +55,7 @@ function QrPanel({ method }) {
       exit={{ opacity: 0, y: -8 }}
       className="space-y-5"
     >
+      <PaymentMinNotice minDepositInr={minDepositInr} />
       {src && (
         <div className="flex flex-col items-center">
           <QrEnlargeable
@@ -86,7 +88,7 @@ function QrPanel({ method }) {
   );
 }
 
-function UpiPanel({ method }) {
+function UpiPanel({ method, minDepositInr }) {
   const d = method.details || {};
   const upiId = d.upi_id;
   const payee = d.display_name;
@@ -99,6 +101,7 @@ function UpiPanel({ method }) {
       exit={{ opacity: 0, y: -8 }}
       className="space-y-5"
     >
+      <PaymentMinNotice minDepositInr={minDepositInr} />
       <div className={INR_INNER_PANEL}>
         <CopyField label="UPI ID" value={upiId} />
         <CopyField label="Merchant name" value={payee} mono={false} />
@@ -107,7 +110,7 @@ function UpiPanel({ method }) {
   );
 }
 
-function BankPanel({ method }) {
+function BankPanel({ method, minDepositInr }) {
   const d = method.details || {};
   const rows = [
     ['Account name', d.account_holder_name, false],
@@ -125,6 +128,7 @@ function BankPanel({ method }) {
       exit={{ opacity: 0, y: -8 }}
       className="space-y-4"
     >
+      <PaymentMinNotice minDepositInr={minDepositInr} />
       <div className={INR_INNER_PANEL}>
         {rows.map(([label, value]) => (
           <CopyField key={label} label={label} value={value} copyable={!!value} />
@@ -147,6 +151,7 @@ export default function PaymentDetailsPanel({
   collapsed,
   onToggleCollapse,
   showMobileCollapse,
+  minDepositInr = 0,
 }) {
   const availableTypes = useMemo(
     () => TYPE_ORDER.filter((t) => methods.some((m) => m.type === t)),
@@ -218,10 +223,10 @@ export default function PaymentDetailsPanel({
   const body = activeMethod && (
     <AnimatePresence mode="wait">
       {activeMethod.type === 'qr' && (
-        <QrPanel method={activeMethod} />
+        <QrPanel method={activeMethod} minDepositInr={minDepositInr} />
       )}
-      {activeMethod.type === 'upi' && <UpiPanel method={activeMethod} />}
-      {activeMethod.type === 'bank' && <BankPanel method={activeMethod} />}
+      {activeMethod.type === 'upi' && <UpiPanel method={activeMethod} minDepositInr={minDepositInr} />}
+      {activeMethod.type === 'bank' && <BankPanel method={activeMethod} minDepositInr={minDepositInr} />}
     </AnimatePresence>
   );
 

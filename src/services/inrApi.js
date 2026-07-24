@@ -79,6 +79,14 @@ export async function fetchInrDepositConfig() {
   return data;
 }
 
+/** Public INR limits for landing / wallet promos (no auth). */
+export async function fetchInrPublicInfo() {
+  const res = await fetch(`${API}/api/inr/public-info`, { cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Could not load INR info (HTTP ${res.status})`);
+  return data;
+}
+
 export async function fetchInrRate() {
   const res = await authFetch(`${API}/api/inr/rate`);
   const data = await res.json().catch(() => ({}));

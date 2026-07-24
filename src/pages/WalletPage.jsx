@@ -28,6 +28,8 @@ import NetworkSelectList from '@/components/wallet/NetworkSelectList';
 import DepositTokenSearch from '@/components/wallet/DepositTokenSearch';
 import DepositMonitorBanner from '@/components/wallet/DepositMonitorBanner';
 import { useDepositMonitor } from '@/hooks/useDepositMonitor';
+import { InrMinDepositChip, InrMinDepositNote } from '@/components/inr/InrMinDepositChip';
+import { useInrMinDeposit } from '@/hooks/useInrMinDeposit';
 import { useDepositCatalog } from '@/hooks/useDepositCatalog';
 import FuturesWalletTab from '@/components/futures/FuturesWalletTab';
 import BzxSwapPanel from '@/components/wallet/BzxSwapPanel';
@@ -264,6 +266,7 @@ function BalancesTab({ walletAssets, walletLoading, fetchWallet, priceByAsset, o
 // ── Deposit Tab ───────────────────────────────────────────────────────────────
 
 function DepositTab({ kycBlocked, kyc }) {
+  const { minDepositInr } = useInrMinDeposit();
   // Supported (asset, network) combinations come from the backend —
   // GET /api/wallet/supported-networks reflects the live provider
   // configuration (which QuickNode URLs are set, mainnet vs testnet, …).
@@ -451,13 +454,15 @@ function DepositTab({ kycBlocked, kyc }) {
     <div className="space-y-6">
       <div className="rounded-2xl border border-gold/25 bg-gradient-to-r from-gold/10 to-transparent p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-white font-bold flex items-center gap-2">
-            <IndianRupee size={18} className="text-gold-light" />
-            Deposit via INR (Bank / UPI / QR)
+          <p className="text-white font-bold flex flex-wrap items-center gap-2">
+            <IndianRupee size={18} className="text-gold-light shrink-0" />
+            <span>Deposit via INR (Bank / UPI / QR)</span>
+            <InrMinDepositChip minDepositInr={minDepositInr} />
           </p>
           <p className="text-sm text-white/60 mt-1 max-w-xl">
             Pay in Indian Rupees, upload your transfer proof, and receive tokens after admin approval.
           </p>
+          <InrMinDepositNote minDepositInr={minDepositInr} className="mt-2 max-w-xl" />
         </div>
         <Link
           to="/wallet/deposit/inr"

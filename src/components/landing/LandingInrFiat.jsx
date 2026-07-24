@@ -12,9 +12,12 @@ import {
   IndianRupee,
   Banknote,
 } from 'lucide-react';
+import { InrMinDepositChip, InrMinDepositNote } from '@/components/inr/InrMinDepositChip';
+import { useInrMinDeposit } from '@/hooks/useInrMinDeposit';
 
 export default function LandingInrFiat() {
   const { user, authLoading } = useAuth();
+  const { minDepositInr } = useInrMinDeposit();
 
   return (
     <section
@@ -56,15 +59,19 @@ export default function LandingInrFiat() {
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400">
                 <ArrowDownCircle size={24} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-400/90">Deposit</p>
-                <h3 className="text-white font-semibold text-xl">INR in → BZX credited</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-white font-semibold text-xl">INR in → BZX credited</h3>
+                  <InrMinDepositChip minDepositInr={minDepositInr} />
+                </div>
               </div>
             </div>
-            <p className="text-zinc-400 text-[14px] sm:text-[15px] leading-[1.65] mb-5 flex-1">
+            <p className="text-zinc-400 text-[14px] sm:text-[15px] leading-[1.65] mb-2 flex-1">
               Transfer Indian Rupees using our payment details, submit your UTR and proof, and trade once BZX is
               added to your spot balance.
             </p>
+            <InrMinDepositNote minDepositInr={minDepositInr} className="mb-5" />
             <ul className="space-y-2.5 mb-6">
               {['Bank transfer or UPI', 'UTR + payment proof in wallet', 'BZX credited after admin review'].map((t) => (
                 <li key={t} className="flex items-start gap-2.5 text-sm text-zinc-300">
